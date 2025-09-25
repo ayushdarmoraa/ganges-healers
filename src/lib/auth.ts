@@ -19,6 +19,7 @@ export const {
     signIn: "/auth/signin",
     error: "/auth/error",
   },
+  trustHost: true, // Important for Vercel deployment
   providers: [
     CredentialsProvider({
       name: "credentials",
