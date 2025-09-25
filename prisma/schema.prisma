@@ -1,0 +1,162 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  USER
+  HEALER
+  ADMIN
+}
+
+enum BookingStatus {
+  PENDING
+  SCHEDULED
+  CONFIRMED
+  RESCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  name               String?
+  image              String?
+  phone              String?   @unique
+  password           String? // For credentials login (null for OAuth users)
+  role               Role      @default(USER)
+  vip                Boolean   @default(false)
+  freeSessionCredits Int       @default(0)
+  emailVerified      DateTime?
+  // next-auth
+  accounts           Account[]
+  sessions           Session[]
+    // domain
+  healer         Healer?
+  bookings       Booking[] @relation("UserBookings")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model Healer {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bio             String?   @db.Text
+  experienceYears Int       @default(0)
+  rating          Float     @default(0)
+  certifications  Json?     // Array of certification objects
+  availability    Json?     // Weekly availability schedule
+  specializations String[]  @default([])
+  isActive        Boolean   @default(true)
+  isVerified      Boolean   @default(false)
+  bookings        Booking[]
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+enum ServiceMode {
+  ONLINE
+  OFFLINE
+  BOTH
+}
+
+model Service {
+  id          String      @id @default(cuid())
+  name        String
+  slug        String      @unique
+  description String      @db.Text
+  tagline     String?
+  category    String
+  price       Float
+  duration    Int         // in minutes
+  image       String?
+  mode        ServiceMode @default(BOTH)
+  benefits    Json?       // Array of strings
+  isActive    Boolean     @default(true)
+  popularity  Int         @default(0)
+  bookings    Booking[]
+  
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model Booking {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation("UserBookings", fields: [userId], references: [id], onDelete: Cascade)
+  healerId    String
+  healer      Healer        @relation(fields: [healerId], references: [id], onDelete: Cascade)
+  serviceId   String
+  service     Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  scheduledAt DateTime
+  durationMin Int
+  status      BookingStatus @default(PENDING)
+  pricePaise  Int
+  meetingLink String?
+  payment     Payment?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([scheduledAt])
+  @@index([healerId, scheduledAt])
+}
+
+model Payment {
+  id          String   @id @default(cuid())
+  bookingId   String   @unique
+  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  gateway     String
+  orderId     String?
+  paymentId   String?
+  status      String // pending|success|failed|refunded
+  amountPaise Int
+  createdAt   DateTime @default(now())
+}
+
+// NextAuth tables (Prisma Adapter)
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
