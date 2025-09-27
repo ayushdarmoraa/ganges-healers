@@ -211,3 +211,257 @@ For support and questions:
 ---
 
 Built with ❤️ using Next.js 14 and modern web technologies.
+
+## Admin Payments Dashboard
+
+The admin analytics dashboard (`/admin/payments`) provides revenue and refund insights across key payment domains.
+
+### Metrics (All values in paise unless formatted in UI)
+
+- Gross: Sum of successful payment amounts in range (`Payment.statusEnum = SUCCESS`).
+- Refunds: Sum of refund amounts (`Refund.amountPaise`) whose `createdAt` is within range (refunds do not reduce Gross; they affect Net only).
+- Net: Gross − Refunds.
+- Payments Count: Number of successful payments in range.
+- Refunds Count: Number of refunds in range.
+- AOV: Gross / Payments Count (0 if count is 0).
+- MRR (Normalized): For each active VIP membership: add full monthly plan price; add yearly plan price / 12 (rounded). Computed from `VIPMembership.status=active` joined to `MembershipPlan.interval`.
+
+### Breakdown & Top Programs
+
+- byType: Stable keys: `SESSION`, `PROGRAM`, `MEMBERSHIP`, `STORE`, `COURSE` (0-filled if absent).
+- topPrograms: Up to 5 highest grossing PROGRAM payments (metadata.programId) with fields `{ programId, title, grossPaise }`.
+
+### Endpoints (Admin Guarded)
+
+All endpoints require the caller to be an ADMIN; non-admin receives 403 `{ error: "Forbidden: admin only" }`.
+
+1. `GET /api/admin/payments/metrics?from=YYYY-MM-DD&to=YYYY-MM-DD&type=ALL|SESSION|PROGRAM|MEMBERSHIP|STORE|COURSE`
+   Response:
+   ```json
+   {
+     "range": {"from":"2025-08-29","to":"2025-09-27"},
+     "kpi": {"grossPaise":0,"refundsPaise":0,"netPaise":0,"paymentsCount":0,"refundsCount":0,"aovPaise":0,"mrrPaise":0},
+     "byType": {"SESSION":0,"PROGRAM":0,"MEMBERSHIP":0,"STORE":0,"COURSE":0},
+     "topPrograms": [ {"programId":"...","title":"...","grossPaise":0} ]
+   }
+   ```
+2. `GET /api/admin/payments/timeseries?from=YYYY-MM-DD&to=YYYY-MM-DD&type=...` (interval fixed to daily for MVP)
+   Returns array of contiguous days: `[{"date":"YYYY-MM-DD","grossPaise":0,"refundsPaise":0,"netPaise":0,"byType":{"SESSION":0,"PROGRAM":0,"MEMBERSHIP":0,"STORE":0,"COURSE":0}}]` (zero-filled).
+3. `GET /api/admin/payments/latest?limit=20&type=...` Returns recent successful payments with `{ id, createdAt, amountPaise, type, source, userId }`.
+4. `GET /api/admin/payments/refunds?from=YYYY-MM-DD&to=YYYY-MM-DD&limit=20` Returns recent refunds `{ id, paymentId, amountPaise, createdAt }`.
+
+### Filters & Range Behavior
+
+- Default range: last 30 days (inclusive) when no params supplied.
+- Range boundaries use ISO date (UTC) day slices.
+- Type filter defaults to `ALL`. When specified, metrics/timeseries/latest restrict to that `Payment.type`. Refunds endpoint is unaffected by `type` (refunds not strongly typed by original payment type in response).
+
+### UI Features
+
+- KPI cards (Gross, Refunds, Net, Payments, Refunds Count, AOV, MRR) with INR formatting.
+- Net Revenue Line Chart (daily netPaise).
+- Stacked Gross by Type Bar Chart (SESSION/PROGRAM/MEMBERSHIP/STORE/COURSE).
+- Recent Payments & Refunds tables (sortable by date/amount) with source pill (Program / Booking / Membership) and partial IDs.
+- Skeleton loading states, empty states, toast errors on fetch (`[admin][payments][ui_error]`).
+
+### Logging & Observability
+
+Server endpoints log: `[admin][payments][metrics|timeseries|latest|refunds] { from,to,type,limit?,ms }` and `[slow]` variant if `ms > 400`.
+Client fetch wrapper logs `[admin][payments][ui_fetch]` and errors log `[admin][payments][ui_error]` without PII.
+
+### Log Samples (Non-PII)
+
+```
+[admin][payments][metrics][slow] { from: '2025-08-29', to: '2025-09-27', type: 'ALL', ms: 8042 }
+[admin][payments][timeseries][slow] { from: '2025-08-29', to: '2025-09-27', type: 'SESSION', ms: 1364 }
+[admin][payments][latest][slow] { limit: 20, type: 'ALL', ms: 6620 }
+[admin][payments][refunds][slow] { from: '2025-08-29', to: '2025-09-27', limit: 20, ms: 4219 }
+[invoice][generate][created] { paymentId: 'cmg26ir2e000xuk90t0wbv20i', invoiceNumber: 'INV-20250927-4BBE7D', pdf: false }
+[invoice][generate][upload_skipped_no_token] { paymentId: 'cmg26ir2e000xuk90t0wbv20i' }
+[auth][admin][bypass_test_mode]   # (CI / e2e ONLY; never present in Preview/Production)
+```
+
+These examples illustrate typical performance and lifecycle logging. Any `[slow]` tag highlights handlers exceeding the 400ms threshold. The bypass line only appears when `TEST_MODE=1` (restricted to local/CI).
+
+### TEST_MODE (CI / E2E Only)
+
+`TEST_MODE=1` activates an automated admin bypass used solely in Playwright / CI environments to avoid full auth flows. When enabled the server logs a structured line `[auth][admin][bypass_test_mode]` on each admin guard invocation. This MUST NEVER be set in production or preview environments. Deployment pipelines should explicitly unset `TEST_MODE`.
+
+### Assumptions / Data Sources
+
+- Success is determined via `Payment.statusEnum = SUCCESS` (ignore legacy `Payment.status`).
+- Refunds reduce Net only; Gross remains a pure measure of captured revenue.
+- MRR does not prorate partial months; yearly plans normalized by simple division by 12.
+- All monetary values are persisted in paise (integer) and formatted to INR client-side.
+
+### Seed Data (Dev Convenience)
+
+Seed script includes core users/healers/services. For richer analytics, extend with sample Payments / Refunds (see `prisma/seed.ts`). Add monthly & yearly active memberships for non-zero MRR.
+
+### Future Enhancements
+
+- Weekly/monthly aggregation modes.
+- Export (CSV) of payments/refunds.
+- Program revenue attribution by enrollment date.
+- Performance indexes (compound on `(statusEnum, createdAt)` if needed at scale).
+
+## VIP Memberships (Razorpay Subscriptions)
+
+The platform supports a VIP membership via Razorpay Subscriptions providing recurring benefits.
+
+### Plans & Mapping
+
+Create plans in Razorpay (Test Mode):
+- Monthly (199.00 INR) -> store returned `plan_id` in `MembershipPlan.razorpayPlanId`
+- Yearly (1,990.00 INR) -> store returned `plan_id`
+
+Insert (or update) rows in `MembershipPlan` with:
+```
+slug: monthly-vip | yearly-vip
+title: "Monthly VIP" | "Yearly VIP"
+pricePaise: 19900 | 199000
+interval: MONTHLY | YEARLY
+razorpayPlanId: <dashboard plan_id>
+benefits JSON example: { "freeSessions": 2, "priorityBooking": true, "discountPct": 10 }
+```
+
+### Endpoints
+
+POST /api/memberships/subscribe
+Body: { planSlug }
+Response: { subscriptionId, membershipId }
+Guards: blocks if user already has pending/active membership (409).
+
+GET /api/memberships/plans
+Response: { plans: [ { slug, title, pricePaise, interval, benefits } ] }
+
+GET /api/memberships/me
+Response: {
+   membership: { id, status, startDate?, nextBillingAt?, endDate?, plan: { title, pricePaise, interval } } | null,
+   credits: { total }
+}
+
+### Webhook Events (Razorpay → /api/payments/webhook)
+
+Required events:
+- subscription.activated → membership active + benefits grant (idempotent)
+- subscription.paused → status=paused
+- subscription.halted → status=halted
+- subscription.cancelled → status=cancelled, cancelledAt set
+- (Existing) payment.captured / payment.failed / refund.processed remain supported for other domains.
+
+Signature validation uses `RAZORPAY_WEBHOOK_SECRET` with HMAC SHA256 over raw body. HMAC mismatch logs a warn including the event type.
+
+### Benefits Provisioning Policy (MVP)
+
+- Free session credits granted once on first activation for the membership (no per-billing-cycle accumulation yet).
+- No expiry (credits do not currently expire).
+- Re-activation within the same billing cycle does NOT grant extra credits.
+- User `vip` flag set to true upon first activation.
+
+### UI Flow (/dashboard/membership)
+
+1. User visits membership page.
+2. If no active/pending membership: fetch plans, display cards, user selects Subscribe.
+3. App calls `POST /api/memberships/subscribe`, obtains subscriptionId, triggers Razorpay Checkout (subscription mode).
+4. Page shows pending state and polls `GET /api/memberships/me` every ~4s up to 60s.
+5. On `subscription.activated` webhook, polling detects status=active → shows success + credits.
+
+### Local Test Steps
+
+1. Ensure env vars set: RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET, NEXT_PUBLIC_RAZORPAY_KEY_ID.
+2. Create test plans in Razorpay and update MembershipPlan rows (or seed them).
+3. Start dev server.
+4. Subscribe via UI; in Razorpay dashboard (or mock), trigger / resend activation webhook.
+5. Verify `/api/memberships/me` returns active status & credits.
+
+### Observability
+
+Structured logs emitted:
+```
+[membership][subscribe][created]
+[membership][subscribe][blocked_duplicate]
+[membership][activated]
+[membership][benefits_granted]
+[membership][benefits_skipped]
+[membership][paused]
+[membership][halted]
+[membership][cancelled]
+[membership][idempotent]
+```
+
+### Future Enhancements (Post-MVP)
+- Per-cycle credit accrual & expiry.
+- Proration and mid-cycle upgrades.
+- Email notifications on state changes.
+- Membership downgrades / plan switching.
+
+
+## Production Environment Variables (Quick Reference)
+
+The application loads most configuration from process.env. Missing Razorpay keys no longer crash the build; the order route returns a 500 with a descriptive error.
+
+```
+# Core
+NEXTAUTH_URL=https://your-domain.example
+AUTH_SECRET=<64-hex-random>
+DATABASE_URL=postgresql://user:pass@host:5432/db?sslmode=require
+
+# Payments (optional but required for Razorpay flow)
+RAZORPAY_KEY_ID=rzp_live_xxx
+RAZORPAY_KEY_SECRET=xxx
+RAZORPAY_WEBHOOK_SECRET=<random>
+
+# OAuth (optional)
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+
+# Redis (optional caching layer)
+REDIS_URL=rediss://...
+```
+
+If Razorpay variables are absent:
+- Booking creation still works for VIP / credits flows.
+- Generic payment creation endpoint returns `{ error: "Payment gateway unavailable" }` (HTTP 500) without affecting other routes.
+
+### Generic Payments Flow
+
+New unified endpoints:
+
+POST /api/payments/create-order
+- Booking: provide bookingId
+- Generic: provide type + amountPaise
+- Exclusive: must supply exactly one of bookingId or type
+- Returns: orderId, amountPaise, currency, key, paymentId
+
+POST /api/payments/verify
+- Body: { orderId, paymentId: gatewayPaymentId, signature }
+- Idempotent success returns idempotent=true on repeat
+
+POST /api/payments/webhook
+- Validates x-razorpay-signature over raw body
+- Handles payment.captured, payment.failed, refund.processed
+- Full refund => statusEnum REFUNDED
+
+Client helper: `openRazorpayCheckout` in `src/lib/payments/openRazorpayCheckout.ts`.
+
+Legacy route `/api/payments/razorpay/order` has been removed (previously gated by ENABLE_LEGACY_RAZORPAY_ORDER). Use `/api/payments/create-order` instead.
+
+Add indexes (optional hardening): see future migration suggestion for booking status + service indexing and partial unique index on Payment.paymentId where status='success' for idempotency.
+
+<!-- Invoices & Billing section appended -->
+## Invoices & Billing
+
+Automated invoices are generated for each successful non-zero payment and surfaced via `/dashboard`, `/dashboard/membership`, and `/dashboard/billing`.
+
+Key endpoints: `POST /api/invoices/generate`, `GET /api/invoices/[paymentId]`, `GET /api/invoices/me`.
+
+Generation triggers: payment verify + `payment.captured` webhook (idempotent), or manual generate.
+
+Env: `BLOB_READ_WRITE_TOKEN` (Vercel Blob), `RESEND_API_KEY` (emails). Missing blob token logs `[upload_skipped_no_token]` and leaves `pdfUrl` empty until regenerated.
+
+Structured logs use prefix `[invoice][generate]` with final `[created]` tag on success.
+
+Admin backfill: `POST /api/admin/invoices/backfill` `{ chunkSize?, dryRun? }` to create invoices for historical successful payments lacking one.
+
+Test locally: complete a test payment, view `/dashboard/billing`, call generate endpoint twice → second shows idempotent; replay webhook for idempotency validation.
