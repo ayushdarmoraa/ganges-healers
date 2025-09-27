@@ -30,10 +30,13 @@ function generateDaySlots(startHour = 10, endHour = 20): string[] {
 /**
  * Check if a time falls within healer's availability window
  */
+interface DayWindow { start?: string; end?: string }
+type AvailabilityShape = Record<string, DayWindow>
+
 function isTimeInAvailability(
-  time: string, 
-  dayName: string, 
-  availability: any
+  time: string,
+  dayName: string,
+  availability: AvailabilityShape | null | undefined
 ): boolean {
   if (!availability || !availability[dayName.toLowerCase()]) {
     return false
@@ -147,9 +150,12 @@ export async function getHealerAvailability(
   })
   
   // Check each slot
+  const rawAvail = healer.availability as unknown
+  const availObj: AvailabilityShape | null = (typeof rawAvail === 'object' && rawAvail !== null) ? rawAvail as AvailabilityShape : null
+
   const slots: TimeSlot[] = allSlots.map(time => {
     // Check if time is within healer's availability
-    const inAvailability = isTimeInAvailability(time, dayName, healer.availability)
+    const inAvailability = isTimeInAvailability(time, dayName, availObj)
     
     if (!inAvailability) {
       return {
@@ -214,11 +220,12 @@ export async function validateBookingSlot(
   }
   
   // Check healer availability for this day/time
-  const dateStr = scheduledAt.toISOString().split('T')[0]
   const timeStr = scheduledAt.toTimeString().slice(0, 5)
   const dayName = getDayName(scheduledAt)
   
-  if (!isTimeInAvailability(timeStr, dayName, healer.availability)) {
+  const healerAvailRaw = healer.availability as unknown
+  const healerAvail: AvailabilityShape | null = (typeof healerAvailRaw === 'object' && healerAvailRaw !== null) ? healerAvailRaw as AvailabilityShape : null
+  if (!isTimeInAvailability(timeStr, dayName, healerAvail)) {
     return { valid: false, error: 'Healer not available at this time' }
   }
   

@@ -333,6 +333,75 @@ async function main() {
 
   // Junction removed: healer specializations now drive service association
   console.log('Healer specializations assigned (junction removed)')
+  // --- Analytics demo data (payments, refunds, memberships) ---
+  console.log('Seeding analytics demo data (payments/memberships)...')
+
+  // Ensure at least one membership plan monthly + yearly
+  const monthlyPlan = await prisma.membershipPlan.upsert({
+    where: { slug: 'vip-monthly' },
+    update: {},
+    create: { slug: 'vip-monthly', title: 'VIP Monthly', pricePaise: 19900, interval: 'MONTHLY', razorpayPlanId: 'plan_monthly_demo', benefits: { freeSessions: 2 } }
+  })
+  const yearlyPlan = await prisma.membershipPlan.upsert({
+    where: { slug: 'vip-yearly' },
+    update: {},
+    create: { slug: 'vip-yearly', title: 'VIP Yearly', pricePaise: 199000, interval: 'YEARLY', razorpayPlanId: 'plan_yearly_demo', benefits: { freeSessions: 24 } }
+  })
+
+  // Create active memberships for admin + john
+  const adminUser = await prisma.user.findUnique({ where: { email: 'admin@ganges-healers.com' } })
+  const johnUser = await prisma.user.findUnique({ where: { email: 'john@example.com' } })
+  if (adminUser) {
+    await prisma.vIPMembership.upsert({
+      where: { subscriptionId: 'sub_demo_admin_monthly' },
+      update: { status: 'active' },
+      create: { subscriptionId: 'sub_demo_admin_monthly', userId: adminUser.id, planId: monthlyPlan.id, status: 'active', startDate: new Date() }
+    })
+  }
+  if (johnUser) {
+    await prisma.vIPMembership.upsert({
+      where: { subscriptionId: 'sub_demo_john_yearly' },
+      update: { status: 'active' },
+      create: { subscriptionId: 'sub_demo_john_yearly', userId: johnUser.id, planId: yearlyPlan.id, status: 'active', startDate: new Date() }
+    })
+  }
+
+  // Helper to create payment records across days
+  const paymentUser = adminUser || johnUser
+  if (paymentUser) {
+    const today = new Date()
+    const dayMs = 24*60*60*1000
+    const sample: Array<{ offset: number; amount: number; type: any; meta?: any }> = [ // eslint-disable-line @typescript-eslint/no-explicit-any
+      { offset: 1, amount: 50000, type: 'SESSION', meta: { bookingId: 'demo_b1' } },
+      { offset: 2, amount: 150000, type: 'PROGRAM', meta: { programId: 'demo_prog1' } },
+      { offset: 5, amount: 19900, type: 'MEMBERSHIP' },
+      { offset: 10, amount: 75000, type: 'SESSION', meta: { bookingId: 'demo_b2' } },
+      { offset: 15, amount: 90000, type: 'PROGRAM', meta: { programId: 'demo_prog2' } },
+      { offset: 40, amount: 60000, type: 'SESSION', meta: { bookingId: 'old_out_of_range' } } // outside 30d window
+    ]
+    for (const row of sample) {
+      const createdAt = new Date(today.getTime() - row.offset * dayMs)
+      await prisma.payment.create({
+        data: {
+          gateway: 'seed',
+            status: 'success',
+          statusEnum: 'SUCCESS',
+          amountPaise: row.amount,
+          userId: paymentUser.id,
+          type: row.type,
+          metadata: row.meta || {},
+          createdAt
+        }
+      })
+    }
+    // Create a refund against one of the program payments
+    const refundBase = await prisma.payment.findFirst({ where: { type: 'PROGRAM', statusEnum: 'SUCCESS' } })
+    if (refundBase) {
+      await prisma.refund.create({ data: { paymentId: refundBase.id, amountPaise: Math.round(refundBase.amountPaise/2), reason: 'demo partial', status: 'processed' } })
+    }
+  }
+
+  console.log('Analytics demo data seeded')
   console.log('✅ MVP seed completed successfully!')
   console.log(`
 📊 Created:

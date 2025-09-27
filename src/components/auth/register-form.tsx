@@ -90,9 +90,9 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Full Name</FormLabel>
+                  <FormLabel htmlFor="fullName">Full Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="Enter your full name" {...field} />
+                    <Input id="fullName" data-test="reg-name" placeholder="Enter your full name" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -104,9 +104,9 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
               name="email"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Email</FormLabel>
+                  <FormLabel htmlFor="regEmail">Email</FormLabel>
                   <FormControl>
-                    <Input type="email" placeholder="Enter your email" {...field} />
+                    <Input id="regEmail" data-test="reg-email" type="email" placeholder="Enter your email" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -118,9 +118,9 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
               name="phone"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Phone (Optional)</FormLabel>
+                  <FormLabel htmlFor="regPhone">Phone (Optional)</FormLabel>
                   <FormControl>
-                    <Input placeholder="Enter your phone number" {...field} />
+                    <Input id="regPhone" placeholder="Enter your phone number" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -132,9 +132,9 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
               name="password"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Password</FormLabel>
+                  <FormLabel htmlFor="regPassword">Password</FormLabel>
                   <FormControl>
-                    <Input type="password" placeholder="Create a password" {...field} />
+                    <Input id="regPassword" data-test="reg-password" type="password" placeholder="Create a password" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -146,9 +146,9 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
               name="confirmPassword"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Confirm Password</FormLabel>
+                  <FormLabel htmlFor="regConfirmPassword">Confirm Password</FormLabel>
                   <FormControl>
-                    <Input type="password" placeholder="Confirm your password" {...field} />
+                    <Input id="regConfirmPassword" data-test="reg-password-confirm" type="password" placeholder="Confirm your password" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

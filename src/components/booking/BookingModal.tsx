@@ -1,10 +1,11 @@
 // components/booking/BookingModal.tsx
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Calendar, User, CheckCircle, AlertCircle } from 'lucide-react'
+import { openRazorpayCheckout } from '@/lib/payments/openRazorpayCheckout'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 
@@ -49,19 +50,9 @@ export default function BookingModal({
   const [error, setError] = useState<string>('')
   // Track created booking id locally (if needed for future UI)
   const [, setCreatedBookingId] = useState<string | null>(null)
+  const verifyingRef = useRef(false)
 
-  // Load Razorpay script helper
-  const loadRazorpay = useCallback(async () => {
-    return new Promise<boolean>((resolve) => {
-      if (typeof window === 'undefined') return resolve(false)
-  if ((window as unknown as { Razorpay?: unknown }).Razorpay) return resolve(true)
-      const s = document.createElement('script')
-      s.src = 'https://checkout.razorpay.com/v1/checkout.js'
-      s.onload = () => resolve(true)
-      s.onerror = () => resolve(false)
-      document.body.appendChild(s)
-    })
-  }, [])
+  // (Replaced by shared helper openRazorpayCheckout)
 
   // Reset state when modal opens/closes
   useEffect(() => {
@@ -152,8 +143,8 @@ export default function BookingModal({
   setCreatedBookingId(newBookingId)
 
       // Decide payment path
-      const vip = session.user?.vip
-      const credits = session.user?.freeSessionCredits ?? 0
+  const vip = session.user?.vip
+  const credits = session.user?.freeSessionCredits ?? 0
 
       if (vip && credits > 0) {
         // Use VIP credit path
@@ -167,7 +158,7 @@ export default function BookingModal({
       } else {
         // Razorpay path
         setStep('processing')
-        const orderRes = await fetch('/api/payments/razorpay/order', {
+        const orderRes = await fetch('/api/payments/create-order', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ bookingId: newBookingId }),
@@ -178,38 +169,39 @@ export default function BookingModal({
           throw new Error(errJ.error || 'Failed to create payment order')
         }
         const order = await orderRes.json()
-        const loaded = await loadRazorpay()
-        if (!loaded) {
-          throw new Error('Failed to load payment gateway')
+
+        try {
+          const result = await openRazorpayCheckout({
+            orderId: order.orderId,
+            amountPaise: order.amountPaise || order.amount || 0,
+            key: order.key || order.key_id || (process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || ''),
+            notes: { bookingId: newBookingId },
+            prefill: { email: session.user?.email || '', name: session.user?.name || '' },
+            description: 'Session payment'
+          })
+          if (verifyingRef.current) return
+          verifyingRef.current = true
+          const verifyRes = await fetch('/api/payments/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderId: result.razorpay_order_id,
+              paymentId: result.razorpay_payment_id,
+              signature: result.razorpay_signature,
+            })
+          })
+          if (!verifyRes.ok) {
+            const vErr = await verifyRes.json().catch(() => ({}))
+            throw new Error(vErr.error || 'Verification failed')
+          }
+          setStep('success')
+          router.refresh()
+        } catch (gatewayErr) {
+          setError(gatewayErr instanceof Error ? gatewayErr.message : 'Payment cancelled')
+          setStep('confirm')
+        } finally {
+          verifyingRef.current = false
         }
-        interface RazorpayOptions {
-          key: string
-          amount: number
-          currency: string
-          name: string
-          description: string
-          order_id: string
-          notes: Record<string, string | number>
-          handler: () => void
-          modal: { ondismiss: () => void }
-          theme: { color: string }
-        }
-        const RazorpayCtor = (window as unknown as { Razorpay: new (opts: RazorpayOptions) => { open: () => void } }).Razorpay
-        const rzp = new RazorpayCtor({
-          key: order.key_id,
-          amount: order.amount,
-          currency: 'INR',
-            name: 'Ganges Healers',
-          description: 'Session payment',
-          order_id: order.orderId,
-          notes: { bookingId: newBookingId },
-          handler: function () {
-            setStep('success')
-          },
-          modal: { ondismiss: function () { /* user closed */ } },
-          theme: { color: '#4f46e5' },
-        })
-        rzp.open()
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create booking')
@@ -253,7 +245,10 @@ export default function BookingModal({
         <DialogHeader>
           <DialogTitle>Book {serviceName}</DialogTitle>
         </DialogHeader>
-        
+        <DialogDescription className="sr-only">
+          Select a date and time, then confirm your booking.
+        </DialogDescription>
+
         <div className="space-y-6">
           {/* Healer Info */}
           <div className="flex items-center gap-3">

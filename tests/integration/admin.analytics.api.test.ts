@@ -1,0 +1,104 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { makeNextRequest, readJSON } from '../helpers/next-handler'
+import { prisma } from '@/lib/prisma'
+
+// Mock auth like existing pattern
+jest.mock('@/lib/auth', () => {
+  return {
+    auth: async () => ({
+      user: {
+        id: process.env.TEST_USER_ID || 'admin-test-user',
+        role: process.env.TEST_USER_ROLE || 'ADMIN',
+        vip: true,
+        freeSessionCredits: 0,
+        email: 'admin@test.local'
+      }
+    })
+  }
+})
+
+function isoDay(d: Date){ return d.toISOString().slice(0,10) }
+
+describe('Admin Payments Analytics API', () => {
+  beforeAll(async () => {
+    // Ensure there is seeded data (assumes seed run before tests)
+    // Sanity: at least one payment
+    const count = await prisma.payment.count()
+    if (count === 0) throw new Error('Seed data missing payments for analytics tests')
+  })
+
+  test('metrics basic math & shape', async () => {
+    process.env.TEST_USER_ROLE = 'ADMIN'
+    const to = new Date()
+    const from = new Date(to.getTime() - 29*24*60*60*1000)
+    const req = makeNextRequest(`http://localhost/api/admin/payments/metrics?from=${isoDay(from)}&to=${isoDay(to)}`)
+    const mod = await import('@/app/api/admin/payments/metrics/route')
+    const res: any = await (mod as any).GET(req)
+    expect(res.status).toBe(200)
+    const body = await readJSON(res)
+    expect(body.kpi).toBeDefined()
+    const { grossPaise, refundsPaise, netPaise, paymentsCount, aovPaise } = body.kpi
+    expect(netPaise).toBe(grossPaise - refundsPaise)
+    if (paymentsCount > 0) {
+      expect(aovPaise).toBe(Math.round(grossPaise / paymentsCount))
+    } else {
+      expect(aovPaise).toBe(0)
+    }
+    // byType sum equals gross
+    const byTypeSum = Object.values(body.byType).reduce((a:number,b:any)=>a+Number(b),0)
+    expect(byTypeSum).toBe(grossPaise)
+    // MRR should be > 0 given seeded monthly + yearly memberships
+    expect(body.kpi.mrrPaise).toBeGreaterThan(0)
+  })
+
+  test('timeseries contiguous and byType keys', async () => {
+    process.env.TEST_USER_ROLE = 'ADMIN'
+    const to = new Date()
+    const from = new Date(to.getTime() - 6*24*60*60*1000)
+    const req = makeNextRequest(`http://localhost/api/admin/payments/timeseries?from=${isoDay(from)}&to=${isoDay(to)}`)
+    const mod = await import('@/app/api/admin/payments/timeseries/route')
+    const res: any = await (mod as any).GET(req)
+    expect(res.status).toBe(200)
+    const series = await readJSON(res)
+    expect(Array.isArray(series)).toBe(true)
+    expect(series.length).toBe(7)
+    // check contiguous dates
+    for (let idx=1; idx<series.length; idx++) {
+      const prev = new Date(series[idx-1].date)
+      const curr = new Date(series[idx].date)
+      const diff = (curr.getTime() - prev.getTime()) / (24*60*60*1000)
+      expect(diff).toBe(1)
+      ;(['SESSION','PROGRAM','MEMBERSHIP','STORE','COURSE'] as const).forEach((k) => {
+        expect(Object.prototype.hasOwnProperty.call(series[idx].byType, k)).toBe(true)
+      })
+    }
+  })
+
+  test('latest limit respected', async () => {
+    process.env.TEST_USER_ROLE = 'ADMIN'
+    const req = makeNextRequest('http://localhost/api/admin/payments/latest?limit=5')
+    const mod = await import('@/app/api/admin/payments/latest/route')
+    const res: any = await (mod as any).GET(req)
+    expect(res.status).toBe(200)
+    const body = await readJSON(res)
+    expect(body.items.length).toBeLessThanOrEqual(5)
+  })
+
+  test('refunds limit respected', async () => {
+    process.env.TEST_USER_ROLE = 'ADMIN'
+    const req = makeNextRequest('http://localhost/api/admin/payments/refunds?limit=1')
+    const mod = await import('@/app/api/admin/payments/refunds/route')
+    const res: any = await (mod as any).GET(req)
+    expect(res.status).toBe(200)
+    const body = await readJSON(res)
+    expect(body.items.length).toBeLessThanOrEqual(1)
+  })
+
+  test('admin guard returns 403 for non-admin', async () => {
+    process.env.TEST_USER_ROLE = 'USER'
+    const req = makeNextRequest('http://localhost/api/admin/payments/latest')
+    const mod = await import('@/app/api/admin/payments/latest/route')
+    const res: any = await (mod as any).GET(req)
+    expect(res.status).toBe(403)
+  })
+})

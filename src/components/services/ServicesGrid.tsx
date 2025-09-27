@@ -26,6 +26,7 @@ export default function ServicesGrid({ services }: { services: Service[] }) {
           href={`/services/${service.slug}`}
           className="group"
           data-test="service-card"
+          data-service-slug={service.slug}
         >
           <div className="bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden h-full flex flex-col">
             {/* Image */}

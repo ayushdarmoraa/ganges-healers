@@ -235,10 +235,10 @@ describe('BookingModal', () => {
     const confirmBtn = await screen.findByRole('button', { name: /confirm\s*&\s*pay/i });
     await user.click(confirmBtn);
 
-    // Order API must be called
+    // Order API must be called (new unified endpoint)
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringMatching(/api\/payments\/razorpay\/order/),
+        expect.stringMatching(/api\/payments\/create-order/),
         expect.objectContaining({ method: 'POST' }),
       );
     });
@@ -303,10 +303,10 @@ describe('BookingModal', () => {
     const confirmBtn = await screen.findByRole('button', { name: /confirm\s*&\s*pay/i });
     await user.click(confirmBtn);
 
-    // Order API was attempted…
+    // Order API was attempted… (new unified endpoint)
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringMatching(/api\/payments\/razorpay\/order/),
+        expect.stringMatching(/api\/payments\/create-order/),
         expect.objectContaining({ method: 'POST' }),
       );
     });

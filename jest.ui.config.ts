@@ -11,11 +11,10 @@ const config: Config = {
     '^next/router$': '<rootDir>/tests/mocks/next-router.ts',
   },
   setupFilesAfterEnv: ['<rootDir>/jest.ui.setup.ts'],
-  transform: { 
-    '^.+\\.(t|j)sx?$': ['ts-jest', { 
-      tsconfig: 'tsconfig.test.json',
-      isolatedModules: true
-    }] 
+  transform: {
+    '^.+\\.(t|j)sx?$': ['ts-jest', {
+      tsconfig: 'tsconfig.test.json'
+    }]
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   collectCoverageFrom: [

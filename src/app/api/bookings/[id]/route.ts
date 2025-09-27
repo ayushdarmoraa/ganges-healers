@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { validateBookingSlot } from '@/lib/availability'
+import { RescheduleBody } from '../types'
 
 export async function GET(
   request: NextRequest,
@@ -85,15 +86,12 @@ export async function PUT(
       )
     }
 
-    const body = await request.json()
-    const { scheduledAt } = body
-
-    if (!scheduledAt) {
-      return NextResponse.json(
-        { error: 'scheduledAt is required for rescheduling' },
-        { status: 400 }
-      )
+    const json = await request.json()
+    const parsed = RescheduleBody.safeParse(json)
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
     }
+    const { scheduledAt } = parsed.data
 
     // Get existing booking
     const existingBooking = await prisma.booking.findFirst({

@@ -29,6 +29,16 @@ export function Navbar() {
                   Dashboard
                 </Link>
               )}
+              {session && (
+                <Link href="/dashboard/membership" className="text-sm font-medium hover:text-primary transition-colors">
+                  Membership
+                </Link>
+              )}
+              {session && (
+                <Link href="/dashboard/billing" className="text-sm font-medium hover:text-primary transition-colors">
+                  Billing
+                </Link>
+              )}
             </div>
           </div>
 

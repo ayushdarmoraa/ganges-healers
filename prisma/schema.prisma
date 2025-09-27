@@ -45,6 +45,11 @@ model User {
     // domain
   healer         Healer?
   bookings       Booking[] @relation("UserBookings")
+  payments       Payment[]
+  programEnrollments ProgramEnrollment[]
+  memberships    VIPMembership[]
+  sessionCredits SessionCredit[]
+  communityAccess CommunityAccess[]
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 }
@@ -62,6 +67,7 @@ model Healer {
   isActive        Boolean   @default(true)
   isVerified      Boolean   @default(false)
   bookings        Booking[]
+  programEnrollments ProgramEnrollment[]
   
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -71,6 +77,46 @@ enum ServiceMode {
   ONLINE
   OFFLINE
   BOTH
+}
+
+// --- Added enums for extended payment domain (additive, non-breaking) ---
+enum PaymentType {
+  SESSION
+  PROGRAM
+  MEMBERSHIP
+  STORE
+  COURSE
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+// Program enrollments (added for PROGRAM payment flows)
+enum ProgramEnrollmentStatus {
+  pending_payment
+  active
+  completed
+  paused
+  cancelled
+}
+
+// --- Membership / Subscription Domain ---
+enum MembershipInterval {
+  MONTHLY
+  YEARLY
+}
+
+enum MembershipStatus {
+  pending
+  active
+  paused
+  cancelled
+  halted
 }
 
 model Service {
@@ -110,20 +156,180 @@ model Booking {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  @@index([scheduledAt])
-  @@index([healerId, scheduledAt])
+  // Existing single-field indexes replaced with composite indexes for dashboard + listing queries
+  @@index([userId, scheduledAt(sort: Desc)])
+  @@index([healerId, scheduledAt, status])
+  @@index([scheduledAt]) // retain for generic chronological queries
 }
 
 model Payment {
   id          String   @id @default(cuid())
-  bookingId   String   @unique
-  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  // Either bookingId (for session bookings) OR (userId + type) for generic payments
+  bookingId   String?  @unique
+  booking     Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   gateway     String
   orderId     String?
   paymentId   String?
   status      String // pending|success|failed|refunded
   amountPaise Int
   createdAt   DateTime @default(now())
+  // Partial unique index on paymentId (non-null) added via manual SQL migration for idempotency
+
+  // --- additive extended commerce fields ---
+  type             PaymentType?
+  statusEnum       PaymentStatus?
+  currency         String?        @default("INR")
+  gatewayOrderId   String?        @unique
+  gatewayPaymentId String?        @unique
+  gatewaySignature String?
+  metadata         Json?
+
+  refunds          Refund[]
+  invoice          Invoice?
+
+  @@index([statusEnum])
+  @@index([type])
+  @@index([userId])
+}
+
+// New Refund model (additive) - supports partial or full gateway refunds
+model Refund {
+  id              String   @id @default(cuid())
+  paymentId       String
+  payment         Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  amountPaise     Int
+  reason          String?
+  gatewayRefundId String?  @unique
+  status          String?  // processed | failed | pending
+  createdAt       DateTime @default(now())
+
+  @@index([paymentId])
+}
+
+// Invoice model (additive) - one invoice per successful payment
+model Invoice {
+  id            String   @id @default(cuid())
+  paymentId     String   @unique
+  payment       Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoiceNumber String   @unique
+  issuedAt      DateTime @default(now())
+  billTo        Json
+  lineItems     Json
+  subtotalPaise Int
+  taxPaise      Int       @default(0)
+  totalPaise    Int
+  pdfUrl        String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([paymentId])
+}
+
+// --- Program & Enrollment Models ---
+model Program {
+  id              String   @id @default(cuid())
+  slug            String   @unique
+  title           String
+  description     String   @db.Text
+  pricePaise      Int
+  totalSessions   Int
+  sessionsPerWeek Int
+  durationMinutes Int
+  isActive        Boolean  @default(true)
+  enrollments     ProgramEnrollment[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+model ProgramEnrollment {
+  id         String                   @id @default(cuid())
+  userId     String
+  programId  String
+  healerId   String?
+  user       User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  program    Program                  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  healer     Healer?                  @relation(fields: [healerId], references: [id], onDelete: SetNull)
+  status     ProgramEnrollmentStatus  @default(pending_payment)
+  schedule   Json?
+  progress   Json?
+  startDate  DateTime?
+  endDate    DateTime?
+  createdAt  DateTime                 @default(now())
+  updatedAt  DateTime                 @updatedAt
+
+  @@index([userId, status])
+  @@index([programId])
+  @@index([healerId])
+}
+
+// VIP Membership Plans (Razorpay subscription plans mapping)
+model MembershipPlan {
+  id            String             @id @default(cuid())
+  slug          String             @unique
+  title         String
+  pricePaise    Int
+  interval      MembershipInterval
+  razorpayPlanId String            @unique
+  isActive      Boolean            @default(true)
+  benefits      Json?
+  memberships   VIPMembership[]
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([isActive])
+}
+
+// User's active or historical VIP Membership subscription instances
+model VIPMembership {
+  id             String            @id @default(cuid())
+  userId         String
+  planId         String
+  subscriptionId String            @unique
+  status         MembershipStatus  @default(pending)
+  startDate      DateTime?
+  endDate        DateTime?
+  nextBillingAt  DateTime?
+  cancelledAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan           MembershipPlan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  sessionCredits SessionCredit[]
+
+  @@index([userId, status])
+  @@index([planId])
+}
+
+// Credits granted as membership benefits (track per membership activation)
+model SessionCredit {
+  id            String        @id @default(cuid())
+  userId        String
+  membershipId  String?       // nullable to allow other sources later
+  credits       Int
+  expiresAt     DateTime?
+  source        String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  membership    VIPMembership? @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([membershipId])
+}
+
+// Optional: community access gating for VIP
+model CommunityAccess {
+  id         String   @id @default(cuid())
+  userId     String
+  level      String
+  grantedAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, level])
 }
 
 // NextAuth tables (Prisma Adapter)

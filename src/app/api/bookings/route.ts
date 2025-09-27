@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { validateBookingSlot } from '@/lib/availability'
+import { emailService } from '@/lib/email/email.service'
+import { format } from 'date-fns'
+import { CreateBookingBody } from './types'
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,13 +19,13 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
-    
-    const where: any = {
-      userId: session.user.id
-    }
-    
+    const allowedStatuses = ['PENDING','SCHEDULED','CONFIRMED','RESCHEDULED','CANCELLED','COMPLETED'] as const
+    const where: { userId: string; status?: typeof allowedStatuses[number] } = { userId: session.user.id }
     if (status) {
-      where.status = status.toUpperCase()
+      const upper = status.toUpperCase()
+      if ((allowedStatuses as readonly string[]).includes(upper)) {
+        where.status = upper as typeof allowedStatuses[number]
+      }
     }
 
     const bookings = await prisma.booking.findMany({
@@ -80,17 +83,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const body = await request.json()
-    const { healerId, serviceId, scheduledAt } = body
-
-    // Validation
-    if (!healerId || !serviceId || !scheduledAt) {
-      return NextResponse.json(
-        { error: 'healerId, serviceId, and scheduledAt are required' },
-        { status: 400 }
-      )
+    const json = await request.json()
+    const parsed = CreateBookingBody.safeParse(json)
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
     }
-
+    const { healerId, serviceId, scheduledAt } = parsed.data
     const scheduledDate = new Date(scheduledAt)
     if (isNaN(scheduledDate.getTime())) {
       return NextResponse.json(
@@ -156,6 +154,23 @@ export async function POST(request: NextRequest) {
         }
       }
     })
+
+    // Fire and forget confirmation email
+    if (booking && emailService.isEnabled()) {
+      const serviceName = booking.service?.name || 'Service'
+      const healerName = booking.healer?.user?.name || 'Healer'
+      const scheduled = new Date(booking.scheduledAt)
+      emailService.sendBookingConfirmation({
+        // Assuming email exists on session.user; if not present in type, cast minimally
+        to: (session.user as { email?: string }).email || '',
+        userName: session.user.name || 'User',
+        serviceName,
+        healerName,
+        date: format(scheduled, 'MMMM d, yyyy'),
+        time: format(scheduled, 'h:mm a'),
+        bookingId: booking.id
+      }).catch(err => console.error('Async email error:', err))
+    }
 
     return NextResponse.json({
       success: true,

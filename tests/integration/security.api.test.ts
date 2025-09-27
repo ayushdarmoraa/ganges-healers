@@ -6,7 +6,6 @@ import { addDays, setHours, setMinutes } from 'date-fns';
 import * as Bookings from '@/app/api/bookings/route';
 import * as ById from '@/app/api/bookings/[id]/route';
 import * as ConfirmCredits from '@/app/api/bookings/[id]/confirm-with-credits/route';
-import * as Order from '@/app/api/payments/razorpay/order/route';
 
 function iso(d: Date) { return new Date(d).toISOString(); }
 async function readJSON(res: Response) { try { return await res.clone().json(); } catch { return null; } }
@@ -105,25 +104,7 @@ describe('RBAC/Security', () => {
     expect(cRes.status).toBeGreaterThanOrEqual(400);
   });
 
-  test('Order API: unauthenticated returns 401/4xx', async () => {
-    delete process.env.TEST_USER_ID; // simulate no session
-    const oReq = req('http://localhost/api/payments/razorpay/order', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ bookingId: bookingOfA.id }),
-    });
-    const oRes = await (Order as any).POST(oReq);
-    expect(oRes.status).toBeGreaterThanOrEqual(400);
-  });
-
-  test('Order API: non-owner returns 403/4xx', async () => {
-    process.env.TEST_USER_ID = userB.id; // logged-in but not owner
-    const oReq = req('http://localhost/api/payments/razorpay/order', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ bookingId: bookingOfA.id }),
-    });
-    const oRes = await (Order as any).POST(oReq);
-    expect(oRes.status).toBeGreaterThanOrEqual(400);
-  });
+  // Legacy order API security tests removed post-migration.
 
   test('GET /api/bookings returns only current user bookings', async () => {
     // create one booking for userB to ensure isolation

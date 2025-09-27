@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { prisma } from '@/lib/prisma'
+import { generateInvoiceForPayment } from '@/lib/invoices/generate'
 import type { Prisma } from '@prisma/client'
 
 export const runtime = 'nodejs'
@@ -27,10 +28,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, ignored: true })
     }
 
+  let savedPaymentId: string | null = null
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const existing = await tx.payment.findUnique({ where: { bookingId } })
       if (!existing) {
-        await tx.payment.create({
+        const created = await tx.payment.create({
           data: {
             bookingId,
             gateway: 'razorpay',
@@ -40,8 +42,9 @@ export async function POST(req: Request) {
             amountPaise: payment.amount,
           },
         })
+        savedPaymentId = created.id
       } else {
-        await tx.payment.update({
+        const updated = await tx.payment.update({
           where: { bookingId },
           data: {
             paymentId: payment.id,
@@ -50,9 +53,14 @@ export async function POST(req: Request) {
             amountPaise: payment.amount,
           },
         })
+        savedPaymentId = updated.id
       }
       await tx.booking.update({ where: { id: bookingId }, data: { status: 'CONFIRMED' } })
     })
+
+    if (savedPaymentId) {
+      generateInvoiceForPayment({ paymentId: savedPaymentId }).catch(e => console.warn('[payments][webhook][invoice_failed]', { paymentId: savedPaymentId, error: (e as Error).message }))
+    }
 
     return NextResponse.json({ ok: true })
   }

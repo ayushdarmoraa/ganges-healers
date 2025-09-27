@@ -1,9 +1,19 @@
 import { NextResponse } from 'next/server'
-import { razorpay } from '@/lib/razorpay'
+import { getRazorpayClient } from '@/lib/razorpay'
 import { prisma } from '@/lib/prisma'
 import { auth } from '@/lib/auth'
 
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
+// DEPRECATED: This route will be removed after 2025-10-15.
+// Use /api/payments/create-order instead. Controlled by ENABLE_LEGACY_RAZORPAY_ORDER.
 export async function POST(req: Request) {
+  if (!process.env.ENABLE_LEGACY_RAZORPAY_ORDER && process.env.NODE_ENV !== 'development') {
+    return NextResponse.json({ error: 'Legacy route disabled. Use /api/payments/create-order.' }, { status: 410 })
+  }
+  console.warn('[payments][legacy-order][deprecated] Invocation detected')
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthenticated' }, { status: 401 })
@@ -25,7 +35,15 @@ export async function POST(req: Request) {
 
   const amountPaise = booking.pricePaise || Math.round(booking.service.price * 100)
 
-  const order = await razorpay.orders.create({
+  const client = await getRazorpayClient()
+  if (!client) {
+    const msg = process.env.NODE_ENV === 'development'
+      ? 'Razorpay keys missing; set RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET'
+      : 'Payment service unavailable'
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
+
+  const order = await client.orders.create({
     amount: amountPaise,
     currency: 'INR',
     receipt: `bk_${booking.id}`,

@@ -12,6 +12,8 @@ export const {
   signOut 
 } = NextAuth({
   adapter: PrismaAdapter(prisma),
+  // Provide stable secret for tests/dev if not supplied
+  secret: process.env.NEXTAUTH_SECRET || 'dev_fallback_secret',
   session: {
     strategy: "jwt",
   },

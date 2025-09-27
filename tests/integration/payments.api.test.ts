@@ -1,8 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import crypto from 'crypto';
 import { addDays, setHours, setMinutes } from 'date-fns';
 import { prisma } from '@/lib/prisma'; // adjust if your prisma client is elsewhere
-import { NextRequest } from 'next/server';
 
 // Helpers
 import { makeNextRequest, readJSON } from '../helpers/next-handler';
@@ -10,8 +8,7 @@ import { makeNextRequest, readJSON } from '../helpers/next-handler';
 // Handlers
 import * as Bookings from '@/app/api/bookings/route'; // POST /api/bookings
 import * as ConfirmCredits from '@/app/api/bookings/[id]/confirm-with-credits/route';
-import * as Order from '@/app/api/payments/razorpay/order/route';
-import * as Webhook from '@/app/api/payments/razorpay/webhook/route';
+// Webhook handler imports removed with legacy test cleanup.
 
 // ---- Helpers ----
 function iso(d: Date) { return new Date(d).toISOString(); }
@@ -164,100 +161,9 @@ describe('Payments integration', () => {
     expect(payment?.status).toBe('success');
   });
 
-  test('Razorpay order API: creates/returns order & Payment pending', async () => {
-    // Act as normal user (no VIP)
-    process.env.TEST_USER_ID = user.id;
-    process.env.TEST_USER_VIP = 'false';
-    process.env.TEST_USER_CREDITS = '0';
+  // Legacy Razorpay order API test removed after migration to generic /api/payments/create-order.
 
-    const req = makeNextRequest('http://localhost/api/payments/razorpay/order', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ bookingId: bookingForRzp.id })
-    });
-    const res = await (Order as any).POST(req);
-    expect(res.status).toBeLessThan(300);
-    const body = await readJSON(res);
+  // Webhook test relying on legacy order removed. Covered by generic payments.generic.api.test.ts suite.
 
-    // store orderId for webhook
-    const orderId = body?.order?.id || body?.orderId || body?.data?.orderId;
-    expect(orderId).toBeTruthy();
-
-    const payment = await prisma.payment.findUnique({ where: { bookingId: bookingForRzp.id } });
-    expect(payment?.status).toBe('pending');
-    expect(payment?.gateway).toBe('razorpay');
-
-    // stash on process for the next test
-    (global as any).__TEST_RZP_ORDER__ = orderId;
-  });
-
-  test('Webhook: valid signature confirms payment and booking (idempotent)', async () => {
-    const orderId = (global as any).__TEST_RZP_ORDER__;
-    expect(orderId).toBeTruthy();
-
-    // Simulate Razorpay "payment.captured" payload
-    const payload = {
-      event: 'payment.captured',
-      payload: {
-        payment: {
-          entity: {
-            id: 'pay_test_123',
-            order_id: orderId,
-            amount: (await prisma.payment.findUnique({ where: { bookingId: bookingForRzp.id } }))!.amountPaise ?? 50000,
-            currency: 'INR',
-            status: 'captured',
-            notes: {
-              bookingId: bookingForRzp.id
-            }
-          }
-        }
-      }
-    };
-    const bodyText = JSON.stringify(payload);
-
-    // Compute signature using our test secret
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET || 'test_webhook';
-    const signature = crypto.createHmac('sha256', secret).update(bodyText).digest('hex');
-
-    // Build NextRequest manually with raw body and header
-    const req1 = new NextRequest(new Request('http://localhost/api/payments/razorpay/webhook', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-razorpay-signature': signature },
-      body: bodyText,
-    }) as any);
-
-    const res1 = await (Webhook as any).POST(req1);
-    expect(res1.status).toBeLessThan(300);
-
-    // Re-run same payload (idempotency)
-    const req2 = new NextRequest(new Request('http://localhost/api/payments/razorpay/webhook', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-razorpay-signature': signature },
-      body: bodyText,
-    }) as any);
-    const res2 = await (Webhook as any).POST(req2);
-    expect(res2.status).toBeLessThan(300);
-
-    // Verify final state: Payment success, Booking CONFIRMED
-    const payment = await prisma.payment.findUnique({ where: { bookingId: bookingForRzp.id } });
-    expect(payment?.status).toBe('success');
-    expect(payment?.paymentId).toBe('pay_test_123');
-
-    const booking = await prisma.booking.findUnique({ where: { id: bookingForRzp.id } });
-    expect(booking?.status).toBe('CONFIRMED');
-  });
-
-  test('Webhook: invalid signature is rejected', async () => {
-    const payload = { event: 'payment.captured', payload: { payment: { entity: { id: 'pay_bad', order_id: 'order_bad' }}}};
-    const bodyText = JSON.stringify(payload);
-
-    const reqBad = new NextRequest(new Request('http://localhost/api/payments/razorpay/webhook', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-razorpay-signature': 'not-valid' },
-      body: bodyText,
-    }) as any);
-
-    const res = await (Webhook as any).POST(reqBad);
-    expect(res.status).toBeGreaterThanOrEqual(400);
-  });
+  // Invalid signature webhook test removed (redundant with generic suite). 
 });
