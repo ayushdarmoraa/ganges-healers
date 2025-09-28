@@ -6,7 +6,6 @@ import React from 'react'
 import { format } from 'date-fns'
 import { Card, CardContent } from '@/components/ui/card'
 import BookingActions from '@/components/dashboard/BookingActions'
-import Link from 'next/link'
 
 interface BookingRecord {
   id: string
@@ -14,7 +13,7 @@ interface BookingRecord {
   scheduledAt: Date
   service: { name: string }
   healer: { user: { name: string | null } | null }
-  payment: { id: string; status: string | null; statusEnum: string | null; gateway: string | null } | null
+  payment: { id: string; paymentId?: string | null; gatewayPaymentId?: string | null; status: string | null; statusEnum: string | null; gateway: string | null } | null
 }
 
 export default function DashboardClient({ bookings }: { bookings: BookingRecord[] }) {
@@ -41,7 +40,7 @@ export default function DashboardClient({ bookings }: { bookings: BookingRecord[
                     Status: <span className="font-medium">{b.status}</span> | Payment: {b.payment?.status ?? '-'} ({b.payment?.gateway ?? '-'})
                   </div>
                   {hasSuccessPayment && b.payment && (
-                    <InvoiceLink paymentId={b.payment.id} />
+                    <StaticInvoiceLink payment={b.payment} />
                   )}
                 </div>
                 {(b.status === 'PENDING' || b.status === 'CONFIRMED') && (
@@ -56,32 +55,20 @@ export default function DashboardClient({ bookings }: { bookings: BookingRecord[
   )
 }
 
-function InvoiceLink({ paymentId }: { paymentId: string }) {
-  const [url, setUrl] = React.useState<string | null>(null)
-  const [loading, setLoading] = React.useState(true)
-  React.useEffect(() => {
-    let cancelled = false
-    let attempts = 0
-    const poll = async () => {
-      attempts++
-      try {
-        const res = await fetch(`/api/invoices/${paymentId}`)
-        if (res.ok) {
-          const data = await res.json()
-          if (!cancelled) { setUrl(data.invoice?.pdfUrl || null); setLoading(false) }
-          return
-        }
-      } catch {/* ignore */}
-      if (attempts < 30) {
-        setTimeout(poll, 500)
-      } else if (!cancelled) {
-        setLoading(false)
-      }
-    }
-    poll()
-    return () => { cancelled = true }
-  }, [paymentId])
-  if (loading) return <div className="mt-2 text-xs text-muted-foreground">Invoice: Generating…</div>
-  if (url) return <Link href={url} className="mt-2 inline-block text-sm text-primary underline">View invoice</Link>
-  return <div className="mt-2 text-xs text-muted-foreground">Invoice unavailable</div>
+function StaticInvoiceLink({ payment }: { payment: { id: string; paymentId?: string | null; gatewayPaymentId?: string | null } }) {
+  const invId = payment.paymentId || payment.gatewayPaymentId || payment.id
+  return (
+    <div className="mt-2 text-xs text-muted-foreground">
+      {invId ? (
+        <a
+          href={`/api/invoices/${invId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-primary underline"
+        >Invoice</a>
+      ) : (
+        <span>Invoice: Generating…</span>
+      )}
+    </div>
+  )
 }
