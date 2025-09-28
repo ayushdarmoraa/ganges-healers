@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { activateProgramEnrollment } from '@/lib/payments/activateProgramEnrollment'
+import { createAndStoreInvoicePdf } from '@/lib/invoices'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -34,6 +35,25 @@ export async function POST(req: Request) {
         }
         const activation = await activateProgramEnrollment({ paymentId: p.id, orderId: p.order_id })
         console.log('[payments][webhook][captured]', { gatewayPaymentId: p.id, activation })
+
+        // Auto-generate invoice PDF (idempotent)
+        if (found) {
+          const controller = new AbortController()
+          const timeout = setTimeout(() => controller.abort(), 3000)
+          try {
+            const url = await Promise.race([
+              createAndStoreInvoicePdf(p.id),
+              new Promise<string | null>((_, reject) => {
+                controller.signal.addEventListener('abort', () => reject(new Error('timeout')))
+              })
+            ])
+            if (url) console.log('[invoices][webhook] stored', { paymentId: found.id, url })
+          } catch (invErr) {
+            console.warn('[invoices][webhook][error]', { paymentId: found.id, error: (invErr as Error).message })
+          } finally {
+            clearTimeout(timeout)
+          }
+        }
       }
     } else if (evt === 'subscription.activated') {
       const sub = payload.payload?.subscription?.entity
