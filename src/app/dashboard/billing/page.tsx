@@ -19,8 +19,8 @@ export default async function BillingPage() {
     id: string
     issuedAt: Date
     totalPaise: number
-    pdfUrl: string
-    payment: { type?: string | null } | null
+    pdfUrl: string | null
+    payment: { id: string; paymentId?: string | null; gatewayPaymentId?: string | null; type?: string | null } | null
   }
   const typedInvoices = invoices as unknown as InvoiceRow[]
   return (
@@ -42,7 +42,23 @@ export default async function BillingPage() {
               <td className="p-2 whitespace-nowrap">{inv.issuedAt.toISOString().slice(0,10)}</td>
               <td className="p-2">₹{(inv.totalPaise/100).toFixed(2)}</td>
               <td className="p-2">{inv.payment?.type || 'SESSION'}</td>
-              <td className="p-2">{inv.pdfUrl ? <Link href={inv.pdfUrl} className="text-primary underline" target="_blank">Download</Link> : <span className="text-xs text-muted-foreground">Generating…</span>}</td>
+              <td className="p-2">
+                {inv.pdfUrl ? (
+                  <Link href={inv.pdfUrl} className="text-primary underline" target="_blank" rel="noopener noreferrer">Download</Link>
+                ) : (() => {
+                  const invId = inv.payment?.paymentId || inv.payment?.gatewayPaymentId || inv.payment?.id
+                  return invId ? (
+                    <a
+                      href={`/api/invoices/${invId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary underline"
+                    >Invoice</a>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Generating…</span>
+                  )
+                })()}
+              </td>
             </tr>
           ))}
         </tbody>
