@@ -14,18 +14,21 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
 
   try {
     // 1) Try by payment identifiers (supports both old/new names)
-    const payment = await prisma.payment.findFirst({
+  type PaymentLookup = { invoiceUrl?: string | null; invoice?: { pdfUrl: string | null } | null }
+    const paymentRaw = await prisma.payment.findFirst({
       where: {
         OR: [
           { paymentId: id },
           { gatewayPaymentId: id },
           { orderId: id },
           { gatewayOrderId: id },
-          { id }, // direct primary key match as last resort
+          { id },
         ],
       },
-      select: { invoice: { select: { pdfUrl: true } } },
+  // NOTE: Payment.invoiceUrl not present in current Prisma model; if added later, update select.
+  select: { invoice: { select: { pdfUrl: true } } },
     })
+    const payment = paymentRaw as unknown as PaymentLookup | null
 
     if (payment?.invoice?.pdfUrl) {
       return NextResponse.redirect(payment.invoice.pdfUrl, 302)
@@ -33,18 +36,10 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
 
     // 2) Fallback: maybe client passed an invoice number or invoice id
     const invoice = await prisma.invoice.findFirst({
-      where: {
-        OR: [
-          { invoiceNumber: id },
-          { id },
-        ],
-      },
+      where: { OR: [{ invoiceNumber: id }, { id }] },
       select: { pdfUrl: true },
     })
-
-    if (invoice?.pdfUrl) {
-      return NextResponse.redirect(invoice.pdfUrl, 302)
-    }
+    if (invoice?.pdfUrl) return NextResponse.redirect(invoice.pdfUrl, 302)
 
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   } catch (err) {
