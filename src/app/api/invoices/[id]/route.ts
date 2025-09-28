@@ -13,6 +13,27 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   const { id } = await context.params
 
   try {
+    // Fast path: raw SQL direct lookup of Payment.invoiceUrl (column exists in DB but not in Prisma model)
+    try {
+      const rows: Array<{ invoiceUrl: string | null }> = await prisma.$queryRaw`
+        SELECT "invoiceUrl"
+        FROM "Payment"
+        WHERE "paymentId" = ${id}
+           OR "gatewayPaymentId" = ${id}
+           OR "orderId" = ${id}
+           OR "gatewayOrderId" = ${id}
+           OR "id" = ${id}
+        LIMIT 1
+      `
+      const url = rows?.[0]?.invoiceUrl
+      if (url) {
+        console.log('[invoices][lookup] redirecting to invoiceUrl', { id })
+        return NextResponse.redirect(url, 302)
+      }
+    } catch (rawErr) {
+      console.warn('[invoices][lookup][raw_fallback_failed]', rawErr)
+    }
+
     // 1) Try by payment identifiers (supports both old/new names)
   type PaymentLookup = { invoiceUrl?: string | null; invoice?: { pdfUrl: string | null } | null }
     const paymentRaw = await prisma.payment.findFirst({
