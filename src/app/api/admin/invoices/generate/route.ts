@@ -49,12 +49,12 @@ export async function POST(req: NextRequest) {
     }
 
     const targetId = p.paymentId || p.gatewayPaymentId || p.id
-    const url = await createAndStoreInvoicePdf(targetId)
+    const url = await createAndStoreInvoicePdf(targetId, { force })
     if (!url) return NextResponse.json({ error: 'not_found_or_failed' }, { status: 400 })
     console.log('[admin][invoices][generate] created', { paymentId: p.id, url, force })
     return NextResponse.json({ url })
   } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
     console.error('[admin][invoices][generate][error]', { paymentId, error: err.message })
-    return NextResponse.json({ error: 'generation_failed' }, { status: 400 })
+    return NextResponse.json({ error: 'generation_failed', detail: err.message }, { status: 400 })
   }
 }

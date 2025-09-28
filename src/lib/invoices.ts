@@ -42,66 +42,122 @@ export function formatInvoiceData(payment: PaymentLike): InvoicePDFData {
   }
 }
 
-export async function createAndStoreInvoicePdf(paymentId: string): Promise<string | null> {
-  // Load payment with relations; support both booking+service or generic payments
-  const payment = await prisma.payment.findFirst({
-    where: {
-      OR: [
-        { paymentId },
-        { gatewayPaymentId: paymentId },
-        { id: paymentId },
-      ]
-    },
-    include: {
-      user: true,
-      booking: { include: { service: true } },
-    }
+export async function createAndStoreInvoicePdf(lookupId: string, opts?: { force?: boolean }): Promise<string | null> {
+  // Raw flexible lookup (legacy-safe). Using $queryRawUnsafe with parameter binding simulation.
+  console.log('[invoices][gen] start_lookup', { lookupId })
+  interface RawPaymentRow { id: string; paymentId?: string | null; gatewayPaymentId?: string | null; orderId?: string | null; gatewayOrderId?: string | null; userId?: string | null; bookingId?: string | null; amountPaise?: number | null; currency?: string | null; invoiceUrl?: string | null }
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, "paymentId", "gatewayPaymentId", "orderId", "gatewayOrderId", "userId", "bookingId", "amountPaise", currency, "invoiceUrl"
+     FROM "Payment"
+     WHERE $1 IN ("paymentId","gatewayPaymentId","orderId","gatewayOrderId","id")
+     LIMIT 1`,
+    lookupId
+  )
+  const arr: RawPaymentRow[] = Array.isArray(rows) ? rows as RawPaymentRow[] : []
+  const row = arr[0]
+  if (!row) throw new Error('PAYMENT_NOT_FOUND')
+
+  console.log('[invoices][gen] row_fetched', {
+    lookupId,
+    paymentId: row.id,
+    hasInvoiceUrl: !!row.invoiceUrl,
+    userId: row.userId,
+    bookingId: row.bookingId,
+    amountPaise: row.amountPaise ?? 0,
+    currency: row.currency || 'INR',
+    force: !!opts?.force
   })
-  if (!payment) return null
 
-  // If already has invoiceUrl column in DB via raw query, try to read it (defensive)
-  // We cannot select it via Prisma if not in schema; rely on separate update logic below.
+  if (row.invoiceUrl && !opts?.force) {
+    console.log('[invoices][gen] idempotent_existing_payment_invoiceUrl', { lookupId, paymentId: row.id })
+    return row.invoiceUrl
+  }
 
-  // Idempotency check: existing Invoice row?
-  const existing = await prisma.invoice.findFirst({ where: { paymentId: payment.id } })
-  if (existing) return existing.pdfUrl
+  // Idempotency via existing Invoice record
+  const existingInvoice = await prisma.invoice.findFirst({ where: { paymentId: row.id } })
+  if (existingInvoice && !opts?.force) {
+    console.log('[invoices][gen] idempotent_existing_invoice_row', { lookupId, paymentId: row.id })
+    return existingInvoice.pdfUrl
+  }
 
-  const data = formatInvoiceData(payment as unknown as PaymentLike)
+  // Optional related data (defensive)
+  const user = row.userId ? await prisma.user.findUnique({ where: { id: row.userId }, select: { name: true, email: true } }) : null
+  if (!user && row.userId) console.warn('[invoices][gen][context][missing_user]', { lookupId, userId: row.userId })
+  const booking = row.bookingId ? await prisma.booking.findUnique({ where: { id: row.bookingId }, select: { serviceId: true } }) : null
+  if (!booking && row.bookingId) console.warn('[invoices][gen][context][missing_booking]', { lookupId, bookingId: row.bookingId })
+  const service = booking?.serviceId ? await prisma.service.findUnique({ where: { id: booking.serviceId }, select: { name: true } }) : null
+  if (!service && booking?.serviceId) console.warn('[invoices][gen][context][missing_service]', { lookupId, serviceId: booking.serviceId })
+  console.log('[invoices][gen] context', {
+    lookupId,
+    paymentId: row.id,
+    hasUser: !!user,
+    hasBooking: !!booking,
+    hasService: !!service
+  })
 
-  // Create PDF
-  const pdfDoc = await PDFDocument.create()
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
-  const page = pdfDoc.addPage([595.28, 841.89]) // A4
-  let y = 800
-  const write = (text: string, size = 12) => { page.drawText(text, { x: 40, y, size, font }); y -= size + 8 }
-  write('Ganges Healers', 20)
-  write(`Invoice #: ${data.invoiceNumber}`)
-  write(`Date: ${data.dateISO}`)
-  write(`Customer: ${data.customerName} <${data.customerEmail}>`)
-  write(`Service: ${data.serviceTitle}`)
-  write(`Amount: ${data.totalFormatted}`)
-  write('Thank you for your purchase!')
-  const pdfBytes = await pdfDoc.save()
+  const invoiceNumber = row.paymentId || row.gatewayPaymentId || lookupId
+  const amountPaise: number = typeof row.amountPaise === 'number' ? row.amountPaise : 0
+  const currency = (row.currency || 'INR').toUpperCase()
+  const customerName = user?.name || 'Customer'
+  const customerEmail = user?.email || 'unknown@example.com'
+  const serviceTitle = service?.name || 'Session'
 
-  const path = `invoices/${data.invoiceNumber}.pdf`
-  const envObj: Record<string, string | undefined> = process.env as Record<string, string | undefined>
-  const token = envObj.BLOB_READ_WRITE_TOKEN || envObj.BLOBD55__READ_WRITE_TOKEN || undefined
+  console.log('[invoices][gen] start_pdf', { lookupId, invoiceNo: invoiceNumber })
+  let pdfBytes: Uint8Array
+  try {
+    const pdfDoc = await PDFDocument.create()
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
+    const page = pdfDoc.addPage([595.28, 841.89])
+    let y = 800
+    const write = (text: string, size = 12) => { page.drawText(text, { x: 40, y, size, font }); y -= size + 8 }
+    write('Ganges Healers', 20)
+    write(`Invoice #: ${invoiceNumber}`)
+    write(`Date: ${new Date().toISOString()}`)
+    write(`Customer: ${customerName} <${customerEmail}>`)
+    write(`Service: ${serviceTitle}`)
+    write(`Amount: ${currency} ${(amountPaise / 100).toFixed(2)}`)
+    write('Thank you for your purchase!')
+    pdfBytes = await pdfDoc.save()
+  } catch (e) {
+    console.error('[invoices][gen][error][pdf]', lookupId, e)
+    throw e
+  }
+
+  const envEntries = Object.entries(process.env as Record<string, string | undefined>)
+  const blobToken = process.env.BLOB_READ_WRITE_TOKEN || envEntries.find(([k]) => /^BLOB\w+__READ_WRITE_TOKEN$/.test(k))?.[1]
+  const path = `invoices/${invoiceNumber}.pdf`
   const buffer = Buffer.from(pdfBytes)
-  const { url } = await put(path, buffer, { access: 'public', token })
+  let url: string
+  try {
+    const putResult = await put(path, buffer, { access: 'public', token: blobToken })
+    url = putResult.url
+  } catch (e) {
+    console.error('[invoices][gen][error][upload]', lookupId, e)
+    throw e
+  }
 
-  // Persist invoice row (idempotent upsert logic)
-  await prisma.invoice.create({
-    data: {
-      paymentId: payment.id,
-      invoiceNumber: data.invoiceNumber,
-      billTo: { name: data.customerName, email: data.customerEmail },
-      lineItems: [{ description: data.serviceTitle, amountPaise: data.amountPaise }],
-      subtotalPaise: data.amountPaise,
-      totalPaise: data.amountPaise,
-      pdfUrl: url,
-      taxPaise: 0,
-    }
-  })
+  try {
+    await prisma.invoice.upsert({
+      where: { paymentId: row.id },
+      update: { pdfUrl: url, totalPaise: amountPaise, subtotalPaise: amountPaise },
+      create: {
+        paymentId: row.id,
+        invoiceNumber,
+        billTo: { name: customerName, email: customerEmail },
+        lineItems: [{ description: serviceTitle, amountPaise }],
+        subtotalPaise: amountPaise,
+        totalPaise: amountPaise,
+        pdfUrl: url,
+        taxPaise: 0,
+      }
+    })
+  } catch (e) {
+    console.error('[invoices][gen][error][persist]', lookupId, e)
+    // Still return URL since PDF exists and was uploaded
+  }
 
+  // Try to persist invoiceUrl column if it exists (ignore failure)
+  try { await prisma.$executeRawUnsafe(`UPDATE "Payment" SET "invoiceUrl" = $1 WHERE id = $2`, url, row.id) } catch (e) { console.warn('[invoices][gen][warn][persist_invoiceUrl]', { lookupId, paymentId: row.id, error: (e as Error).message }) }
+  console.log('[invoices][gen][done]', { lookupId, paymentId: row.id, url, force: !!opts?.force })
   return url
 }
