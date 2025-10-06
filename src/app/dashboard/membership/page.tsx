@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { useSession } from 'next-auth/react'
+import { toast } from 'sonner'
 
 interface PlanBenefits { freeSessions?: number; priorityBooking?: boolean; discountPct?: number }
 interface Plan { slug: string; title: string; pricePaise: number; interval: string; benefits: PlanBenefits | null }
@@ -14,7 +15,7 @@ export default function MembershipPage() {
   const [loadingPlans, setLoadingPlans] = useState(false)
   const [membership, setMembership] = useState<MembershipResp['membership'] | null>(null)
   const [credits, setCredits] = useState<number>(0)
-  const [subscribing, setSubscribing] = useState(false)
+  const [subscribingPlan, setSubscribingPlan] = useState<null | string>(null)
   const [polling, setPolling] = useState(false)
   const [error, setError] = useState<string | null>(null)
   interface InvoiceLite { id: string; issuedAt: string; totalPaise: number; pdfUrl: string | null }
@@ -74,25 +75,37 @@ export default function MembershipPage() {
     }
   }, [polling, membership, fetchMembership])
 
-  const handleSubscribe = async (plan: Plan) => {
+  const handleSubscribe = async (planSlug: 'MONTHLY' | 'YEARLY') => {
     setError(null)
-    setSubscribing(true)
+    setSubscribingPlan(planSlug)
     try {
-      const res = await fetch('/api/memberships/subscribe', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ planSlug: plan.slug }) })
+      const res = await fetch('/api/memberships/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planSlug })
+      })
       if (!res.ok) {
-        const data = await res.json().catch(()=>({}))
-        setError(data.error || 'Subscription failed')
+        const data = await res.json().catch(() => ({}))
+        const msg = data.error || 'Subscription initiation failed'
+        toast.error(`Subscription initiation failed: ${msg}`)
+        setError(msg)
         return
       }
-      const data = await res.json()
-      // Razorpay subscription checkout opening (simplified placeholder)
-      // In real flow, you'd use Razorpay Checkout script with subscription_id
-      console.log('[membership][subscribe][checkout]', { subscriptionId: data.subscriptionId })
-      setPolling(true)
+      const json = await res.json()
+      const shortUrl: string | null = json.shortUrl || null
+      if (shortUrl) {
+        toast.success('Redirecting to payment...')
+        window.location.href = shortUrl
+      } else {
+        toast.error('Subscription initiation failed: missing payment URL')
+        setError('Missing payment URL')
+      }
     } catch (e) {
-      setError((e as Error).message)
+      const msg = (e as Error).message
+      toast.error(`Subscription initiation failed: ${msg}`)
+      setError(msg)
     } finally {
-      setSubscribing(false)
+      setSubscribingPlan(null)
     }
   }
 
@@ -111,7 +124,19 @@ export default function MembershipPage() {
               </ul>
             )}
           </div>
-          <Button disabled={subscribing} className="mt-4" onClick={() => handleSubscribe(p)}>Subscribe</Button>
+          {(() => {
+            const normalized = p.slug.toUpperCase() === 'MONTHLY' ? 'MONTHLY' : p.slug.toUpperCase() === 'YEARLY' ? 'YEARLY' : null
+            return (
+              <Button
+                data-cy={normalized === 'MONTHLY' ? 'subscribe-monthly' : normalized === 'YEARLY' ? 'subscribe-yearly' : undefined}
+                disabled={!normalized || subscribingPlan === normalized}
+                className="mt-4"
+                onClick={() => normalized && handleSubscribe(normalized)}
+              >
+                {subscribingPlan === normalized ? 'Loading…' : 'Subscribe'}
+              </Button>
+            )
+          })()}
         </div>
       ))}
     </div>
