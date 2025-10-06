@@ -15,7 +15,7 @@ export default function MembershipPage() {
   const [loadingPlans, setLoadingPlans] = useState(false)
   const [membership, setMembership] = useState<MembershipResp['membership'] | null>(null)
   const [credits, setCredits] = useState<number>(0)
-  const [subscribingPlan, setSubscribingPlan] = useState<null | string>(null)
+  const [submitting, setSubmitting] = useState<Record<string, boolean>>({})
   const [polling, setPolling] = useState(false)
   const [error, setError] = useState<string | null>(null)
   interface InvoiceLite { id: string; issuedAt: string; totalPaise: number; pdfUrl: string | null }
@@ -75,14 +75,14 @@ export default function MembershipPage() {
     }
   }, [polling, membership, fetchMembership])
 
-  const handleSubscribe = async (planSlug: 'MONTHLY' | 'YEARLY') => {
+  const handleSubscribe = async (plan: Plan) => {
     setError(null)
-    setSubscribingPlan(planSlug)
+    setSubmitting(s => ({ ...s, [plan.slug]: true }))
     try {
       const res = await fetch('/api/memberships/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planSlug })
+        body: JSON.stringify({ planSlug: plan.slug })
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -105,7 +105,7 @@ export default function MembershipPage() {
       toast.error(`Subscription initiation failed: ${msg}`)
       setError(msg)
     } finally {
-      setSubscribingPlan(null)
+      setSubmitting(s => ({ ...s, [plan.slug]: false }))
     }
   }
 
@@ -125,15 +125,15 @@ export default function MembershipPage() {
             )}
           </div>
           {(() => {
-            const normalized = p.slug.toUpperCase() === 'MONTHLY' ? 'MONTHLY' : p.slug.toUpperCase() === 'YEARLY' ? 'YEARLY' : null
+            const busy = !!submitting[p.slug]
             return (
               <Button
-                data-cy={normalized === 'MONTHLY' ? 'subscribe-monthly' : normalized === 'YEARLY' ? 'subscribe-yearly' : undefined}
-                disabled={!normalized || subscribingPlan === normalized}
+                data-cy={p.slug === 'vip-monthly' ? 'subscribe-monthly' : p.slug === 'vip-yearly' ? 'subscribe-yearly' : undefined}
+                disabled={busy}
                 className="mt-4"
-                onClick={() => normalized && handleSubscribe(normalized)}
+                onClick={() => handleSubscribe(p)}
               >
-                {subscribingPlan === normalized ? 'Loading…' : 'Subscribe'}
+                {busy ? 'Loading...' : 'Subscribe'}
               </Button>
             )
           })()}
