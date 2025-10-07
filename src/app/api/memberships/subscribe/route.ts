@@ -19,13 +19,17 @@ export async function POST(req: Request) {
     const parsed = BodySchema.safeParse(body)
     if (!parsed.success) return NextResponse.json({ error: 'Invalid body', issues: parsed.error.issues }, { status: 400 })
     const { planSlug } = parsed.data
+    const raw = (planSlug ?? '').toString().trim()
+    const canonical = raw.toLowerCase()
+    const slug = canonical === 'monthly' ? 'vip-monthly'
+      : canonical === 'yearly' ? 'vip-yearly'
+      : raw
 
-    // Look up plan (active only) selecting required fields
-    const plan = await prisma.membershipPlan.findFirst({
-      where: { slug: planSlug, isActive: true },
-      select: { id: true, razorpayPlanId: true, pricePaise: true, interval: true }
-    })
-    if (!plan) return NextResponse.json({ error: 'Plan not found or inactive' }, { status: 404 })
+    const plan = await prisma.membershipPlan.findUnique({ where: { slug } })
+    if (!plan || !plan.razorpayPlanId) {
+      return NextResponse.json({ error: 'Unknown or unconfigured plan' }, { status: 400 })
+    }
+    const planId = plan.razorpayPlanId.trim()
 
     const keyId = process.env.RAZORPAY_KEY_ID
     const keySecret = process.env.RAZORPAY_KEY_SECRET
@@ -36,8 +40,8 @@ export async function POST(req: Request) {
     const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64')
 
     const url = 'https://api.razorpay.com/v1/subscriptions'
-    const payload = { plan_id: plan.razorpayPlanId, total_count: 12, customer_notify: 1 }
-    console.log('[membership][subscribe] POST /v1/subscriptions', { planId: plan.razorpayPlanId, interval: plan.interval })
+    const payload = { plan_id: planId, total_count: 12, customer_notify: 1 }
+    console.log('[membership][subscribe] POST /v1/subscriptions', { input: planSlug, slug, planId, interval: plan.interval, key: keyId.slice(0,8) })
     const resp = await fetch(url, {
       method: 'POST',
       headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
@@ -45,16 +49,16 @@ export async function POST(req: Request) {
     })
     if (!resp.ok) {
       const text = await resp.text().catch(() => '---')
-      console.error('[membership][subscribe][error]', { status: resp.status, body: text.slice(0, 600) })
+      console.error('[membership][subscribe][error]', { status: resp.status, body: text.slice(0, 600), slug, planId, key: keyId.slice(0,8) })
       return NextResponse.json({ error: 'Subscription initiation failed' }, { status: 500 })
     }
-    interface RazorpayCreateSub { id?: string; short_url?: string }
+    interface RazorpayCreateSub { id?: string; short_url?: string; shortUrl?: string }
     const json = await resp.json() as RazorpayCreateSub
     if (!json.id) {
-      console.error('[membership][subscribe][error]', { reason: 'missing_id_field', json })
+      console.error('[membership][subscribe][error]', { reason: 'missing_id_field', json, slug, planId, key: keyId.slice(0,8) })
       return NextResponse.json({ error: 'Subscription initiation failed' }, { status: 500 })
     }
-    return NextResponse.json({ id: json.id, shortUrl: json.short_url || null })
+    return NextResponse.json({ id: json.id, shortUrl: json.short_url || json.shortUrl || null })
   } catch (err) {
     console.error('[membership][subscribe][error]', err)
     return NextResponse.json({ error: 'Subscription initiation failed' }, { status: 500 })
