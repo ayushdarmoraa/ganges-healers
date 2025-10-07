@@ -43,6 +43,7 @@ export async function POST(req: Request) {
 
     if (dry) {
       return NextResponse.json({
+        marker: 'SUBSCRIBE_V3',
         planSlug: rawSlug,
         canonical,
         planId,
