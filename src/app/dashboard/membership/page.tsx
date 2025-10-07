@@ -86,7 +86,9 @@ export default function MembershipPage() {
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        const msg = data.error || 'Subscription initiation failed'
+        const msgBase = data.error || 'Subscription initiation failed'
+        const detail = data.errorDetail ? ` (${data.errorDetail})` : ''
+        const msg = msgBase + detail
         toast.error(`Subscription initiation failed: ${msg}`)
         setError(msg)
         return

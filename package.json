@@ -20,7 +20,8 @@
   "dev:test": "dotenv -e .env.test -- node scripts/e2e-dev.cjs",
     "test:all": "pnpm test:unit && pnpm db:test:push && pnpm db:test:seed && pnpm test:int && pnpm test:ui && pnpm test:e2e",
     "db:test:push": "dotenv -e .env.test -- prisma db push --force-reset",
-    "db:test:seed": "dotenv -e .env.test -- tsx prisma/seed.ts"
+    "db:test:seed": "dotenv -e .env.test -- tsx prisma/seed.ts",
+    "db:fix-plans": "tsx scripts/fix-plans.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
