@@ -7,7 +7,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
-const BodySchema = z.object({ planSlug: z.string().min(2) })
+const BodySchema = z.object({ planSlug: z.string().min(2), dry: z.boolean().optional() })
 
 export async function POST(req: Request) {
   try {
@@ -15,10 +15,12 @@ export async function POST(req: Request) {
     const session = await auth()
     if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const body = await req.json().catch(() => ({}))
-    const parsed = BodySchema.safeParse(body)
+  const urlObj = new URL(req.url)
+  const queryDry = urlObj.searchParams.get('dry') === '1'
+  const body = await req.json().catch(() => ({}))
+  const parsed = BodySchema.safeParse(body)
     if (!parsed.success) return NextResponse.json({ error: 'Invalid body', issues: parsed.error.issues }, { status: 400 })
-    const { planSlug } = parsed.data
+  const { planSlug, dry: bodyDry } = parsed.data
     const raw = (planSlug ?? '').toString().trim()
     const canonical = raw.toLowerCase()
     const slug = canonical === 'monthly' ? 'vip-monthly'
@@ -31,8 +33,8 @@ export async function POST(req: Request) {
     }
     const planId = plan.razorpayPlanId.trim()
 
-    const keyId = process.env.RAZORPAY_KEY_ID
-    const keySecret = process.env.RAZORPAY_KEY_SECRET
+  const keyId = process.env.RAZORPAY_KEY_ID
+  const keySecret = process.env.RAZORPAY_KEY_SECRET
     if (!keyId || !keySecret) {
       console.error('[membership][subscribe][error]', { reason: 'missing_keys' })
       return NextResponse.json({ error: 'Subscription initiation failed' }, { status: 500 })
@@ -41,6 +43,11 @@ export async function POST(req: Request) {
 
     const url = 'https://api.razorpay.com/v1/subscriptions'
     const payload = { plan_id: planId, total_count: 12, customer_notify: 1 }
+
+    // Dry-run debug: skip Razorpay network call, just return resolution context
+    if (queryDry || bodyDry) {
+      return NextResponse.json({ planSlug: raw, canonical: slug, planId, keyPrefix: keyId ? keyId.slice(0,12) : null, dry: true })
+    }
     console.log('[membership][subscribe] POST /v1/subscriptions', { input: planSlug, slug, planId, interval: plan.interval, key: keyId.slice(0,8) })
     const resp = await fetch(url, {
       method: 'POST',
