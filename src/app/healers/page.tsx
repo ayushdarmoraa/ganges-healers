@@ -2,11 +2,16 @@ import Link from 'next/link'
 import { listHealers } from '@/lib/healers/queries'
 import type { Metadata } from 'next'
 import { canonicalOf } from '@/config/site'
+import Breadcrumbs from '@/components/seo/Breadcrumbs'
+import BreadcrumbsLd from '@/components/seo/BreadcrumbsLd'
+import { makeHealersIndexCrumbs } from '@/lib/seo/breadcrumbs'
 
-export const metadata: Metadata = {
-  title: 'Healers | Ganges Healers',
-  description: 'Browse our directory of certified healers across modalities like Yoga, Reiki, Tarot, and more.',
-  alternates: { canonical: canonicalOf('/healers') },
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: 'Healers | Ganges Healers',
+    description: 'Browse our directory of certified healers across modalities like Yoga, Reiki, Tarot, and more.',
+    alternates: { canonical: canonicalOf('/healers') },
+  }
 }
 
 export default async function HealersPage({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
@@ -18,6 +23,10 @@ export default async function HealersPage({ searchParams }: { searchParams?: Pro
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      {(() => { const crumbs = makeHealersIndexCrumbs(); return (<>
+        <Breadcrumbs crumbs={crumbs} />
+        <BreadcrumbsLd crumbs={crumbs} />
+      </>) })()}
       <h1 className="text-2xl font-semibold">Healers</h1>
       <form className="flex gap-2">
         <input name="q" defaultValue={q} placeholder="Search healers" className="border rounded px-3 py-2 flex-1" />

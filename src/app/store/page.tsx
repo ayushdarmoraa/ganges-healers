@@ -2,6 +2,9 @@ import Link from 'next/link'
 import { canonicalOf } from '@/config/site'
 import type { Metadata } from 'next'
 import { listProducts } from '@/lib/store/queries'
+import Breadcrumbs from '@/components/seo/Breadcrumbs'
+import BreadcrumbsLd from '@/components/seo/BreadcrumbsLd'
+import { makeStoreIndexCrumbs } from '@/lib/seo/breadcrumbs'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,6 +25,10 @@ export default async function StorePage({ searchParams }: { searchParams?: Promi
 
   return (
     <div className="container mx-auto p-6">
+      {(() => { const crumbs = makeStoreIndexCrumbs(); return (<>
+        <Breadcrumbs crumbs={crumbs} />
+        <BreadcrumbsLd crumbs={crumbs} />
+      </>) })()}
       <h1 className="text-3xl font-semibold">Store</h1>
       <form className="mt-4 flex gap-2" action="/store" method="get">
         <input name="q" defaultValue={q} placeholder="Search products" className="border px-3 py-2 rounded w-full" />

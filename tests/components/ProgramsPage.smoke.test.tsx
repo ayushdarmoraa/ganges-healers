@@ -19,7 +19,7 @@ describe('ProgramsPage (server component) smoke', () => {
   test('renders a grid of program cards with titles and prices', async () => {
     const el = await (ProgramsPage as any)()
     render(el)
-    expect(screen.getByText('Programs')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { level: 1, name: 'Programs' })).toBeInTheDocument()
     expect(screen.getByText('Yoga Basics')).toBeInTheDocument()
     expect(screen.getByText('Meditation')).toBeInTheDocument()
     expect(screen.getAllByText(/₹/).length).toBeGreaterThanOrEqual(2)

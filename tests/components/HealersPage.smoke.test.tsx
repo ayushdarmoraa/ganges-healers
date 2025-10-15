@@ -17,7 +17,7 @@ describe('HealersPage smoke', () => {
   test('renders healer cards with names and ratings', async () => {
     const el = await (HealersPage as any)({ searchParams: Promise.resolve({}) })
     render(el)
-    expect(screen.getByText('Healers')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { level: 1, name: 'Healers' })).toBeInTheDocument()
     expect(screen.getByText('Alice')).toBeInTheDocument()
     expect(screen.getByText('Bob')).toBeInTheDocument()
     expect(screen.getAllByText(/⭐/).length).toBeGreaterThanOrEqual(2)

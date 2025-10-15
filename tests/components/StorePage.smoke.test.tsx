@@ -16,7 +16,7 @@ describe('StorePage smoke', () => {
   test('renders product cards', async () => {
     const ui = (await Page({ searchParams: Promise.resolve({}) })) as unknown as React.ReactElement
     render(ui)
-    expect(await screen.findByText(/Store/i)).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { level: 1, name: /Store/i })).toBeInTheDocument()
     expect(screen.getByText(/Oil 1/i)).toBeInTheDocument()
     expect(screen.getByText(/Crystal 1/i)).toBeInTheDocument()
   })

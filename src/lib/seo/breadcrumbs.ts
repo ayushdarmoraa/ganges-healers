@@ -16,12 +16,24 @@ export function makeServiceCrumbs(slug: string, title?: string): Crumb[] {
     { name: title ?? humanize(slug), href: `/services/${slug}` },
   ]
 }
+export function makeServicesIndexCrumbs(): Crumb[] {
+  return [
+    { name: 'Home', href: '/' },
+    { name: 'Services', href: '/services' },
+  ]
+}
 
 export function makeProgramCrumbs(slug: string, title?: string): Crumb[] {
   return [
     { name: 'Home', href: '/' },
     { name: 'Programs', href: '/programs' },
     { name: title ?? humanize(slug), href: `/programs/${slug}` },
+  ]
+}
+export function makeProgramsIndexCrumbs(): Crumb[] {
+  return [
+    { name: 'Home', href: '/' },
+    { name: 'Programs', href: '/programs' },
   ]
 }
 
@@ -32,11 +44,23 @@ export function makeHealerCrumbs(slug: string, name?: string): Crumb[] {
     { name: name ?? humanize(slug), href: `/healers/${slug}` },
   ]
 }
+export function makeHealersIndexCrumbs(): Crumb[] {
+  return [
+    { name: 'Home', href: '/' },
+    { name: 'Healers', href: '/healers' },
+  ]
+}
 
 export function makeProductCrumbs(slug: string, title?: string): Crumb[] {
   return [
     { name: 'Home', href: '/' },
     { name: 'Store', href: '/store' },
     { name: title ?? humanize(slug), href: `/store/${slug}` },
+  ]
+}
+export function makeStoreIndexCrumbs(): Crumb[] {
+  return [
+    { name: 'Home', href: '/' },
+    { name: 'Store', href: '/store' },
   ]
 }

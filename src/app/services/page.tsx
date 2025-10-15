@@ -5,11 +5,16 @@ import ServicesGrid from '@/components/services/ServicesGrid'
 import ServicesFilter from '@/components/services/ServicesFilter'
 import { Metadata } from 'next'
 import { canonicalOf } from '@/config/site'
+import Breadcrumbs from '@/components/seo/Breadcrumbs'
+import BreadcrumbsLd from '@/components/seo/BreadcrumbsLd'
+import { makeServicesIndexCrumbs } from '@/lib/seo/breadcrumbs'
 
-export const metadata: Metadata = {
-  title: 'Healing Services | Ganges Healers',
-  description: 'Explore our range of healing services including Reiki, Hypnotherapy, Yoga Therapy, and more.',
-  alternates: { canonical: canonicalOf('/services') }
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: 'Services | Ganges Healers',
+    description: 'Explore our range of healing services including Reiki, Hypnotherapy, Yoga Therapy, and more.',
+    alternates: { canonical: canonicalOf('/services') },
+  }
 }
 
 // Keep this dynamic to ensure fresh filtering (or switch to awaited searchParams param style)
@@ -126,6 +131,10 @@ export default async function ServicesPage({
       </div>
       
       <div className="container mx-auto px-4 py-8">
+        {(() => { const crumbs = makeServicesIndexCrumbs(); return (<>
+          <Breadcrumbs crumbs={crumbs} />
+          <BreadcrumbsLd crumbs={crumbs} />
+        </>) })()}
         <div className="flex flex-col lg:flex-row gap-8">
           {/* Filters Sidebar */}
           <aside className="lg:w-64">

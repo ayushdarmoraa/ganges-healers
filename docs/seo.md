@@ -7,7 +7,7 @@ SEO polish
   - HealerLd: Person entity
   - BreadcrumbsLd: BreadcrumbList
 - Metadata:
-  - Services/Programs/Healers list pages: title, description, canonical
+  - List pages (/services, /programs, /healers, /store): title, description, canonical via generateMetadata
   - Detail pages: generateMetadata includes canonical; Services canonical strips openBooking and programSlug.
 
 Sitemap
@@ -21,10 +21,10 @@ Sitemap
 Robots
 Breadcrumbs
 
-- Helpers: `src/lib/seo/breadcrumbs.ts` expose typed crumb builders for Services/Programs/Healers/Store.
+- Helpers: `src/lib/seo/breadcrumbs.ts` expose typed crumb builders for Services/Programs/Healers/Store, including index variants (Home › Section) for list pages.
 - UI: `src/components/seo/Breadcrumbs.tsx` renders a simple nav with Home › … separators; last crumb is not linked.
 - JSON-LD: `src/components/seo/BreadcrumbsLd.tsx` emits a `BreadcrumbList` with absolute URLs using `canonicalOf`.
-- Wired on detail pages only; list pages can be added similarly.
+- Wired on detail and list pages (Home › Section on list pages).
 
 
 - Served via app/robots.ts.
