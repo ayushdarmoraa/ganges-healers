@@ -19,6 +19,7 @@ export default function robots(): MetadataRoute.Robots {
         '/admin/',
         '/dashboard/',
         '/auth/',
+        '/invoices/*/view',
       ],
     },
     sitemap: `${base}/sitemap.xml`,

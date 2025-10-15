@@ -14,10 +14,10 @@ export default function Home() {
           with compassion and excellence.
         </p>
         <div className="flex gap-4 justify-center">
-          <Button asChild size="lg">
+          <Button asChild size="lg" className="focus-ring">
             <Link href="/services">Our Services</Link>
           </Button>
-          <Button variant="outline" size="lg" asChild>
+          <Button variant="outline" size="lg" asChild className="focus-ring">
             <Link href="/dashboard">Get Started</Link>
           </Button>
         </div>

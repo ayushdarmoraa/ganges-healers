@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import '@testing-library/jest-dom';
+import 'jest-axe/extend-expect';
 import 'whatwg-fetch';
 import React from 'react';
 

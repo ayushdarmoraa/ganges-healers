@@ -29,8 +29,8 @@ export default function ProductCtaAnalytics({
   }
 
   return (
-    <Link href={href} onClick={onClick}>
-      <span className="inline-flex items-center justify-center rounded bg-purple-600 px-4 py-2 text-white hover:bg-purple-700">
+    <Link href={href} onClick={onClick} aria-label={typeof children === 'string' ? undefined : 'View related service'}>
+      <span className="inline-flex items-center justify-center rounded bg-purple-600 px-4 py-2 text-white hover:bg-purple-700 focus-ring">
         {children}
       </span>
     </Link>

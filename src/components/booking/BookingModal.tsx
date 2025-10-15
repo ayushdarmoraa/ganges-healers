@@ -1,7 +1,7 @@
 // components/booking/BookingModal.tsx
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useId } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Calendar, User, CheckCircle, AlertCircle } from 'lucide-react'
@@ -55,6 +55,9 @@ export default function BookingModal({
   // Track created booking id locally (if needed for future UI)
   const [, setCreatedBookingId] = useState<string | null>(null)
   const verifyingRef = useRef(false)
+  const dateInputRef = useRef<HTMLInputElement | null>(null)
+  const dateId = useId()
+  const titleId = useId()
 
   // (Replaced by shared helper openRazorpayCheckout)
 
@@ -66,6 +69,10 @@ export default function BookingModal({
       setSelectedTime('')
       setAvailableSlots([])
       setError('')
+      // Focus the date input when opening
+      setTimeout(() => {
+        dateInputRef.current?.focus()
+      }, 0)
     }
   }, [isOpen])
 
@@ -245,9 +252,9 @@ export default function BookingModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" aria-labelledby={titleId}>
         <DialogHeader>
-          <DialogTitle>Book {serviceName}</DialogTitle>
+          <DialogTitle id={titleId}>Book {serviceName}</DialogTitle>
           {(programSlug || productSlug) ? (
             <div className="mt-1">
               {programSlug ? (<span className="text-xs text-muted-foreground">Context: program {programSlug}</span>) : null}
@@ -284,7 +291,7 @@ export default function BookingModal({
           {/* Step 1: Date Selection */}
           {step === 'date' && (
             <div className="space-y-3">
-              <label className="text-sm font-medium">Select Date</label>
+              <label className="text-sm font-medium" htmlFor={dateId}>Select Date</label>
               <div className="flex items-center gap-2 p-3 border rounded-lg">
                 <Calendar className="w-4 h-4 text-gray-500" />
                 <input
@@ -294,6 +301,8 @@ export default function BookingModal({
                   min={new Date().toISOString().split('T')[0]}
                   max={new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
                   className="flex-1 outline-none"
+                  ref={dateInputRef}
+                  id={dateId}
                 />
               </div>
             </div>

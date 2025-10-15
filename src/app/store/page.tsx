@@ -34,9 +34,9 @@ export default async function StorePage({ searchParams }: { searchParams?: Promi
       </>) })()}
       <h1 className="text-3xl font-semibold">Store</h1>
       <form className="mt-4 flex gap-2" action="/store" method="get">
-        <input name="q" defaultValue={q} placeholder="Search products" className="border px-3 py-2 rounded w-full" />
+        <input name="q" defaultValue={q} placeholder="Search products" className="border px-3 py-2 rounded w-full focus-ring" />
         {categorySlug ? <input type="hidden" name="categorySlug" value={categorySlug} /> : null}
-        <button className="px-4 py-2 bg-primary text-primary-foreground rounded" type="submit">Search</button>
+        <button className="px-4 py-2 bg-primary text-primary-foreground rounded focus-ring" type="submit">Search</button>
       </form>
       {items.length === 0 ? (
         <EmptyState
@@ -53,7 +53,7 @@ export default async function StorePage({ searchParams }: { searchParams?: Promi
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
           {items.map((p) => (
-            <Link href={`/store/${p.slug}`} key={p.id} className="border rounded p-4 hover:shadow">
+            <Link href={`/store/${p.slug}`} key={p.id} className="border rounded p-4 hover:shadow focus-ring">
               {p.imageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={p.imageUrl} alt={p.title} className="w-full h-40 object-cover rounded" />
@@ -80,7 +80,7 @@ export default async function StorePage({ searchParams }: { searchParams?: Promi
           {q ? <input type="hidden" name="q" value={q} /> : null}
           {categorySlug ? <input type="hidden" name="categorySlug" value={categorySlug} /> : null}
           <input type="hidden" name="cursor" value={nextCursor} />
-          <button className="px-4 py-2 bg-secondary text-secondary-foreground rounded">Load more</button>
+          <button className="px-4 py-2 bg-secondary text-secondary-foreground rounded focus-ring">Load more</button>
         </form>
       ) : null}
     </div>

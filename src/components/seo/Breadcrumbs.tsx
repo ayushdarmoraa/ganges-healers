@@ -11,11 +11,11 @@ export default function Breadcrumbs({ crumbs }: { crumbs: Crumb[] }) {
           return (
             <li key={`${c.href}-${i}`} className="flex items-center gap-1">
               {isLast ? (
-                <span className="text-foreground/80 font-medium">{c.name}</span>
+                <span aria-current="page" className="text-foreground/80 font-medium">{c.name}</span>
               ) : (
                 <Link href={c.href} className="hover:underline">{c.name}</Link>
               )}
-              {!isLast && <span className="px-1 text-foreground/40">›</span>}
+              {!isLast && <span aria-hidden className="px-1 text-foreground/40">›</span>}
             </li>
           )
         })}

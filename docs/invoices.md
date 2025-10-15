@@ -9,6 +9,13 @@
     3) `Invoice.pdfUrl` (by invoiceNumber or id)
   - No JSON body on success
 
+- Viewer page (read-only)
+  - Path: `/invoices/[id]/view`
+  - Resolves via the exact same precedence (pure read-only; no generation)
+  - Renders a simple toolbar: Open PDF, Download, Print; embeds the PDF with `<embed>`
+  - Metadata: `noindex, nofollow`; canonical points to `/invoices/[id]/view`
+  - No changes to existing API contracts
+
 - Generator behavior
   - `createAndStoreInvoicePdf(lookupId, { force? })`
   - Idempotent:

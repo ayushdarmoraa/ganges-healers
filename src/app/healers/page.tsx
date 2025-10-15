@@ -32,9 +32,9 @@ export default async function HealersPage({ searchParams }: { searchParams?: Pro
       </>) })()}
       <h1 className="text-2xl font-semibold">Healers</h1>
       <form className="flex gap-2">
-        <input name="q" defaultValue={q} placeholder="Search healers" className="border rounded px-3 py-2 flex-1" />
-        <input name="serviceSlug" defaultValue={serviceSlug} placeholder="Service slug (optional)" className="border rounded px-3 py-2" />
-        <button type="submit" className="border rounded px-3 py-2">Search</button>
+        <input name="q" defaultValue={q} placeholder="Search healers" className="border rounded px-3 py-2 flex-1 focus-ring" />
+        <input name="serviceSlug" defaultValue={serviceSlug} placeholder="Service slug (optional)" className="border rounded px-3 py-2 focus-ring" />
+        <button type="submit" className="border rounded px-3 py-2 focus-ring">Search</button>
       </form>
       {items.length === 0 ? (
         <EmptyState
@@ -58,7 +58,7 @@ export default async function HealersPage({ searchParams }: { searchParams?: Pro
               {h.services?.length ? (
                 <div className="mt-2 flex flex-wrap gap-2">
                   {h.services.map(s => (
-                    <Link key={s.slug} href={`/services/${s.slug}`} className="text-xs rounded bg-gray-100 px-2 py-1 text-gray-600">{s.title}</Link>
+                    <Link key={s.slug} href={`/services/${s.slug}`} className="text-xs rounded bg-gray-100 px-2 py-1 text-gray-600 focus-ring">{s.title}</Link>
                   ))}
                 </div>
               ) : null}
@@ -68,7 +68,7 @@ export default async function HealersPage({ searchParams }: { searchParams?: Pro
       )}
       {nextCursor ? (
         <div className="pt-2">
-          <Link href={`/healers?${new URLSearchParams({ ...(q ? { q } : {}), ...(serviceSlug ? { serviceSlug } : {}), cursor: nextCursor }).toString()}`} className="border rounded px-3 py-2 inline-block">Load more</Link>
+          <Link href={`/healers?${new URLSearchParams({ ...(q ? { q } : {}), ...(serviceSlug ? { serviceSlug } : {}), cursor: nextCursor }).toString()}`} className="border rounded px-3 py-2 inline-block focus-ring">Load more</Link>
         </div>
       ) : null}
     </div>

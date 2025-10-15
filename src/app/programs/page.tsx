@@ -42,7 +42,7 @@ export default async function ProgramsPage({ searchParams }: { searchParams?: Pr
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {items.map((p) => (
-            <a key={p.id} href={`/programs/${p.slug}`} className="block rounded border p-4 hover:shadow-sm">
+            <a key={p.id} href={`/programs/${p.slug}`} className="block rounded border p-4 hover:shadow-sm focus-ring">
               <div className="font-medium text-lg">{p.title}</div>
               <div className="text-sm text-muted-foreground mt-1">{p.shortDescription}</div>
               <div className="mt-2 text-sm">Sessions: {p.sessionsCount}</div>

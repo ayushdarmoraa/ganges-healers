@@ -211,6 +211,19 @@ For support and questions:
 
 Built with ❤️ using Next.js 14 and modern web technologies.
 
+## Accessibility
+
+We ship with sensible, test-backed accessibility defaults:
+
+- Landmarks: a visible-on-focus Skip to main link and a main region with id="main-content" for quick keyboard navigation.
+- Breadcrumbs: rendered inside nav aria-label="Breadcrumb" with aria-current="page" on the last item; separators are aria-hidden.
+- Empty states: announced via role="status" and aria-live="polite" with a proper heading for context.
+- Modal dialogs: explicit role="dialog" and aria-modal="true", titled via aria-labelledby pointing to DialogTitle; focus is trapped, first control is focused on open, and ESC/close restores prior focus.
+- Focus visibility: a reusable focus-ring utility class applied to primary links and buttons for strong, consistent outlines.
+- CTA semantics: anchors for navigation, buttons for actions (with type="button" where appropriate), no onClick on non-interactive elements, and labels for icon-only buttons.
+
+These behaviors are covered by unit/UI tests (including jest-axe checks) to prevent regressions.
+
 ## Admin Payments Dashboard
 
 The admin analytics dashboard (`/admin/payments`) provides revenue and refund insights across key payment domains.

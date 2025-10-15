@@ -33,7 +33,7 @@ export default function ProgramEnrollSoon({ programSlug, serviceSlug }: Props) {
           <div className="text-base font-medium">Enroll (coming soon)</div>
           <div className="text-sm text-muted-foreground">We&apos;re putting the final touches on enrollments. Launching soon.</div>
         </div>
-  <Button onClick={onClick} className="shrink-0">I&apos;m interested</Button>
+  <Button type="button" onClick={onClick} className="shrink-0">I&apos;m interested</Button>
       </div>
     </Card>
   )
