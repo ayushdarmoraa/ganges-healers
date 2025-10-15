@@ -4,10 +4,12 @@ import { prisma } from '@/lib/prisma'
 import ServicesGrid from '@/components/services/ServicesGrid'
 import ServicesFilter from '@/components/services/ServicesFilter'
 import { Metadata } from 'next'
+import { canonicalOf } from '@/config/site'
 
 export const metadata: Metadata = {
   title: 'Healing Services | Ganges Healers',
-  description: 'Explore our range of healing services including Reiki, Hypnotherapy, Yoga Therapy, and more.'
+  description: 'Explore our range of healing services including Reiki, Hypnotherapy, Yoga Therapy, and more.',
+  alternates: { canonical: canonicalOf('/services') }
 }
 
 // Keep this dynamic to ensure fresh filtering (or switch to awaited searchParams param style)

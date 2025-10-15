@@ -5,6 +5,10 @@ A modern healthcare management system built with Next.js 14, TypeScript, and a c
 > Project roadmap: See docs/IMPLEMENTATION_PLAN.md for the 24-week implementation plan and sprint breakdown.
 > Engineering process: See docs/GUARDRAILS.md for change management and contribution rules.
 > Authentication: See docs/AUTH_IMPLEMENTATION.md for NextAuth setup and testing guide.
+> Analytics: See docs/analytics.md for the client-only analytics shim and events.
+> SEO: See docs/seo.md for canonical URLs, Breadcrumbs & JSON-LD components.
+> Sitemap: Generated via app/sitemap.ts using a helper that outputs canonical URLs only; see docs/seo.md.
+> Robots: Served via app/robots.ts; see docs/seo.md.
 
 ## Tech Stack
 
@@ -26,9 +30,6 @@ A modern healthcare management system built with Next.js 14, TypeScript, and a c
   - Credentials-based login
   - Role-based access control (USER/ADMIN)
   - Session management
-
-- 🏥 **Healthcare Services**
-  - Service catalog with pricing
   - Appointment booking system
   - Patient dashboard
   - Medical records management
@@ -75,8 +76,6 @@ A modern healthcare management system built with Next.js 14, TypeScript, and a c
    ```env
    # Database
    DATABASE_URL="postgresql://username:password@localhost:5432/ganges_healers"
-   
-   # NextAuth
    AUTH_SECRET="your-auth-secret-here"
    NEXTAUTH_URL="http://localhost:3000"
    
@@ -406,6 +405,18 @@ The application loads most configuration from process.env. Missing Razorpay keys
 NEXTAUTH_URL=https://your-domain.example
 AUTH_SECRET=<64-hex-random>
 DATABASE_URL=postgresql://user:pass@host:5432/db?sslmode=require
+
+## Developer Docs
+
+- Ops Checklist: see `docs/ops-checklist.md`
+- Payments and memberships contracts: see `docs/payments.md`
+- Invoices contracts and generator behavior: see `docs/invoices.md`
+
+Local webhook simulator (uses raw HMAC with your local secret):
+
+```
+pnpm simulate:webhook
+```
 
 # Payments (optional but required for Razorpay flow)
 RAZORPAY_KEY_ID=rzp_live_xxx

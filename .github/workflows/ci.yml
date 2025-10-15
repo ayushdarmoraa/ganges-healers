@@ -45,6 +45,7 @@ jobs:
           --health-retries=10
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ganges_healers_test
+      ALLOW_NET_CONNECT: 'false'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

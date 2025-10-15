@@ -1,17 +1,13 @@
 import { NextResponse } from 'next/server'
 import Razorpay from 'razorpay'
 import { prisma } from '@/lib/prisma'
+import { canonicalizePlanSlug } from '@/lib/memberships/slug'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
-function canonicalize(raw: string) {
-  const s = (raw ?? '').toString().trim().toLowerCase()
-  if (s === 'monthly') return 'vip-monthly'
-  if (s === 'yearly') return 'vip-yearly'
-  return raw
-}
+// Use shared canonicalization helper
 
 const rz = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID!,
@@ -30,10 +26,14 @@ export async function POST(req: Request) {
     const diag = url.searchParams.get('diag') === '1'
     const body = await req.json().catch(() => ({} as any)) // eslint-disable-line @typescript-eslint/no-explicit-any
     const rawSlug = body?.planSlug ?? ''
-    const canonical = canonicalize(rawSlug)
+    const canonical = canonicalizePlanSlug(rawSlug)
     const dry = !!body?.dry || dryQuery
 
-    // Always resolve plan from DB
+    if (!canonical) {
+      return NextResponse.json({ error: 'unknown-plan', planSlug: rawSlug, canonical: null }, { status: 400 })
+    }
+
+    // Always resolve plan from DB using canonical slug
     const plan = await prisma.membershipPlan.findUnique({
       where: { slug: canonical },
       select: { razorpayPlanId: true },

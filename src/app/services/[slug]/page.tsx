@@ -5,6 +5,32 @@ import { prisma } from "@/lib/prisma"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import HealerBookAction from "../../../components/features/services/HealerBookAction"
+import BookingAutoOpen from "@/components/features/booking/BookingAutoOpen"
+import type { Metadata } from 'next'
+import { canonicalOf } from '@/config/site'
+import ServiceLd from '@/components/seo/ServiceLd'
+import Breadcrumbs from '@/components/seo/Breadcrumbs'
+import BreadcrumbsLd from '@/components/seo/BreadcrumbsLd'
+import { makeServiceCrumbs } from '@/lib/seo/breadcrumbs'
+
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params
+  const url = canonicalOf(`/services/${slug}`, ['openBooking','programSlug'])
+  // Best-effort fetch of service for title/desc; avoid throwing on not found here
+  try {
+    const s = await prisma.service.findUnique({ where: { slug }, select: { name: true, description: true } })
+    if (!s) return { alternates: { canonical: url } }
+    return {
+      title: `${s.name} | Service | Ganges Healers`,
+      description: s.description || undefined,
+      alternates: { canonical: url },
+      openGraph: { title: s.name, description: s.description || undefined, url },
+      twitter: { card: 'summary_large_image', title: s.name, description: s.description || undefined },
+    }
+  } catch {
+    return { alternates: { canonical: url } }
+  }
+}
 
 // Normalize service names to specialization keys stored in healer.specializations
 function specializationKey(name: string) {
@@ -18,10 +44,16 @@ function specializationKey(name: string) {
 
 export default async function ServiceDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>
+  searchParams?: Promise<Record<string, string | string[] | undefined>>
 }) {
   const { slug } = await params
+  const sp = (await searchParams) || {}
+  const openBooking = (typeof sp.openBooking === 'string' ? sp.openBooking : Array.isArray(sp.openBooking) ? sp.openBooking[0] : undefined) === '1'
+  const programSlug = typeof sp.programSlug === 'string' ? sp.programSlug : Array.isArray(sp.programSlug) ? sp.programSlug[0] : undefined
+  const productSlug = typeof sp.productSlug === 'string' ? sp.productSlug : Array.isArray(sp.productSlug) ? sp.productSlug[0] : undefined
 
   const service = await prisma.service.findUnique({
     where: { slug },
@@ -41,6 +73,8 @@ export default async function ServiceDetailPage({
 
   if (!service) notFound()
 
+  const crumbs = makeServiceCrumbs(slug, service?.name)
+
   const key = specializationKey(service.name)
   const healers = await prisma.healer.findMany({
     where: { specializations: { has: key } },
@@ -59,6 +93,20 @@ export default async function ServiceDetailPage({
 
   return (
     <div className="container mx-auto px-4 py-8 space-y-8">
+      <Breadcrumbs crumbs={crumbs} />
+      <BreadcrumbsLd crumbs={crumbs} />
+      <ServiceLd service={{ slug: service.slug, title: service.name, shortDescription: service.description ?? undefined, pricePaise: typeof service.price === 'number' ? service.price * 100 : undefined, imageUrl: service.image ?? undefined }} />
+      {openBooking && healers[0] ? (
+        <BookingAutoOpen
+          enabled={true}
+          programSlug={programSlug}
+          productSlug={productSlug}
+          serviceSlug={service.slug}
+          healer={{ id: healers[0].id, name: healers[0].user?.name ?? 'Healer', experienceYears: healers[0].experienceYears, rating: healers[0].rating ?? 5 }}
+          serviceId={service.id}
+          serviceName={service.name}
+        />
+      ) : null}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="overflow-hidden">
           <div className="relative h-64 w-full">
@@ -102,6 +150,7 @@ export default async function ServiceDetailPage({
             )}
             <div className="pt-2">
               <Link href="/services"><Button variant="outline" size="sm">Browse all services</Button></Link>
+              <Link href={`/healers?serviceSlug=${service.slug}`} className="ml-2"><Button variant="outline" size="sm">View all healers</Button></Link>
             </div>
           </CardContent>
         </Card>

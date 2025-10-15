@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/rbac'
 import { parseRange } from '@/lib/time-range'
+import { ensureByTypeKeys } from '@/lib/admin/metrics-constants'
 
-const TYPE_KEYS = ['SESSION','PROGRAM','MEMBERSHIP','STORE','COURSE'] as const
 
 function enumerateDays(from: Date, to: Date) {
   const dates: string[] = []
@@ -51,8 +51,7 @@ export async function GET(req: NextRequest) {
     const b = buckets[day] || { gross: 0, refunds: 0, byType: {} as Record<string, number> }
     const net = b.gross - b.refunds
     // stabilize byType keys
-    const byType: Record<string, number> = {}
-    for (const k of TYPE_KEYS) byType[k] = b.byType[k] || 0
+    const byType = ensureByTypeKeys(b.byType)
     return { date: day, grossPaise: b.gross, refundsPaise: b.refunds, netPaise: net, byType }
   })
   const ms = Date.now()-t0

@@ -27,7 +27,15 @@ class ResizeObserver {
 // Mock Next/Image to plain img
 jest.mock('next/image', () => {
   const MockImage = (props: any) => {
-    return React.createElement('img', { ...props, alt: props.alt || '' });
+    // Strip Next.js-only props to avoid React DOM warnings in tests
+    const rest: any = { ...props }
+    delete rest.fill
+    delete rest.loader
+    delete rest.quality
+    delete rest.priority
+    delete rest.placeholder
+    delete rest.blurDataURL
+    return React.createElement('img', { ...rest, alt: props.alt || '' });
   };
   MockImage.displayName = 'MockNextImage';
   return MockImage;

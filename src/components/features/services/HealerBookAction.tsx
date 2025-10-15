@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import BookingModal from '@/components/booking/BookingModal'
+import { track } from '@/lib/analytics/client'
 
 interface HealerBookActionProps {
   healer: { id: string; name: string; experienceYears?: number; rating?: number }
@@ -13,9 +14,24 @@ interface HealerBookActionProps {
 export default function HealerBookAction({ healer, serviceId, serviceName }: HealerBookActionProps) {
   const [open, setOpen] = useState(false)
 
+  const onOpen = useCallback(() => {
+    setOpen(true)
+    // Attempt to infer service slug from current path /services/[slug]
+    const path = typeof window !== 'undefined' ? window.location.pathname + window.location.search : ''
+    const match = typeof window !== 'undefined' ? window.location.pathname.match(/\/services\/([^/?#]+)/) : null
+    const serviceSlug = match?.[1] || serviceName.toLowerCase().replace(/\s+/g, '-')
+    track('booking_modal_open', {
+      serviceSlug,
+      programSlug: undefined,
+      source: 'user-action',
+      path,
+      ts: Date.now(),
+    })
+  }, [serviceName])
+
   return (
     <>
-      <Button onClick={() => setOpen(true)} size="sm" className="w-full">Book</Button>
+  <Button onClick={onOpen} size="sm" className="w-full">Book</Button>
       {open && (
         <BookingModal
           isOpen={open}

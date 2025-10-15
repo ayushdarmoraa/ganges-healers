@@ -1,0 +1,15 @@
+{
+  "event": "subscription.activated",
+  "payload": {
+    "subscription": {
+      "entity": {
+        "id": "sub_Example123"
+      }
+    },
+    "payment": {
+      "entity": {
+        "id": "pay_Example456"
+      }
+    }
+  }
+}

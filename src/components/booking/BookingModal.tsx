@@ -30,6 +30,8 @@ interface BookingModalProps {
   healer: Healer
   serviceId: string
   serviceName: string
+  programSlug?: string
+  productSlug?: string
 }
 
 export default function BookingModal({
@@ -37,7 +39,9 @@ export default function BookingModal({
   onClose,
   healer,
   serviceId,
-  serviceName
+  serviceName,
+  programSlug,
+  productSlug,
 }: BookingModalProps) {
   const { data: session } = useSession()
   const router = useRouter()
@@ -244,6 +248,12 @@ export default function BookingModal({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Book {serviceName}</DialogTitle>
+          {(programSlug || productSlug) ? (
+            <div className="mt-1">
+              {programSlug ? (<span className="text-xs text-muted-foreground">Context: program {programSlug}</span>) : null}
+              {productSlug ? (<span className="ml-2 text-xs text-muted-foreground">Context: product {productSlug}</span>) : null}
+            </div>
+          ) : null}
         </DialogHeader>
         <DialogDescription className="sr-only">
           Select a date and time, then confirm your booking.

@@ -37,7 +37,7 @@ const CollectionHandlers = ServicesCollection as unknown as ServicesCollectionMo
 const IdHandlers = ServicesById as unknown as ServicesByIdModule
 
 describe('API /api/services integration', () => {
-  let testService: { id: string; name: string; category: string; tagline?: string }
+  let testService: { id: string; name: string; category: string; tagline: string | null }
   let adminUserId: string
 
   beforeAll(async () => {
@@ -53,10 +53,11 @@ describe('API /api/services integration', () => {
     adminUserId = adminUser.id
 
     // Get existing service from seed data
-    testService = await prisma.service.findFirst({ where: { isActive: true } })
-    if (!testService) {
+  const found = await prisma.service.findFirst({ where: { isActive: true }, select: { id: true, name: true, category: true, tagline: true } })
+    if (!found) {
       throw new Error('No active services found in seed data')
     }
+    testService = found
   })
 
   afterAll(async () => {

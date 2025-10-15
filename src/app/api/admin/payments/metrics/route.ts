@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/rbac'
 import { parseRange } from '@/lib/time-range'
+import { ensureByTypeKeys } from '@/lib/admin/metrics-constants'
 
-const TYPE_KEYS = ['SESSION','PROGRAM','MEMBERSHIP','STORE','COURSE'] as const
-type TypeKey = typeof TYPE_KEYS[number]
+// Keys are normalized via ensureByTypeKeys
 
 export async function GET(req: NextRequest) {
   const t0 = Date.now()
@@ -77,13 +77,8 @@ export async function GET(req: NextRequest) {
       .slice(0,5)
   }
 
-  // Fill byType with required stable keys
-  const byType: Record<TypeKey, number> = {
-    SESSION: 0, PROGRAM: 0, MEMBERSHIP: 0, STORE: 0, COURSE: 0
-  }
-  for (const k of TYPE_KEYS) {
-    if (byTypeRaw[k]) byType[k] = byTypeRaw[k]
-  }
+  // Normalize to stable keys; even when filtered, keep all keys present
+  const byType = ensureByTypeKeys(byTypeRaw)
 
   const responseBody = {
     range: { from: from.toISOString().slice(0,10), to: to.toISOString().slice(0,10) },
