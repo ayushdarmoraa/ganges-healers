@@ -59,7 +59,7 @@ const prismaMock = {
     },
   },
   program: {
-    findMany: async ({ where, select }: any) => {
+    findMany: async ({ where }: any) => {
       const items = db.programs.filter((p) => where?.id?.in?.includes(p.id))
       return items.map((r) => ({ id: r.id, title: r.title }))
     },

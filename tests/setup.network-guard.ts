@@ -4,8 +4,7 @@ import nock from 'nock'
 beforeAll(() => {
   if (process.env.ALLOW_NET_CONNECT === 'true') {
     // Escape hatch for rare local debugging
-    // eslint-disable-next-line no-console
-    console.warn('[network-guard] ALLOW_NET_CONNECT=true — external network allowed for this run')
+  console.warn('[network-guard] ALLOW_NET_CONNECT=true — external network allowed for this run')
     return
   }
   nock.disableNetConnect()
