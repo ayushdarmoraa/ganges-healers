@@ -4,6 +4,10 @@ import { canonicalOf } from '@/config/site'
 import Breadcrumbs from '@/components/seo/Breadcrumbs'
 import BreadcrumbsLd from '@/components/seo/BreadcrumbsLd'
 import { makeProgramsIndexCrumbs } from '@/lib/seo/breadcrumbs'
+import EmptyState from '@/components/empty/EmptyState'
+import Link from 'next/link'
+import { Button } from '@/components/ui/button'
+import { clearSearchParams } from '@/lib/utils'
 
 export async function generateMetadata(): Promise<Metadata> {
   return {
@@ -13,7 +17,8 @@ export async function generateMetadata(): Promise<Metadata> {
   }
 }
 
-export default async function ProgramsPage() {
+export default async function ProgramsPage({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> } = {}) {
+  const sp = (await searchParams) || {}
   const { items } = await listPrograms({ limit: 20 })
   return (
     <div className="container mx-auto p-6">
@@ -22,16 +27,30 @@ export default async function ProgramsPage() {
         <BreadcrumbsLd crumbs={crumbs} />
       </>) })()}
       <h1 className="text-2xl font-semibold mb-4">Programs</h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {items.map((p) => (
-          <a key={p.id} href={`/programs/${p.slug}`} className="block rounded border p-4 hover:shadow-sm">
-            <div className="font-medium text-lg">{p.title}</div>
-            <div className="text-sm text-muted-foreground mt-1">{p.shortDescription}</div>
-            <div className="mt-2 text-sm">Sessions: {p.sessionsCount}</div>
-            <div className="mt-1 font-semibold">₹{(p.pricePaise / 100).toFixed(2)}</div>
-          </a>
-        ))}
-      </div>
+      {items.length === 0 ? (
+        <EmptyState
+          title="No programs found"
+          subtitle="Try a different search or filter."
+          action={(() => {
+            const hasFilters = Boolean(sp?.q || sp?.serviceSlug)
+            if (!hasFilters) return null
+            const qs = new URLSearchParams(Object.entries(sp).flatMap(([k,v]) => Array.isArray(v) ? v.map((vv) => [k, String(vv)]) : v ? [[k, String(v)]] : []))
+            const href = clearSearchParams('/programs' + (qs.toString() ? `?${qs.toString()}` : ''), ['q','serviceSlug'])
+            return <Link href={href}><Button variant="secondary">Clear filters</Button></Link>
+          })()}
+        />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {items.map((p) => (
+            <a key={p.id} href={`/programs/${p.slug}`} className="block rounded border p-4 hover:shadow-sm">
+              <div className="font-medium text-lg">{p.title}</div>
+              <div className="text-sm text-muted-foreground mt-1">{p.shortDescription}</div>
+              <div className="mt-2 text-sm">Sessions: {p.sessionsCount}</div>
+              <div className="mt-1 font-semibold">₹{(p.pricePaise / 100).toFixed(2)}</div>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

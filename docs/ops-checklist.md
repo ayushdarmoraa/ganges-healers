@@ -35,6 +35,8 @@
 - Product Detail CTA → navigates to `/services/<serviceSlug>?openBooking=1&productSlug=<slug>` and opens BookingModal (context only).
   - Emits client-only analytics event `product_service_cta_click` on click; no server/API/DB changes.
 
+- Empty states render consistent copy; Clear filters removes q/filters only.
+
 ## Refunds & Cancellations
 
 

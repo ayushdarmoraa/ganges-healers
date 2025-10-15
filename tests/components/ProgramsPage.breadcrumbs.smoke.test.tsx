@@ -7,7 +7,7 @@ jest.mock('@/lib/programs/queries', () => ({
 
 describe('Programs list page breadcrumbs', () => {
   test('renders Home › Programs with last crumb as text', async () => {
-    const ui = (await ProgramsPage()) as unknown as React.ReactElement
+    const ui = (await ProgramsPage({ searchParams: Promise.resolve({}) })) as unknown as React.ReactElement
     render(ui)
     const nav = screen.getByRole('navigation', { name: /breadcrumb/i })
     expect(nav).toBeInTheDocument()

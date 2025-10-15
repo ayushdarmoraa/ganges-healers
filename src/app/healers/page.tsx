@@ -5,6 +5,9 @@ import { canonicalOf } from '@/config/site'
 import Breadcrumbs from '@/components/seo/Breadcrumbs'
 import BreadcrumbsLd from '@/components/seo/BreadcrumbsLd'
 import { makeHealersIndexCrumbs } from '@/lib/seo/breadcrumbs'
+import EmptyState from '@/components/empty/EmptyState'
+import { Button } from '@/components/ui/button'
+import { clearSearchParams } from '@/lib/utils'
 
 export async function generateMetadata(): Promise<Metadata> {
   return {
@@ -34,7 +37,17 @@ export default async function HealersPage({ searchParams }: { searchParams?: Pro
         <button type="submit" className="border rounded px-3 py-2">Search</button>
       </form>
       {items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No healers found.</p>
+        <EmptyState
+          title="No healers found"
+          subtitle="Adjust filters or search."
+          action={(() => {
+            const hasFilters = Boolean(q || serviceSlug)
+            if (!hasFilters) return null
+            const qs = new URLSearchParams(Object.entries({ q: q || '', serviceSlug: serviceSlug || '' }).filter(([,v]) => v))
+            const href = clearSearchParams('/healers' + (qs.toString() ? `?${qs.toString()}` : ''), ['q','serviceSlug'])
+            return <Link href={href}><Button variant="secondary">Clear filters</Button></Link>
+          })()}
+        />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {items.map(h => (

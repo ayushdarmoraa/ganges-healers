@@ -26,6 +26,10 @@ Breadcrumbs
 - JSON-LD: `src/components/seo/BreadcrumbsLd.tsx` emits a `BreadcrumbList` with absolute URLs using `canonicalOf`.
 - Wired on detail and list pages (Home › Section on list pages).
 
+404s & Metadata
+
+- For not found states, pages still resolve canonical metadata (title/alternates). No JSON-LD is emitted for missing entities.
+
 
 - Served via app/robots.ts.
 - Disallows private surfaces: /api/, /admin/, /dashboard/, and auth paths.

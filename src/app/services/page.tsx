@@ -2,6 +2,10 @@
 import { Suspense } from 'react'
 import { prisma } from '@/lib/prisma'
 import ServicesGrid from '@/components/services/ServicesGrid'
+import EmptyState from '@/components/empty/EmptyState'
+import Link from 'next/link'
+import { Button } from '@/components/ui/button'
+import { clearSearchParams } from '@/lib/utils'
 import ServicesFilter from '@/components/services/ServicesFilter'
 import { Metadata } from 'next'
 import { canonicalOf } from '@/config/site'
@@ -146,9 +150,19 @@ export default async function ServicesPage({
           {/* Services Grid */}
           <main className="flex-1">
             {services.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-gray-500 text-lg">No services found matching your criteria.</p>
-              </div>
+              <EmptyState
+                title="No services yet"
+                subtitle="Check back soon."
+                action={(() => {
+                  const hasFilters = Boolean(params?.q)
+                  if (!hasFilters) return null
+                  const sp = new URLSearchParams(Object.entries(params).flatMap(([k,v]) => Array.isArray(v) ? v.map((vv) => [k, String(vv)]) : v ? [[k, String(v)]] : []))
+                  const href = clearSearchParams('/services' + (sp.toString() ? `?${sp.toString()}` : ''), ['q'])
+                  return (
+                    <Link href={href}><Button variant="secondary">Clear filters</Button></Link>
+                  )
+                })()}
+              />
             ) : (
               <>
                 <div className="mb-4 flex justify-between items-center">
