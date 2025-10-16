@@ -5,15 +5,12 @@ import { resolveInvoiceUrl } from '@/lib/invoices/resolve'
 export const runtime = 'nodejs'        // stream-friendly (valid values: 'edge' | 'nodejs')
 export const dynamic = 'force-dynamic' // avoid caching during dev
 
-export async function GET(
-  _req: Request,
-  { params }: { params: { id: string } }
-) {
+export async function GET(req: Request, { params }: { params: { id: string } }) {
   const id = params.id
   const url = await resolveInvoiceUrl(id)
-  if (!url) {
-    return NextResponse.json({ error: 'not-found' }, { status: 404 })
-  }
+  if (!url) return NextResponse.json({ error: 'not-found' }, { status: 404 })
+
+  const inline = new URL(req.url).searchParams.get('inline') === '1'
 
   const upstream = await fetch(url, { cache: 'no-store' })
   if (!upstream.ok || !upstream.body) {
@@ -22,7 +19,11 @@ export async function GET(
 
   const headers = new Headers()
   headers.set('Content-Type', 'application/pdf')
-  headers.set('Content-Disposition', `attachment; filename="invoice-${id}.pdf"`)
+  headers.set(
+    'Content-Disposition',
+    `${inline ? 'inline' : 'attachment'}; filename="invoice-${id}.pdf"`
+  )
+  headers.set('Cache-Control', 'no-store')
 
   return new Response(upstream.body, { status: 200, headers })
 }

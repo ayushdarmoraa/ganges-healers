@@ -24,7 +24,6 @@ export default async function InvoiceViewerPage({ params }: { params: Promise<{ 
   const url = await resolveInvoiceUrl(id)
   if (!url) return notFound()
 
-  const safeUrl = `${url}#toolbar=0&navpanes=0`
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
@@ -35,7 +34,13 @@ export default async function InvoiceViewerPage({ params }: { params: Promise<{ 
         <PrintButton />
       </div>
       <div className="rounded-xl shadow overflow-hidden">
-        <embed src={safeUrl} type="application/pdf" className="w-full h-[calc(100vh-8rem)]" title="Invoice PDF" data-testid="invoice-embed" />
+        <embed
+          src={`/api/invoices/${id}/download?inline=1#toolbar=0&navpanes=0`}
+          type="application/pdf"
+          className="w-full h-[calc(100vh-8rem)] rounded-xl shadow"
+          title="Invoice PDF"
+          data-testid="invoice-embed"
+        />
       </div>
     </div>
   )
