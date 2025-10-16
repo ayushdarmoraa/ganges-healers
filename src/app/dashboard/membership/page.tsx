@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
+import { invoiceViewerHref } from '@/lib/invoices/viewer-link'
 
 interface PlanBenefits { freeSessions?: number; priorityBooking?: boolean; discountPct?: number }
 interface Plan { slug: string; title: string; pricePaise: number; interval: string; benefits: PlanBenefits | null }
@@ -18,7 +19,7 @@ export default function MembershipPage() {
   const [submitting, setSubmitting] = useState<Record<string, boolean>>({})
   const [polling, setPolling] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  interface InvoiceLite { id: string; issuedAt: string; totalPaise: number; pdfUrl: string | null }
+  interface InvoiceLite { id: string; issuedAt: string; totalPaise: number; pdfUrl: string | null; invoiceNumber?: string | null; paymentId?: string | null }
   const [recentInvoices, setRecentInvoices] = useState<InvoiceLite[]>([])
   const [loadingInvoices, setLoadingInvoices] = useState(false)
 
@@ -172,12 +173,37 @@ export default function MembershipPage() {
         {loadingInvoices && <p className="text-sm text-muted-foreground mt-2">Loading invoices…</p>}
         {!loadingInvoices && recentInvoices.length === 0 && <p className="text-sm text-muted-foreground mt-2">No invoices yet.</p>}
         <ul className="mt-3 space-y-2">
-          {recentInvoices.slice(0,5).map(inv => (
-            <li key={inv.id} className="text-sm flex items-center justify-between border rounded p-2">
-              <span>{new Date(inv.issuedAt).toLocaleDateString()} · ₹{(inv.totalPaise/100).toFixed(2)}</span>
-              {inv.pdfUrl ? <a href={inv.pdfUrl} className="text-primary underline" target="_blank" rel="noreferrer">View</a> : <span className="text-xs text-muted-foreground">Generating…</span>}
-            </li>
-          ))}
+          {recentInvoices.slice(0,5).map(inv => {
+            const canView = !!(inv.invoiceNumber || inv.paymentId || inv.id)
+            const href = canView ? invoiceViewerHref({ invoiceNumber: inv.invoiceNumber, paymentId: inv.paymentId, id: inv.id }) : null
+            const onCopy = async () => {
+              if (!href) return
+              try {
+                const abs = new URL(href, window.location.origin).toString()
+                await navigator.clipboard.writeText(abs)
+                toast.success('Link copied')
+              } catch {
+                toast.error?.('Failed to copy link')
+              }
+            }
+            return (
+              <li key={inv.id} className="text-sm flex items-center justify-between border rounded p-2">
+                <span>{new Date(inv.issuedAt).toLocaleDateString()} · ₹{(inv.totalPaise/100).toFixed(2)}</span>
+                <div className="flex items-center gap-3">
+                  {href ? (
+                    <a href={href} className="text-primary underline" target="_blank" rel="noopener">View</a>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Generating…</span>
+                  )}
+                  {href && (
+                    <button type="button" aria-label="Copy invoice link" onClick={onCopy} className="text-xs text-muted-foreground underline">
+                      Copy link
+                    </button>
+                  )}
+                </div>
+              </li>
+            )
+          })}
         </ul>
       </div>
       {polling && <p className="mt-4 text-sm">Polling for activation...</p>}

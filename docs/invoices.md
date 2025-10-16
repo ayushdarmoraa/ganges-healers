@@ -16,6 +16,11 @@
   - Metadata: `noindex, nofollow`; canonical points to `/invoices/[id]/view`
   - No changes to existing API contracts
 
+- Viewer links in UI
+  - Dashboard/Admin lists build links via precedence: invoiceNumber → paymentId → id
+  - “View” opens in a new tab; “Copy link” copies the absolute URL
+  - UI-only; no backend calls or behavior changes
+
 - Generator behavior
   - `createAndStoreInvoicePdf(lookupId, { force? })`
   - Idempotent:
