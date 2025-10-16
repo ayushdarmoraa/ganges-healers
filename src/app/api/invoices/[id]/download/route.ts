@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server'
 import { resolveInvoiceUrl } from '@/lib/invoices/resolve'
 
-export const runtime = 'node'          // stream-friendly
+export const runtime = 'nodejs'        // stream-friendly (valid values: 'edge' | 'nodejs')
 export const dynamic = 'force-dynamic' // avoid caching during dev
 
 export async function GET(
