@@ -13,7 +13,7 @@ const config: Config = {
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts', '<rootDir>/tests/setup.network-guard.ts'],
   // Move ts-jest config out of deprecated globals into transform
   transform: {
-    '^.+\\.(ts|tsx)$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.test.json', isolatedModules: true }],
+    '^.+\\.(ts|tsx)$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.test.json' }],
   },
   testTimeout: 30000,
   verbose: true,
