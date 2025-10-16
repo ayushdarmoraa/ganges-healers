@@ -19,7 +19,7 @@ export default function CopyLinkButton({ href }: { href: string }) {
     <button
       type="button"
       onClick={onCopy}
-      className="btn btn-secondary"
+      className="inline-flex items-center gap-1 rounded-md border px-3 py-2 text-sm font-medium bg-muted hover:bg-muted/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary/60 cursor-pointer"
       aria-label="Copy invoice link"
     >
       Copy link
