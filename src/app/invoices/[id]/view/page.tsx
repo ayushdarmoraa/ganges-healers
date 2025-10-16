@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import { resolveInvoiceUrl } from '@/lib/invoices/resolve'
 import PrintButton from '@/components/invoices/PrintButton'
+import CopyLinkButton from '@/components/invoices/CopyLinkButton'
 import { canonicalOf } from '@/config/site'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -30,6 +31,7 @@ export default async function InvoiceViewerPage({ params }: { params: Promise<{ 
       <div className="mb-4 flex items-center gap-3">
         <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center rounded bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 focus-ring">Open PDF</a>
         <a href={`/api/invoices/${id}/download`} className="inline-flex items-center rounded bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700 focus-ring">Download</a>
+        <CopyLinkButton href={`/invoices/${id}/view`} />
         <PrintButton />
       </div>
       <div className="rounded-xl shadow overflow-hidden">
