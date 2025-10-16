@@ -4,6 +4,7 @@ A modern healthcare management system built with Next.js 14, TypeScript, and a c
 
 > Project roadmap: See docs/IMPLEMENTATION_PLAN.md for the 24-week implementation plan and sprint breakdown.
 > Engineering process: See docs/GUARDRAILS.md for change management and contribution rules.
+> Contracts & Invariants: See docs/contracts.md for pinned API/logging/DB/env contracts and Patch Plan template.
 > Authentication: See docs/AUTH_IMPLEMENTATION.md for NextAuth setup and testing guide.
 > Analytics: See docs/analytics.md for the client-only analytics shim and events.
 > SEO: See docs/seo.md for canonical URLs, Breadcrumbs & JSON-LD components.
