@@ -3,7 +3,7 @@ import crypto from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { NextRequest } from 'next/server'
 import { makeNextRequest, readJSON } from '../helpers/next-handler'
-import * as Enroll from '@/app/api/programs/[programId]/enroll/route'
+import * as Enroll from '@/app/api/programs/[slug]/enroll/route'
 import * as Verify from '@/app/api/payments/verify/route'
 import * as Webhook from '@/app/api/payments/webhook/route'
 
@@ -64,8 +64,8 @@ describe('Program Enrollment Payments', () => {
   })
 
   test('Enroll happy path creates pending enrollment + order', async () => {
-    const req = makeNextRequest(`http://localhost/api/programs/${program.id}/enroll`, { method: 'POST', headers: { 'content-type': 'application/json' } })
-    const res = await (Enroll as any).POST(req, { params: Promise.resolve({ programId: program.id }) })
+  const req = makeNextRequest(`http://localhost/api/programs/${program.id}/enroll`, { method: 'POST', headers: { 'content-type': 'application/json' } })
+  const res = await (Enroll as any).POST(req, { params: Promise.resolve({ slug: program.id }) })
     expect(res.status).toBeLessThan(300)
     const body = await readJSON(res)
     orderId = body.orderId
@@ -116,7 +116,7 @@ describe('Program Enrollment Payments', () => {
       }
     })
     const reqEnroll = makeNextRequest(`http://localhost/api/programs/${program2.id}/enroll`, { method: 'POST', headers: { 'content-type': 'application/json' } })
-    const resEnroll = await (Enroll as any).POST(reqEnroll, { params: Promise.resolve({ programId: program2.id }) })
+  const resEnroll = await (Enroll as any).POST(reqEnroll, { params: Promise.resolve({ slug: program2.id }) })
     expect(resEnroll.status).toBeLessThan(300)
     const body = await readJSON(resEnroll)
     const newEnrollmentId = body.enrollmentId
@@ -138,8 +138,8 @@ describe('Program Enrollment Payments', () => {
 
   test('Unauthorized enroll attempt returns 401', async () => {
     delete process.env.TEST_USER_ID
-    const req = makeNextRequest(`http://localhost/api/programs/${program.id}/enroll`, { method: 'POST' })
-    const res = await (Enroll as any).POST(req, { params: Promise.resolve({ programId: program.id }) })
+  const req = makeNextRequest(`http://localhost/api/programs/${program.id}/enroll`, { method: 'POST' })
+  const res = await (Enroll as any).POST(req, { params: Promise.resolve({ slug: program.id }) })
     expect(res.status).toBe(401)
     process.env.TEST_USER_ID = user.id
   })

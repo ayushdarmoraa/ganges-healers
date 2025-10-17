@@ -31,21 +31,20 @@ export default function HealerBookAction({ healer, serviceId, serviceName }: Hea
 
   return (
     <>
-  <Button onClick={onOpen} size="sm" className="w-full">Book</Button>
-      {open && (
-        <BookingModal
-          isOpen={open}
-          onClose={() => setOpen(false)}
-          healer={{
-            id: healer.id,
-            user: { name: healer.name },
-            experienceYears: healer.experienceYears ?? 0,
-            rating: healer.rating ?? 5,
-          }}
-          serviceId={serviceId}
-          serviceName={serviceName}
-        />
-      )}
+      <Button onClick={onOpen} size="sm" className="w-full">Book</Button>
+      {/* Keep modal mounted to avoid transient unmounts during route transitions */}
+      <BookingModal
+        isOpen={open}
+        onClose={() => setOpen(false)}
+        healer={{
+          id: healer.id,
+          user: { name: healer.name },
+          experienceYears: healer.experienceYears ?? 0,
+          rating: healer.rating ?? 5,
+        }}
+        serviceId={serviceId}
+        serviceName={serviceName}
+      />
     </>
   )
 }

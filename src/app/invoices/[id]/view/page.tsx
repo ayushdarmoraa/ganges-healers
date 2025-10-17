@@ -29,7 +29,7 @@ export default async function InvoiceViewerPage({ params }: { params: Promise<{ 
     <div className="mx-auto max-w-6xl px-4 py-6">
       <div className="mb-4 flex items-center gap-3">
         <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center rounded bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 focus-ring">Open PDF</a>
-        <a href={`/api/invoices/${id}/download`} className="inline-flex items-center rounded bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700 focus-ring">Download</a>
+        <a href={url} className="inline-flex items-center rounded bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700 focus-ring">Download</a>
         <CopyLinkButton href={`/invoices/${id}/view`} />
         <PrintButton />
       </div>

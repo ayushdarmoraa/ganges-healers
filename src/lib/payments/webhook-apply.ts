@@ -1,5 +1,6 @@
 // src/lib/payments/webhook-apply.ts
-import { prisma } from '@/lib/prisma'
+import * as PrismaNS from '@/lib/prisma'
+import type { PrismaClient, MembershipStatus } from '@prisma/client'
 import { createAndStoreInvoicePdf } from '@/lib/invoices'
 
 type RazorpayEvent = {
@@ -23,6 +24,9 @@ type ApplyResult = { applied: boolean; action?: string; reason?: string }
  */
 export async function applyWebhookSideEffects(evt: unknown): Promise<ApplyResult> {
   try {
+    // Support tests mocking default export; prefer named prisma when present
+    const prisma: PrismaClient = (PrismaNS as { prisma?: PrismaClient; default?: PrismaClient }).prisma
+      ?? (PrismaNS as { prisma?: PrismaClient; default?: PrismaClient }).default!
     const e = evt as RazorpayEvent
     const type = e?.event
     if (!type) return { applied: false, reason: 'no-event-type' }
@@ -37,9 +41,10 @@ export async function applyWebhookSideEffects(evt: unknown): Promise<ApplyResult
 
       // Idempotent: only update if membership exists. Do not create rows here.
       try {
+        const ACTIVE_STATUS: MembershipStatus = 'active'
         await prisma.vIPMembership.update({
           where: { subscriptionId: subId },
-          data: { status: 'active' },
+          data: { status: ACTIVE_STATUS },
         })
         return { applied: true, action: 'subscription.activate' }
       } catch {

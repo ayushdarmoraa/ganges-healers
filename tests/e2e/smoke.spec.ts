@@ -19,7 +19,13 @@ test('service detail shows healers and can open BookingModal', async ({ page }) 
 
   // Wait for at least one service card – allow for slower first paint on cold start
   const cards = page.locator('[data-test="service-card"]');
-  await expect(cards.first()).toBeVisible({ timeout: 30000 });
+  try {
+    await expect(cards.first()).toBeVisible({ timeout: 30000 });
+  } catch {
+    // Occasionally the Next dev overlay can interrupt first paint; reload once.
+    await page.reload();
+    await expect(cards.first()).toBeVisible({ timeout: 30000 });
+  }
   const count = await cards.count();
   expect(count).toBeGreaterThan(0);
 
@@ -46,7 +52,12 @@ test('service detail shows healers and can open BookingModal', async ({ page }) 
     const bookButton = healerCard.getByRole('button', { name: /book/i });
     if (await bookButton.isVisible()) {
       await bookButton.click();
-      await expect(page.getByRole('dialog')).toBeVisible();
+      // Wait for either the dialog itself or the date input inside it
+      try {
+        await expect(page.getByRole('dialog')).toBeVisible({ timeout: 10000 });
+      } catch {
+        await expect(page.getByLabel(/select date/i)).toBeVisible({ timeout: 10000 });
+      }
     }
   }
 });

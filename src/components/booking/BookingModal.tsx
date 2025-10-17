@@ -251,7 +251,7 @@ export default function BookingModal({
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
+    <Dialog open={isOpen} onOpenChange={(next) => { if (!next) handleClose() }}>
       <DialogContent className="sm:max-w-md" aria-labelledby={titleId}>
         <DialogHeader>
           <DialogTitle id={titleId}>Book {serviceName}</DialogTitle>
