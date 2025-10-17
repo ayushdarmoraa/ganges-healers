@@ -1,18 +1,11 @@
-/**
- * Prisma configuration (migrated from package.json#prisma)
- *
- * Note:
- * - Keep paths identical to previous config.
- * - Do not introduce new options.
- * - Prisma CLI should pick this up automatically in newer versions.
- */
+import "dotenv/config";
+import path from "node:path";
+import { defineConfig } from "prisma/config";
 
-const config = {
-  // Default schema path; kept explicit for clarity
-  schema: './prisma/schema.prisma',
-
-  // Seed command previously set in package.json#prisma.seed
-  seed: 'tsx prisma/seed.ts',
-}
-
-export default config
+export default defineConfig({
+  schema: path.join("prisma", "schema.prisma"),
+  migrations: {
+    // Keep the seed command identical to the previous package.json#prisma.seed
+    seed: "tsx prisma/seed.ts",
+  },
+});
