@@ -4,6 +4,12 @@ import { prisma } from '@/lib/prisma'
 
 // Test-only helper to bypass UI + CSRF for e2e. DO NOT ENABLE IN PRODUCTION.
 export async function GET(request: Request) {
+  // Fail closed before parsing the request, accessing users, or issuing cookies.
+  const isTestRuntime = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test'
+  if (!isTestRuntime || process.env.TEST_MODE !== '1') {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
   const { searchParams } = new URL(request.url)
   const role = searchParams.get('role') || 'ADMIN'
   const email = searchParams.get('email') || 'admin@ganges-healers.com'
