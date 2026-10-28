@@ -72,7 +72,7 @@ const IdHandlers = BookingById as unknown as BookingIdHandlerModule
 
 interface User { id: string; email: string }
 interface Healer { id: string }
-interface Service { id: string }
+interface Service { id: string; duration: number; price: number }
 
 describe('API /api/bookings integration', () => {
   let user: User
@@ -208,29 +208,36 @@ describe('API /api/bookings integration', () => {
       body: JSON.stringify({ healerId: healer!.id, serviceId: service!.id, scheduledAt: iso(future) })
     })
     const cRes = await CollectionHandlers.POST!(cReq)
+    expect(cRes.status).toBe(201)
     const cBody = await readJSON(cRes)
     const booking = cBody?.booking ?? cBody?.data ?? cBody
     const id = booking?.id
+    expect(id).toBeTruthy()
 
     const delReq = makeNextRequest(`http://localhost/api/bookings/${id}`, { method: 'DELETE' })
   const delRes = await IdHandlers.DELETE!(delReq, { params: Promise.resolve({ id }) })
     expect(delRes.status).toBeLessThan(300)
 
-    const soon = addHours(new Date(), 1) // 1 hour ahead - definitely less than 24h
-    const soonAligned = setMinutes(setHours(soon, 13), 0) // Force to 1:00 PM to be within healer availability
-    const c2Req = makeNextRequest('http://localhost/api/bookings', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ healerId: healer!.id, serviceId: service!.id, scheduledAt: iso(soonAligned) })
+    // Test cancellation independently of creation availability and the wall-clock hour.
+    // Forcing "today at 13:00" can be in the past and never create the fixture.
+    const booking2 = await prisma.booking.create({
+      data: {
+        userId: user.id,
+        healerId: healer!.id,
+        serviceId: service!.id,
+        scheduledAt: addHours(new Date(), 1),
+        durationMin: service!.duration,
+        pricePaise: Math.round(service!.price * 100),
+        status: 'PENDING',
+      },
     })
-    const c2Res = await CollectionHandlers.POST!(c2Req)
-    const b2 = await readJSON(c2Res)
-    const booking2 = b2?.booking ?? b2?.data ?? b2
-    const id2 = booking2?.id
+    const id2 = booking2.id
 
     const del2Req = makeNextRequest(`http://localhost/api/bookings/${id2}`, { method: 'DELETE' })
   const del2Res = await IdHandlers.DELETE!(del2Req, { params: Promise.resolve({ id: id2 }) })
     const body2 = await readJSON(del2Res)
-    expect(del2Res.status).toBeGreaterThanOrEqual(400)
+    expect(del2Res.status).toBe(403)
     expect((body2?.error || '').toLowerCase()).toMatch(/24\s*hour|cannot\s*cancel/)
+    expect((await prisma.booking.findUnique({ where: { id: id2 } }))?.status).toBe('PENDING')
   })
 })
