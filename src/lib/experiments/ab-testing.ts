@@ -2,8 +2,11 @@ import { cookies } from 'next/headers'
 import { createHash } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { auth } from '@/lib/auth'
+import { EXPERIMENT_COOKIE_PREFIX as COOKIE_PREFIX, type Variant } from './client'
 
-const COOKIE_PREFIX = 'ghx_'
+// Preserve existing imports for server callers; browser callers use ./client directly.
+export { readVariantClient, readAllVariantsClient, type Variant } from './client'
+
 const COOKIE_MAX_AGE = 90 * 24 * 60 * 60 // 90 days
 
 /**
@@ -11,8 +14,6 @@ const COOKIE_MAX_AGE = 90 * 24 * 60 * 60 // 90 days
  * or all logged-in users will be reassigned to different variants.
  */
 const HASH_SALT = process.env.EXPERIMENT_HASH_SALT || 'ganges-healers-stable-v1'
-
-export type Variant = 'A' | 'B'
 
 /**
  * Deterministic variant assignment via SHA-256 hash.
@@ -114,34 +115,6 @@ export async function getAllVariants(): Promise<Record<string, Variant>> {
   for (const c of cookieStore.getAll()) {
     if (c.name.startsWith(COOKIE_PREFIX) && (c.value === 'A' || c.value === 'B')) {
       variants[c.name.slice(COOKIE_PREFIX.length)] = c.value as Variant
-    }
-  }
-  return variants
-}
-
-/**
- * Reads the current variant cookie on the client side.
- * Returns null if no variant is assigned.
- */
-export function readVariantClient(experimentKey: string): Variant | null {
-  if (typeof document === 'undefined') return null
-  const cookieName = `${COOKIE_PREFIX}${experimentKey}`
-  const match = document.cookie.match(new RegExp(`(?:^|; )${cookieName}=([AB])`))
-  return (match?.[1] as Variant) ?? null
-}
-
-/**
- * Client-side: Read all experiment variant cookies.
- */
-export function readAllVariantsClient(): Record<string, Variant> {
-  if (typeof document === 'undefined') return {}
-  const variants: Record<string, Variant> = {}
-  for (const part of document.cookie.split('; ')) {
-    if (part.startsWith(COOKIE_PREFIX)) {
-      const [name, value] = part.split('=')
-      if (value === 'A' || value === 'B') {
-        variants[name.slice(COOKIE_PREFIX.length)] = value as Variant
-      }
     }
   }
   return variants
