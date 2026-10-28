@@ -1,3 +1,4 @@
+import { isTestMode } from '@/lib/test-mode'
 // src/app/api/services/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -103,7 +104,7 @@ export async function POST(request: NextRequest) {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- admin body destructured without Zod
     let body: any
-    if (process.env.TEST_MODE === '1') {
+    if (isTestMode()) {
       const raw = await request.text().catch(() => '')
       console.debug('[TEST_MODE] /api/services POST raw body:', raw || '(none)')
       try {

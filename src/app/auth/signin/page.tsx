@@ -73,7 +73,7 @@ export default function SignInPage() {
                     id="email"
                     name="email"
                     type="email"
-                    placeholder="admin@ganges-healers.com"
+                    placeholder="you@example.com"
                     required
                     disabled={isLoading}
                   />
@@ -84,7 +84,7 @@ export default function SignInPage() {
                     id="password"
                     name="password"
                     type="password"
-                    placeholder="admin123"
+                    placeholder="Enter your password"
                     required
                     disabled={isLoading}
                   />
@@ -93,9 +93,6 @@ export default function SignInPage() {
                   {isLoading ? "Signing in..." : "Sign In"}
                 </Button>
               </form>
-              <p className="text-sm text-muted-foreground text-center mt-4">
-                Demo credentials: admin@ganges-healers.com / admin123
-              </p>
             </TabsContent>
 
             <TabsContent value="oauth">

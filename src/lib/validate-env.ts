@@ -3,6 +3,8 @@
  * Import at the top of instrumentation.ts or server entry to fail fast.
  */
 
+import { assertProductionTestModeDisabled } from './test-mode'
+
 const required: string[] = [
   'DATABASE_URL',
   'AUTH_SECRET',
@@ -15,6 +17,7 @@ const requiredForPayments: string[] = [
 ]
 
 export function validateEnv() {
+  assertProductionTestModeDisabled()
   const missing: string[] = []
 
   for (const key of required) {

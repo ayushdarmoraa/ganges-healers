@@ -1,3 +1,4 @@
+import { isTestMode } from '@/lib/test-mode'
 // lib/availability.ts
 import { prisma } from '@/lib/prisma'
 
@@ -188,7 +189,7 @@ export async function validateBookingSlot(
   serviceId: string,
   scheduledAt: Date
 ): Promise<{ valid: boolean; error?: string }> {
-  const isTest = (process.env.TEST_MODE === '1' || process.env.NEXT_PUBLIC_TEST_MODE === '1')
+  const isTest = isTestMode()
   // Check if time is in future
   const now = new Date()
   if (!isTest && scheduledAt <= now) {

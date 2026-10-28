@@ -1,3 +1,4 @@
+import { isTestMode } from '@/lib/test-mode'
 // src/app/api/services/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -81,7 +82,7 @@ export async function PUT(
     const { id } = await params
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- admin body spread into Prisma update
     let body: any
-    if (process.env.TEST_MODE === '1') {
+    if (isTestMode()) {
       const raw = await request.text().catch(() => '')
       console.debug('[TEST_MODE] /api/services/[id] PUT raw body:', raw || '(none)')
       try {

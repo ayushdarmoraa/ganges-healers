@@ -32,6 +32,13 @@
 
 ### Test-only login helper
 
+Production authentication requires a configured `AUTH_SECRET` or `NEXTAUTH_SECRET`.
+The fixed demo fallback provider has been removed; credentials login always checks
+the user's stored password hash. No accounts are created as a login fallback.
+Production/preview startup rejects either test flag set to `1`. Server shortcuts
+accept only the private `TEST_MODE` flag in a development or test runtime; the
+public flag never grants server authorization or bypasses payment signatures.
+
 `GET /api/test/login` is available only when `TEST_MODE=1` and `NODE_ENV` is
 `development` or `test`. It returns `404` in production (including preview
 production builds), even if a test flag is accidentally enabled, and also rejects

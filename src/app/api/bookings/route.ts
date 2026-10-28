@@ -1,3 +1,4 @@
+import { isTestMode } from '@/lib/test-mode'
 // app/api/bookings/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
@@ -79,7 +80,7 @@ export async function POST(request: NextRequest) {
   try {
     const session = await auth()
     // In TEST_MODE, allow an override via header for deterministic E2E API calls
-    const testUserId = (process.env.TEST_MODE === '1' || process.env.NEXT_PUBLIC_TEST_MODE === '1') ? request.headers.get('x-test-user-id') : null
+    const testUserId = isTestMode() ? request.headers.get('x-test-user-id') : null
     const userId = session?.user?.id || testUserId
     if (!userId) {
       return NextResponse.json(
@@ -89,7 +90,7 @@ export async function POST(request: NextRequest) {
     }
 
     let json: Record<string, unknown>
-    if (process.env.TEST_MODE === '1') {
+    if (isTestMode()) {
       const raw = await request.text().catch(() => '')
       console.debug('[TEST_MODE] /api/bookings POST raw body:', raw || '(none)')
       try {

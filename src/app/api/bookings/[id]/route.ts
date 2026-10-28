@@ -1,3 +1,4 @@
+import { isTestMode } from '@/lib/test-mode'
 // app/api/bookings/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
@@ -89,7 +90,7 @@ export async function PUT(
     }
 
     let json: Record<string, unknown>
-    if (process.env.TEST_MODE === '1') {
+    if (isTestMode()) {
       const raw = await request.text().catch(() => '')
       console.debug('[TEST_MODE] /api/bookings/[id] PUT raw body:', raw || '(none)')
       try {
@@ -288,7 +289,7 @@ export async function PATCH(
     }
 
     let body: Record<string, unknown>
-    if (process.env.TEST_MODE === '1') {
+    if (isTestMode()) {
       const raw = await request.text().catch(() => '')
       console.debug('[TEST_MODE] /api/bookings/[id] PATCH raw body:', raw || '(none)')
       try {

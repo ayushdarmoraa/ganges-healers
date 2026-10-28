@@ -1,3 +1,4 @@
+import { isTestMode } from '@/lib/test-mode'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import crypto from 'crypto'
@@ -37,7 +38,7 @@ export async function POST(req: Request) {
       .digest('hex')
 
     if (expected !== signature) {
-      if (process.env.TEST_MODE === '1') {
+      if (isTestMode()) {
         console.log('[payments][verify][test-bypass]', { orderId, paymentId })
       } else {
       console.warn('[payments][verify][hmac-mismatch]', { orderId, paymentId })

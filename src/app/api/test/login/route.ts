@@ -1,3 +1,4 @@
+import { isTestMode } from '@/lib/test-mode'
 import { NextResponse } from 'next/server'
 import { encode } from 'next-auth/jwt'
 import { prisma } from '@/lib/prisma'
@@ -5,8 +6,7 @@ import { prisma } from '@/lib/prisma'
 // Test-only helper to bypass UI + CSRF for e2e. DO NOT ENABLE IN PRODUCTION.
 export async function GET(request: Request) {
   // Fail closed before parsing the request, accessing users, or issuing cookies.
-  const isTestRuntime = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test'
-  if (!isTestRuntime || process.env.TEST_MODE !== '1') {
+  if (!isTestMode()) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
