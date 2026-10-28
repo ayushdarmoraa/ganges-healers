@@ -111,6 +111,22 @@ A modern healthcare management system built with Next.js 14, TypeScript, and a c
 
    Open [http://localhost:3000](http://localhost:3000) in your browser.
 
+## Safe test database setup
+
+`pnpm test:unit` runs without database credentials, reset, or seed. Integration
+tests use `jest.integration.config.ts`; all test reset/seed paths verify the
+dedicated target before changing data. Keep `.env.test` Git-ignored, with exactly
+one active `DATABASE_URL` for `ganges_healers_test` and `TEST_DATABASE_HOST` set to
+that URL's direct, unpooled hostname. Test hosts must differ from production hosts
+in `.env`, `.env.local`, `.env.production`, and `.env.production.local`.
+
+Use `pnpm db:test:push`, `pnpm db:test:seed`, or `pnpm test:int` after configuration.
+Each database command first checks `current_database()` in a separate process.
+Missing, ambiguous, production, or misrouted settings fail closed without logging
+connection strings. CI may use an isolated loopback database named
+`ganges_healers_test` without a private environment file. `pnpm dev:test` performs
+the same checks before preparing data and starting the E2E server on port 3010.
+
 ## Available Scripts
 
 - `npm run dev` - Start development server with Turbopack

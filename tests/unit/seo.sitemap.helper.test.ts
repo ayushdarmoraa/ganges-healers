@@ -4,7 +4,7 @@ jest.mock('@/lib/prisma', () => ({
   prisma: {
     service: { findMany: jest.fn(async () => ([{ slug: 'yoga', updatedAt: new Date('2024-01-01') }])) },
     program: { findMany: jest.fn(async () => ([{ slug: 'foundation-6-week' }])) },
-    healer: { findMany: jest.fn(async () => ([{ id: 'h1', slug: 'anita-sharma' }])) },
+    healer: { findMany: jest.fn(async () => ([{ id: 'h1' }])) },
     course: { findMany: jest.fn(async () => ([{ slug: 'intro-meditation', updatedAt: new Date('2024-02-01') }])) },
     product: { findMany: jest.fn(async () => ([{ slug: 'himalayan-salt-lamp', updatedAt: new Date('2024-03-01') }])) },
     blogPost: { findMany: jest.fn(async () => ([{ slug: 'benefits-of-yoga', updatedAt: new Date('2024-04-01') }])) },
@@ -27,7 +27,7 @@ describe('seo sitemap helper', () => {
     expect(urls).toEqual(expect.arrayContaining([
       'https://ganges-healers.vercel.app/services/yoga',
       'https://ganges-healers.vercel.app/programs/foundation-6-week',
-      'https://ganges-healers.vercel.app/healers/anita-sharma',
+      'https://ganges-healers.vercel.app/healers/h1',
       'https://ganges-healers.vercel.app/services',
       'https://ganges-healers.vercel.app/programs',
       'https://ganges-healers.vercel.app/healers',
