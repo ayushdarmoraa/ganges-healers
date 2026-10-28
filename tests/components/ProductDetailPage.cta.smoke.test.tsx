@@ -1,3 +1,5 @@
+import '../mocks/product-page-context'
+import type { ProductDetail } from '@/lib/store/queries'
 import React from 'react'
 import { render, screen } from '@testing-library/react'
 import Page from '@/app/store/[slug]/page'
@@ -8,8 +10,8 @@ jest.mock('@/components/store/AddToCartButton', () => ({
 }))
 
 jest.mock('@/lib/store/queries', () => ({
-  getProductBySlug: jest.fn(async () => ({
-    id: '1', slug: 'copper-bottle', title: 'Copper Bottle', shortDescription: 'Nice', longDescription: 'Long', pricePaise: 19900, imageUrl: null, ratingAvg: 4.5, stockStatus: 'IN_STOCK',
+  getProductBySlug: jest.fn(async (): Promise<ProductDetail> => ({
+    id: '1', slug: 'copper-bottle', title: 'Copper Bottle', shortDescription: 'Nice', longDescription: 'Long', pricePaise: 19900, imageUrl: null, ratingAvg: 4.5, stockStatus: 'IN_STOCK', stockCount: null, isConsecrated: false, chakra: null,
     category: { slug: 'wellness', title: 'Wellness' }, service: { slug: 'yoga-healing', title: 'Yoga Healing' }
   }))
 }))
