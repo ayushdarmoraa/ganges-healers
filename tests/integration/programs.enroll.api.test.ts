@@ -7,6 +7,12 @@ import * as Enroll from '@/app/api/programs/[slug]/enroll/route'
 import * as Verify from '@/app/api/payments/verify/route'
 import * as Webhook from '@/app/api/payments/webhook/route'
 
+// Direct handler calls have no Next cookies() request context; keep financial assertions real.
+jest.mock('@/lib/analytics/session', () => ({
+  getSessionId: async () => null,
+  getExperimentVariants: async () => ({}),
+}))
+
 jest.mock('@/lib/auth', () => ({
   auth: async () => {
     if (!process.env.TEST_USER_ID) return { user: null }

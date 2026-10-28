@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { getRazorpayClient } from '@/lib/razorpay'
+import { PaymentResourceError, resolvePaymentResource } from '@/lib/payments/resource'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -12,7 +13,7 @@ const BodySchema = z.object({
   amountPaise: z.number().int().positive().optional(),
   bookingId: z.string().cuid().optional(),
   type: z.enum(['SESSION','PROGRAM','MEMBERSHIP','STORE','COURSE']).optional(),
-  metadata: z.any().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 export async function POST(req: Request) {
@@ -24,38 +25,29 @@ export async function POST(req: Request) {
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid body', issues: parsed.error.issues }, { status: 400 })
     }
-  const { amountPaise: rawAmount, bookingId, type, metadata } = parsed.data
+    const { amountPaise: rawAmount, bookingId, type, metadata } = parsed.data
 
     // Enforce mutual exclusivity: either bookingId OR type (generic). Not both.
     if ((bookingId && type) || (!bookingId && !type)) {
       return NextResponse.json({ error: 'Provide either bookingId OR type (generic payment), exclusively.' }, { status: 400 })
     }
 
-  let amountPaiseValue: number | undefined = rawAmount
-    let booking: any = null // eslint-disable-line @typescript-eslint/no-explicit-any
-
-    if (bookingId) {
-      booking = await prisma.booking.findUnique({ where: { id: bookingId }, include: { service: true } })
-      if (!booking) return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
-      if (booking.userId !== session.user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  amountPaiseValue = booking.pricePaise || Math.round(booking.service.price * 100)
-    } else {
-      // generic path requires amountPaise
-      if (!rawAmount || rawAmount <= 0) {
-        return NextResponse.json({ error: 'amountPaise must be a positive integer for generic payments' }, { status: 400 })
-      }
-  amountPaiseValue = rawAmount
+    const resource = await resolvePaymentResource({
+      userId: session.user.id, type: bookingId ? 'SESSION' : type!, bookingId, metadata,
+    })
+    if (rawAmount !== undefined && rawAmount !== resource.amountPaise) {
+      return NextResponse.json({ error: 'Amount does not match resource price' }, { status: 400 })
     }
 
     const client = await getRazorpayClient()
     if (!client) return NextResponse.json({ error: 'Payment gateway unavailable' }, { status: 500 })
 
-    const ensuredAmount = amountPaiseValue as number
+    const ensuredAmount = resource.amountPaise
     const order = await client.orders.create({
       amount: ensuredAmount,
       currency: 'INR',
       receipt: `pay_${Date.now()}`,
-      notes: metadata || {},
+      notes: resource.metadata,
     })
 
     // Persist / upsert payment row
@@ -64,40 +56,41 @@ export async function POST(req: Request) {
       paymentRecord = await prisma.payment.upsert({
         where: { bookingId },
         update: {
-          type: type ?? 'SESSION',
+          type: resource.type,
+          userId: session.user.id,
           statusEnum: 'PENDING',
           status: 'pending',
           amountPaise: ensuredAmount,
           currency: 'INR',
           gateway: 'razorpay',
           gatewayOrderId: order.id,
-          metadata,
+          metadata: resource.metadata,
         },
         create: {
           bookingId,
-            userId: session.user.id,
-          type: type ?? 'SESSION',
+          userId: session.user.id,
+          type: resource.type,
           statusEnum: 'PENDING',
           status: 'pending',
           amountPaise: ensuredAmount,
           currency: 'INR',
           gateway: 'razorpay',
           gatewayOrderId: order.id,
-          metadata,
+          metadata: resource.metadata,
         }
       })
     } else {
       paymentRecord = await prisma.payment.create({
         data: {
           userId: session.user.id,
-          type: type!,
+          type: resource.type,
           statusEnum: 'PENDING',
           status: 'pending',
           amountPaise: ensuredAmount,
           currency: 'INR',
           gateway: 'razorpay',
           gatewayOrderId: order.id,
-          metadata,
+          metadata: resource.metadata,
         }
       })
     }
@@ -111,6 +104,9 @@ export async function POST(req: Request) {
       paymentId: paymentRecord.id,
     })
   } catch (err) {
+    if (err instanceof PaymentResourceError) {
+      return NextResponse.json({ error: err.message }, { status: err.status })
+    }
     console.error('[payments][create-order][error]', err)
     return NextResponse.json({ error: 'Failed to create order' }, { status: 500 })
   }

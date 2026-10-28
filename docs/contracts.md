@@ -59,9 +59,14 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 
 ### Generic Payments (Unified)
 - Endpoints (as documented and tested):
-  - `POST /api/payments/create-order` (booking or generic type + amountPaise)
+  - `POST /api/payments/create-order` (owned booking, or generic type + owned resource reference)
   - `POST /api/payments/verify` (`{ orderId, paymentId, signature }`)
 - Contracts pinned by tests: order creation returns gateway order id + key; verify is idempotent on repeat success.
+- Prices and fulfillment metadata come from the linked database resource. Optional caller
+  amounts must match. Unbound SESSION/MEMBERSHIP requests are rejected; use booking and
+  subscription flows respectively. See `docs/payments.md` for migration and error details.
+- Verification checks signature, resource ownership, gateway, currency and amount before
+  success. Replays check ownership and the original gateway payment ID without repricing.
 - If gateway env missing: order creation returns `500 { error: 'Payment gateway unavailable' }` without affecting other routes.
 
 ---
