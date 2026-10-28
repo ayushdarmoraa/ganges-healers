@@ -43,7 +43,12 @@ export async function GET(req: Request) {
       }
     })
 
-    return NextResponse.json(data)
+    // Redact after the cache lookup so warm entries are subject to the same policy.
+    // Premium playback URLs are available only through the access-checked detail API.
+    return NextResponse.json({
+      ...data,
+      tracks: data.tracks.map(track => ({ ...track, audioUrl: track.isPremium ? null : track.audioUrl })),
+    })
   } catch (err) {
     console.error('[audio][list][error]', err)
     return NextResponse.json({ error: 'Failed to fetch audio tracks' }, { status: 500 })

@@ -71,6 +71,17 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 
 ---
 
+## Audio Catalog and Playback
+
+- `GET /api/audio` remains public and returns `{ tracks, categories }`, with the existing
+  category filter and track fields. Every premium track has `audioUrl: null`, including
+  cache hits. Free track URLs remain available.
+- Clients must request `/api/audio/[slug]` for playback. Premium URLs are returned only
+  after the existing session, VIP membership, or active enrollment checks. Denied access
+  keeps the `200` response with `audioUrl: null`, `locked: true`, and a reason.
+- Catalog redaction does not revoke previously shared media URLs. Storage access and
+  expiring signed media delivery remain separate deployment requirements.
+
 ## Logging Invariants
 - Use stable prefixes and keys for observability/tests:
   - Webhook: `[webhook] verified { type, subId, payId }`
