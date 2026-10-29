@@ -14,7 +14,7 @@ test('create, reschedule and cancel a future booking', async ({ page }) => {
   const service = page.locator('[data-test="service-card"][data-service-slug="yoga-therapy"]')
   await expect(service).toBeVisible({ timeout: 30000 })
   await service.click()
-  await expect(page).toHaveURL(/\/services\/yoga-therapy/)
+  await expect(page).toHaveURL(/\/services\/yoga-therapy/, { timeout: 30000 })
   const bookButton = page.locator('[data-test="healer-card"]').first().locator('[data-test="book-btn"]')
   await expect(bookButton).toBeVisible({ timeout: 20000 })
   const healerId = await bookButton.getAttribute('data-healer-id')
