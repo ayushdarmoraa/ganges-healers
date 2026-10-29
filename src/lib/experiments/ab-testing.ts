@@ -7,8 +7,6 @@ import { EXPERIMENT_COOKIE_PREFIX as COOKIE_PREFIX, type Variant } from './clien
 // Preserve existing imports for server callers; browser callers use ./client directly.
 export { readVariantClient, readAllVariantsClient, type Variant } from './client'
 
-const COOKIE_MAX_AGE = 90 * 24 * 60 * 60 // 90 days
-
 /**
  * Stable salt for experiment hashing. Once set, NEVER change this value
  * or all logged-in users will be reassigned to different variants.
@@ -38,14 +36,16 @@ function deterministicVariant(
 
 /**
  * Returns the assigned variant for a given experiment key.
- * If no cookie exists, assigns one and sets the cookie so the user stays bucketed.
+ * If no cookie exists, chooses a variant for the current render. Server
+ * Components cannot mutate cookies; the consuming browser must persist the
+ * chosen variant before emitting experiment-attributed events.
  *
  * Assignment priority:
  *  1. Existing cookie (already assigned)
  *  2. Logged-in userId → deterministic hash (cross-device consistency)
  *  3. Random assignment (anonymous users)
  *
- * Must be called in a Server Component or Route Handler (reads/writes cookies).
+ * Must be called in a Server Component or Route Handler (reads cookies).
  */
 export async function getVariant(
   experimentKey: string,
@@ -73,13 +73,6 @@ export async function getVariant(
     const rand = Math.random() * totalWeight
     variant = rand < weights.A ? 'A' : 'B'
   }
-
-  cookieStore.set(cookieName, variant, {
-    maxAge: COOKIE_MAX_AGE,
-    path: '/',
-    httpOnly: false, // readable by client JS for analytics
-    sameSite: 'lax',
-  })
 
   return variant
 }

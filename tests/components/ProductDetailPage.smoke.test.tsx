@@ -52,4 +52,13 @@ describe('ProductDetailPage smoke', () => {
     else expect(headline).not.toBeInTheDocument()
     expect(screen.getByText('₹199.00')).toBeInTheDocument()
   })
+
+  test('persists the rendered variant before sending the product view event', async () => {
+    jest.mocked(getVariant).mockResolvedValue('B')
+    jest.mocked(trackClientEvent).mockImplementationOnce(() => {
+      expect(document.cookie).toContain('ghx_product_headline=B')
+    })
+    render(await Page({ params: Promise.resolve({ slug: 'oil-1' }), searchParams: Promise.resolve({}) }))
+    expect(trackClientEvent).toHaveBeenCalledTimes(1)
+  })
 })

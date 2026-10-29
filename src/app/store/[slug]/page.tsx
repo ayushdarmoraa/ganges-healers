@@ -51,7 +51,7 @@ export default async function ProductDetailPage({ params, searchParams }: { para
 
   return (
     <div className="container mx-auto p-6" data-variant={variant}>
-      <ProductViewTracker productId={p.id} title={p.title} pricePaise={p.pricePaise} chakra={p.chakra} source={source} />
+      <ProductViewTracker productId={p.id} title={p.title} pricePaise={p.pricePaise} chakra={p.chakra} source={source} headlineVariant={variant} />
       <Breadcrumbs crumbs={crumbs} />
       <BreadcrumbsLd crumbs={crumbs} />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

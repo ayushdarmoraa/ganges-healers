@@ -1,6 +1,7 @@
 // This module must remain free of server imports so checkout can read its cookies.
 export const EXPERIMENT_COOKIE_PREFIX = 'ghx_'
 export type Variant = 'A' | 'B'
+const COOKIE_MAX_AGE = 90 * 24 * 60 * 60 // 90 days
 
 /** Read an assigned variant in the browser; return null during server rendering. */
 export function readVariantClient(experimentKey: string): Variant | null {
@@ -23,4 +24,14 @@ export function readAllVariantsClient(): Record<string, Variant> {
     }
   }
   return variants
+}
+
+/** Persist the variant actually rendered before sending browser analytics. */
+export function persistVariantClient(experimentKey: string, variant: Variant): void {
+  if (typeof document === 'undefined' || !/^[a-zA-Z0-9_-]+$/.test(experimentKey)) return
+  try {
+    document.cookie = `${EXPERIMENT_COOKIE_PREFIX}${experimentKey}=${variant}; Max-Age=${COOKIE_MAX_AGE}; Path=/; SameSite=Lax`
+  } catch {
+    // A browser may block cookie writes; product browsing must still work.
+  }
 }

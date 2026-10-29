@@ -1,4 +1,4 @@
-import { readVariantClient, readAllVariantsClient } from '@/lib/experiments/client'
+import { readVariantClient, readAllVariantsClient, persistVariantClient } from '@/lib/experiments/client'
 
 // Importing a browser helper must never load server request context or Prisma.
 jest.mock('next/headers', () => { throw new Error('Server request code imported by browser experiment helper') })
@@ -31,4 +31,17 @@ test('returns null for missing or unknown assignments', () => {
 test('reads valid variant cookies while ignoring unrelated or invalid values', () => {
   setCookieHeader('other=A; ghx_product_headline=B; ghx_checkout=A; ghx_inactive=C')
   expect(readAllVariantsClient()).toEqual({ product_headline: 'B', checkout: 'A' })
+})
+
+
+test('persists the rendered variant using the existing cookie contract', () => {
+  setCookieHeader('')
+  persistVariantClient('product_headline', 'B')
+  expect(document.cookie).toBe('ghx_product_headline=B; Max-Age=7776000; Path=/; SameSite=Lax')
+})
+
+test('does not write invalid experiment keys', () => {
+  setCookieHeader('original=value')
+  persistVariantClient('bad;key', 'A')
+  expect(document.cookie).toBe('original=value')
 })
