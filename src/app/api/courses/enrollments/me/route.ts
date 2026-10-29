@@ -14,13 +14,23 @@ export async function GET() {
       where: { userId: session.user.id, status: { in: ['active', 'completed'] } },
       include: {
         course: {
-          include: { _count: { select: { lessons: true } } },
+          include: {
+            _count: { select: { lessons: true } },
+            lessons: { select: { order: true } },
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
     })
 
-    return NextResponse.json(enrollments)
+    return NextResponse.json(enrollments.map(enrollment => {
+      const { lessons, ...course } = enrollment.course
+      return {
+        ...enrollment,
+        course,
+        completedLessons: lessons.filter(lesson => enrollment.progress > lesson.order).length,
+      }
+    }))
   } catch (err) {
     console.error('[courses][enrollments][error]', err)
     return NextResponse.json({ error: 'Failed to fetch enrollments' }, { status: 500 })

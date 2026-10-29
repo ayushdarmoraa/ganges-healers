@@ -109,6 +109,26 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 
 ---
 
+## Course Progress
+
+- `POST /api/courses/[slug]/progress` requires an active or completed enrollment
+  owned by the session user. The body is `{ lessonOrder: number }`, referring to
+  an existing nonnegative lesson order for that course. An invalid or nonexistent
+  order returns 400; an enrollment that ceases to be active during the update
+  returns 409. Concurrent and repeated requests cannot decrease saved progress.
+- The existing `progress` field remains one greater than the furthest acknowledged
+  lesson order, or zero before any update. The endpoint marks a course completed
+  only when progress is greater than every lesson's order. Lesson orders may start
+  at zero or one and need not be consecutive.
+- `GET /api/courses/enrollments/me` retains `progress` and adds `completedLessons`,
+  the count of lesson orders below the stored progress. The enrolled-courses page
+  uses that count rather than treating the stored position as a count.
+- This high-water-mark model treats earlier lesson orders as reached and does not
+  record individual lesson completion or prevent skipping. Existing progress and
+  premature historical `completed` statuses are not rewritten by this change.
+
+---
+
 ## Audio Catalog and Playback
 
 - `GET /api/audio` remains public and returns `{ tracks, categories }`, with the existing
