@@ -357,6 +357,28 @@ describe('booking cancellation and Razorpay refunds', () => {
     expect(mockDb.refunds[0].status).toBe('SUCCESS')
   })
 
+  test('a successful partial refund is not reported as the full cancellation refund', async () => {
+    const booking = seedBooking({ status: 'CANCELLED' })
+    mockDb.refunds.push({
+      id: 'partial_refund',
+      paymentId: mockDb.payments[0].id,
+      amountPaise: 5000,
+      reason: 'other',
+      status: 'PENDING',
+      gatewayRefundId: 'rfnd_partial',
+      createdAt: new Date(),
+    })
+
+    const response = await cancel('DELETE', booking.id)
+    const body = await response.json()
+
+    expect(body.refund.status).toBe('UNAVAILABLE')
+    expect(body.refund.message).toMatch(/contact support/i)
+    expect(mockFetchRefundStatus).toHaveBeenCalledWith('rfnd_partial', `pay_${booking.id}`)
+    expect(mockRefundPayment).not.toHaveBeenCalled()
+    expect(mockDb.refunds[0].status).toBe('SUCCESS')
+  })
+
   test('the legacy simulated refund is retried as a real refund, never treated as complete', async () => {
     const booking = seedBooking({ status: 'CANCELLED' })
     mockDb.refunds.push({

@@ -26,6 +26,7 @@ type PreparedCancellation = {
   refundId?: string
   gatewayRefundId?: string
   gatewayPaymentId?: string
+  paymentId?: string
   action?: 'SUBMIT' | 'FETCH'
   bookingId: string
   userId: string
@@ -415,6 +416,7 @@ async function cancelOwnedBooking(id: string, userId: string) {
         refundId: existingCancellationAttempt.id,
         gatewayRefundId: existingCancellationAttempt.gatewayRefundId || undefined,
         gatewayPaymentId: payment.gatewayPaymentId,
+        paymentId: payment.id,
         action: REFUND_IN_FLIGHT_STATUSES.has(status) && existingCancellationAttempt.gatewayRefundId ? 'FETCH' as const : undefined,
         bookingId: id,
         userId,
@@ -447,6 +449,7 @@ async function cancelOwnedBooking(id: string, userId: string) {
         refundId: latestInFlight?.id,
         gatewayRefundId: latestInFlight?.gatewayRefundId || undefined,
         gatewayPaymentId: payment.gatewayPaymentId,
+        paymentId: payment.id,
         action: latestInFlight?.gatewayRefundId ? 'FETCH' as const : undefined,
         bookingId: id,
         userId,
@@ -522,6 +525,38 @@ async function cancelOwnedBooking(id: string, userId: string) {
   }, { maxWait: 10000, timeout: 10000, isolationLevel: 'ReadCommitted' })
 
   const refund = await finishCancellationRefund(prepared)
+  if (prepared.action === 'FETCH' && prepared.paymentId && refund.status === 'SUCCESS') {
+    try {
+      const refunds = await prisma.refund.findMany({ where: { paymentId: prepared.paymentId } })
+      const confirmedPaise = refunds.reduce((total, row) =>
+        refundStatusFromStored(row.status) === 'SUCCESS' ? total + row.amountPaise : total, 0)
+      const inFlight = refunds.filter(row => REFUND_IN_FLIGHT_STATUSES.has(refundStatusFromStored(row.status)))
+      if (confirmedPaise < refund.refundPaise || inFlight.length > 0) {
+        const status: CancellationRefundStatus = inFlight.length === 0
+          ? 'UNAVAILABLE'
+          : inFlight.some(row =>
+            refundStatusFromStored(row.status) === 'UNKNOWN' || !row.gatewayRefundId
+          ) ? 'UNKNOWN' : 'PENDING'
+        return {
+          booking: prepared.booking,
+          alreadyCancelled: prepared.alreadyCancelled,
+          refund: { ...refund, status, message: cancellationRefundMessage(status) },
+        }
+      }
+    } catch (error) {
+      console.error('[refunds][error]', {
+        bookingId: prepared.bookingId,
+        refundId: prepared.refundId,
+        stage: 'verify-cumulative-outcome',
+        errorType: error instanceof Error ? error.name : 'unknown',
+      })
+      return {
+        booking: prepared.booking,
+        alreadyCancelled: prepared.alreadyCancelled,
+        refund: { ...refund, status: 'UNKNOWN', message: cancellationRefundMessage('UNKNOWN') },
+      }
+    }
+  }
   return { booking: prepared.booking, alreadyCancelled: prepared.alreadyCancelled, refund }
 }
 
