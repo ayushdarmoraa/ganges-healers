@@ -99,7 +99,8 @@ async function overlappingBookings(client: Prisma.TransactionClient, healerId: s
 export async function getHealerAvailability(
   healerId: string,
   date: string, // YYYY-MM-DD in India
-  durationMin = 60
+  durationMin = 60,
+  excludeBookingId?: string
 ): Promise<AvailabilityDay> {
   // Get healer with availability rules
   const healer = await prisma.healer.findUnique({
@@ -127,7 +128,7 @@ export async function getHealerAvailability(
   // Get existing bookings for this healer on this date
   const startOfDay = new Date(date + 'T00:00:00+05:30')
   const endOfDay = new Date(startOfDay.getTime() + 86400000)
-  const existingBookings = await overlappingBookings(prisma, healerId, startOfDay, endOfDay)
+  const existingBookings = await overlappingBookings(prisma, healerId, startOfDay, endOfDay, excludeBookingId)
 
   // Check each slot
   const rawAvail = healer.availability as unknown

@@ -5,6 +5,7 @@ import { makeNextRequest } from '../helpers/next-handler'
 import { POST } from '@/app/api/bookings/route'
 import { PUT } from '@/app/api/bookings/[id]/route'
 import { POST as confirmWithCredits } from '@/app/api/bookings/[id]/confirm-with-credits/route'
+import { GET as getAvailability } from '@/app/api/availability/route'
 
 jest.mock('@/lib/auth', () => ({
   auth: async () => ({ user: { id: process.env.BOOKING_RACE_USER_ID, email: 'booking-race@example.test', name: 'Race Test' } }),
@@ -140,5 +141,22 @@ test('concurrent credit confirmations spend only one credit for one booking', as
     expect(await prisma.payment.count({ where: { bookingId: id } })).toBe(1)
   } finally {
     await prisma.user.update({ where: { id: userId }, data: { vip: false, freeSessionCredits: 0 } })
+  }
+})
+
+test('owned rescheduling previews its original duration and does not expose another user’s booking', async () => {
+  const id = await created(7, '10:00')
+  await created(7, '12:00')
+  const url = `http://localhost/api/availability?healerId=${healerId}&date=${day(7)}&bookingId=${id}`
+  const response = await getAvailability(makeNextRequest(url))
+  expect(response.status).toBe(200)
+  const slots = (await response.json()).data.slots as Array<{ time: string; available: boolean }>
+  expect(slots.find(s => s.time === '10:30')?.available).toBe(true) // excludes the owned booking
+  expect(slots.find(s => s.time === '11:30')?.available).toBe(false) // overlaps the other booking
+  process.env.BOOKING_RACE_USER_ID = 'someone-else'
+  try {
+    expect((await getAvailability(makeNextRequest(url))).status).toBe(404)
+  } finally {
+    process.env.BOOKING_RACE_USER_ID = userId
   }
 })

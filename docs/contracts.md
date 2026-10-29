@@ -20,6 +20,10 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
   that active service's duration; without it the existing 60-minute default
   remains. An unknown or inactive service returns 404. Invalid or past India
   dates return 400. Public availability does not expose booking IDs.
+- A `bookingId` on availability requests requires authentication and ownership;
+  it uses that booking's saved duration and excludes only that booking from
+  the overlap preview. Missing or mismatched bookings return 404, and inactive
+  or terminal bookings return 409. Reservation writes still recheck conflicts.
 - Booking and rescheduling requests continue to accept an ISO UTC instant.
   The booking form converts its India-time slot to that instant and labels the
   timezone. A slot must be in the future, aligned to 30-minute boundaries and
@@ -35,6 +39,13 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
   protocol; it is not a database exclusion constraint. Direct SQL and external
   writers must follow the same protocol. Existing conflicting bookings are not
   automatically changed, and pending bookings continue to occupy their slots.
+
+### Product headline experiment
+- Server rendering reads existing `ghx_product_headline` assignments and selects
+  a variant without writing response cookies. The browser persists the rendered
+  assignment with the existing 90-day, path-wide, SameSite=Lax cookie before
+  sending the product-view event. Authenticated selection retains its stable
+  hash; a first anonymous view without JavaScript cannot persist its assignment.
 
 ### Payments Webhook (Razorpay)
 - Path: `POST /api/payments/webhook`

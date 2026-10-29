@@ -97,6 +97,17 @@ describe('getHealerAvailability', () => {
     expect(long.slots.find(s => s.time === '19:00')?.available).toBe(false)
     expect(long.slots.find(s => s.time === '18:30')?.available).toBe(true)
   })
+
+  it('can preview a booking move without counting that booking against itself', async () => {
+    addBooking('2025-09-29T10:00:00+05:30', 90)
+    const withoutExclusion = await getHealerAvailability('healer-1', '2025-09-29', 90)
+    const excludingOwn = await getHealerAvailability('healer-1', '2025-09-29', 90, 'b0')
+    expect(withoutExclusion.slots.find(s => s.time === '10:30')?.available).toBe(false)
+    expect(excludingOwn.slots.find(s => s.time === '10:30')?.available).toBe(true)
+    addBooking('2025-09-29T11:00:00+05:30', 60)
+    const anotherBooking = await getHealerAvailability('healer-1', '2025-09-29', 90, 'b0')
+    expect(anotherBooking.slots.find(s => s.time === '10:30')?.available).toBe(false)
+  })
 })
 
 describe('validateBookingSlot', () => {

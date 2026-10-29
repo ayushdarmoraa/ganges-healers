@@ -70,26 +70,26 @@ test.describe('Book healing session', () => {
     await expect(heading).toBeVisible({ timeout: 15000 })
 
     // Get a healer and service for booking via API
-    const healersRes = await page.request.get('/api/healers')
-    if (!healersRes.ok()) {
-      // Fallback: use direct prisma seed data we know exists
-      test.skip()
-      return
-    }
+    const healersRes = await page.request.get('/api/healers?serviceSlug=yoga-therapy')
+    expect(healersRes.ok()).toBeTruthy()
     const healersBody = await healersRes.json()
-    const healers = healersBody.data || healersBody
+    const healers = healersBody.items
     expect(Array.isArray(healers)).toBeTruthy()
-    if (healers.length === 0) { test.skip(); return }
+    expect(healers.length).toBeGreaterThan(0)
 
     const healer = healers[0]
     const healerId = healer.id
 
     // Get services
     const servicesRes = await page.request.get('/api/services')
+    expect(servicesRes.ok()).toBeTruthy()
     const servicesBody = await servicesRes.json()
     const services = servicesBody.data || servicesBody
     expect(Array.isArray(services)).toBeTruthy()
-    const serviceId = services[0].id
+    expect(services.length).toBeGreaterThan(0)
+    const selectedService = services.find((item: { slug: string }) => item.slug === 'yoga-therapy')
+    expect(selectedService).toBeTruthy()
+    const serviceId = selectedService.id
 
     // Find available slot
     let booked = false
@@ -182,15 +182,17 @@ test.describe('Purchase product', () => {
 
     // Check store has products via API
     const res = await page.request.get('/api/store/products')
-    if (res.ok()) {
-      const body = await res.json()
-      const items = body.items || body.data || body
-      if (Array.isArray(items) && items.length > 0) {
-        await page.goto(`/store/${items[0].slug}`)
-        await page.waitForLoadState('networkidle')
-        await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 15000 })
-      }
-    }
+    expect(res.ok()).toBeTruthy()
+    const body = await res.json()
+    const items = body.items || body.data || body
+    expect(Array.isArray(items) && items.length > 0).toBeTruthy()
+    await page.goto(`/store/${items[0].slug}`)
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 15000 })
+    const variant = await page.locator('[data-variant]').getAttribute('data-variant')
+    expect(['A', 'B']).toContain(variant)
+    await expect.poll(async () => (await page.context().cookies()).find(c => c.name === 'ghx_product_headline')?.value).toBe(variant)
+    await page.reload()
+    await expect(page.locator('[data-variant]')).toHaveAttribute('data-variant', variant!)
   })
 })
 
