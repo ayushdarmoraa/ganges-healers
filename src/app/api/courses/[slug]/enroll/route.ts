@@ -29,7 +29,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ slug: 
     }
 
     const enrollment = await prisma.courseEnrollment.create({
-      data: { userId, courseId: course.id, status: 'pending_payment' },
+      data: { userId, courseId: course.id, pricePaise: course.pricePaise, status: 'pending_payment' },
     })
 
     const { getRazorpayClient } = await import('@/lib/razorpay')

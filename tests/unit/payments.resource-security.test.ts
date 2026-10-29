@@ -4,11 +4,12 @@ import { POST as verifyPayment } from '@/app/api/payments/verify/route'
 
 jest.mock('@/lib/auth', () => ({ auth: jest.fn() }))
 jest.mock('@/lib/prisma', () => ({ prisma: {
-  booking: { findUnique: jest.fn() },
-  programEnrollment: { findUnique: jest.fn() },
-  courseEnrollment: { findUnique: jest.fn() },
+  $transaction: jest.fn(), $executeRaw: jest.fn(),
+  booking: { findUnique: jest.fn(), update: jest.fn() },
+  programEnrollment: { findUnique: jest.fn(), update: jest.fn() },
+  courseEnrollment: { findUnique: jest.fn(), update: jest.fn() },
   order: { findUnique: jest.fn() },
-  payment: { create: jest.fn(), upsert: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
+  payment: { create: jest.fn(), upsert: jest.fn(), findFirst: jest.fn(), findUniqueOrThrow: jest.fn(), update: jest.fn() },
 } }))
 jest.mock('@/lib/razorpay', () => ({ getRazorpayClient: jest.fn() }))
 jest.mock('@/lib/payments/activateProgramEnrollment', () => ({ activateProgramEnrollment: jest.fn() }))
@@ -19,7 +20,8 @@ jest.mock('@/lib/activity-log', () => ({ logActivity: jest.fn() }))
 jest.mock('@/lib/analytics/track-event', () => ({ trackEvent: jest.fn() }))
 jest.mock('@/lib/analytics/session', () => ({ getSessionId: jest.fn(), getExperimentVariants: jest.fn() }))
 
-const db = jest.requireMock<{ prisma: Record<string, Record<string, jest.Mock>> }>('@/lib/prisma').prisma
+type DatabaseMock = Record<string, Record<string, jest.Mock>> & { $transaction: jest.Mock; $executeRaw: jest.Mock }
+const db = jest.requireMock<{ prisma: DatabaseMock }>('@/lib/prisma').prisma
 const mockAuth = jest.requireMock<{ auth: jest.Mock }>('@/lib/auth').auth
 const mockGateway = jest.requireMock<{ getRazorpayClient: jest.Mock }>('@/lib/razorpay').getRazorpayClient
 const activateProgram = jest.requireMock<{ activateProgramEnrollment: jest.Mock }>('@/lib/payments/activateProgramEnrollment').activateProgramEnrollment
@@ -69,7 +71,7 @@ beforeEach(() => {
   db.payment.upsert.mockResolvedValue({ ...payment, type: 'SESSION' })
   db.payment.findFirst.mockResolvedValue(payment)
   db.payment.update.mockImplementation(async ({ data }) => ({ ...payment, ...data }))
-  db.booking.findUnique.mockResolvedValue({ id: bookingId, userId: 'buyer', pricePaise: 25000, status: 'PENDING', payment: null })
+  db.booking.findUnique.mockResolvedValue({ id: bookingId, healerId: 'healer', userId: 'buyer', pricePaise: 25000, status: 'PENDING', payment: null })
   db.order.findUnique.mockResolvedValue({ id: 'owned-order', userId: 'buyer', totalPaise: 25000, status: 'pending_payment' })
   db.programEnrollment.findUnique.mockResolvedValue({
     id: 'enrollment', userId: 'buyer', programId: 'program', healerId: 'healer', status: 'pending_payment',
@@ -83,10 +85,40 @@ beforeEach(() => {
   analytics.getExperimentVariants.mockResolvedValue({})
   trackEvent.mockResolvedValue(undefined)
   activity.mockResolvedValue(undefined)
+  db.$transaction.mockImplementation(async (operation: (client: DatabaseMock) => Promise<unknown>) => operation(db))
+  db.$executeRaw.mockResolvedValue(1)
+  db.payment.findFirst.mockImplementation(async args => typeof args.where.gatewayOrderId === 'string' ? payment : null)
+  db.payment.findUniqueOrThrow.mockImplementation(async () => db.payment.findFirst({ where: { gatewayOrderId: payment.gatewayOrderId } }))
+  activateProgram.mockResolvedValue({ activated: true, idempotent: false })
+  activateStore.mockResolvedValue({ activated: true, idempotent: false })
+  activateCourse.mockResolvedValue({ activated: true, idempotent: false })
+  jest.requireMock<{ generateInvoiceForPayment: jest.Mock }>('@/lib/invoices/generate').generateInvoiceForPayment.mockResolvedValue(undefined)
 })
 afterEach(() => jest.restoreAllMocks())
 
 describe('server-priced order creation', () => {
+  test.each(['PROGRAM', 'COURSE'])('uses the stored %s quote instead of a changed catalog price', async type => {
+    const model = type === 'PROGRAM' ? 'programEnrollment' : 'courseEnrollment'
+    db[model].findUnique.mockResolvedValue({
+      id: 'enrollment', userId: 'buyer', programId: 'program', healerId: null, courseId: 'course',
+      status: 'pending_payment', pricePaise: 10000,
+      program: { pricePaise: 25000, isActive: true }, course: { pricePaise: 25000, isActive: true },
+    })
+    const response = await createOrder(request({ type, metadata: { enrollmentId: 'enrollment' } }))
+    expect(response.status).toBe(200)
+    expect((await response.json()).amountPaise).toBe(10000)
+    expect(gatewayCreate).toHaveBeenCalledWith(expect.objectContaining({ amount: 10000 }))
+  })
+
+  test('reuses a matching pending payment without opening another gateway order', async () => {
+    db.payment.findFirst.mockResolvedValue(payment)
+    const response = await createOrder(request({ type: 'STORE', metadata: { orderId: 'owned-order' } }))
+    expect(response.status).toBe(200)
+    expect((await response.json()).orderId).toBe(payment.gatewayOrderId)
+    expect(gatewayCreate).not.toHaveBeenCalled()
+    expect(db.payment.create).not.toHaveBeenCalled()
+  })
+
   test.each([
     [{ bookingId }, { bookingId }],
     [{ type: 'PROGRAM', metadata: { enrollmentId: 'enrollment', arbitrary: 'discard' } }, { enrollmentId: 'enrollment', programId: 'program', healerId: 'healer' }],
@@ -143,6 +175,18 @@ describe('server-priced order creation', () => {
 })
 
 describe('payment verification trust boundary', () => {
+  test('an invoice failure does not undo financial success, and a replay retries the invoice', async () => {
+    const invoice = jest.requireMock<{ generateInvoiceForPayment: jest.Mock }>('@/lib/invoices/generate').generateInvoiceForPayment
+    invoice.mockRejectedValueOnce(new Error('Invoice unavailable'))
+    expect((await verifyPayment(signedRequest())).status).toBe(200)
+    db.payment.findFirst.mockResolvedValue({ ...payment, status: 'success', statusEnum: 'SUCCESS', gatewayPaymentId: 'pay_trusted' })
+    db.order.findUnique.mockResolvedValue({ userId: 'buyer', totalPaise: 25000, status: 'paid' })
+    expect((await verifyPayment(signedRequest())).status).toBe(200)
+    expect(invoice).toHaveBeenCalledTimes(2)
+    expect(db.payment.update).toHaveBeenCalledTimes(1)
+    expect(activateStore).toHaveBeenCalledTimes(1)
+  })
+
   test('rejects unsigned requests even with test flags accidentally set in production', async () => {
     jest.replaceProperty(process, 'env', { ...process.env, NODE_ENV: 'production', TEST_MODE: '1', NEXT_PUBLIC_TEST_MODE: '1' })
     const response = await verifyPayment(request({ orderId: payment.gatewayOrderId, paymentId: 'pay_trusted', signature: 'invalid_signature' }))
@@ -191,7 +235,7 @@ describe('payment verification trust boundary', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ verified: true, payment: { id: payment.id } })
     expect(db.payment.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ statusEnum: 'SUCCESS', metadata: { orderId: 'owned-order' } }) }))
-    expect(activateStore).toHaveBeenCalledWith({ orderId: payment.gatewayOrderId, paymentId: 'pay_trusted' })
+    expect(activateStore).toHaveBeenCalledWith(expect.objectContaining({ orderId: payment.gatewayOrderId, paymentId: 'pay_trusted', client: db }))
     expect(trackEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'purchase' }))
   })
 

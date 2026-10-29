@@ -67,6 +67,11 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
   subscription flows respectively. See `docs/payments.md` for migration and error details.
 - Verification checks signature, resource ownership, gateway, currency and amount before
   success. Replays check ownership and the original gateway payment ID without repricing.
+- Program/course enrollment quotes are saved at purchase time. Matching pending orders
+  are reused. Verified payment success and fulfillment commit together; failed stock or
+  enrollment updates roll back, and retries cannot fulfill the purchase twice.
+- Deploy the additive enrollment price migration before this application version;
+  legacy rows keep a nullable quote until their next create-order request.
 - If gateway env missing: order creation returns `500 { error: 'Payment gateway unavailable' }` without affecting other routes.
 
 ---

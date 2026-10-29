@@ -8,7 +8,7 @@ unbound amount and arbitrary fulfillment metadata:
 
 - Sessions: send `{ bookingId }`. The owned booking supplies its saved price.
 - Programs/courses: send `{ type: 'PROGRAM' | 'COURSE', metadata: { enrollmentId } }`
-  for an owned pending enrollment. The active catalog record supplies its price.
+  for an owned pending enrollment. The enrollment's saved price supplies its quote.
 - Store: send `{ type: 'STORE', metadata: { orderId } }` for an owned pending order.
   The saved order total supplies its price.
 - Memberships use `/api/memberships/subscribe`.
@@ -25,10 +25,35 @@ MEMBERSHIP orders must use the linked booking or subscription flow instead.
 gateway, currency, resource owner, binding, and price before recording success.
 Refunded payments cannot be verified again. Successful replays must use the same
 gateway payment ID and still check ownership, without repricing a past purchase.
-Program/course enrollments have no price snapshot in the current schema: if the
-catalog price changes while a payment is pending, verification fails closed and
-the pending purchase needs reconciliation before fulfillment. This change does
-not add payment capture reconciliation or transactional fulfillment retries.
+New program/course enrollments save the agreed price before creating the gateway
+order. A catalog change cannot reprice that purchase. Legacy enrollments with no
+snapshot freeze the current catalog quote on their next create-order request;
+historical prices are never inferred from payment metadata. An older pending
+payment with a different amount fails closed and needs reconciliation.
+
+Quote creation reuses a matching pending gateway order for the same owned purchase.
+Verification serializes callbacks for that purchase and commits payment success,
+enrollment activation, booking confirmation, and store inventory changes in one
+database transaction. Counted stock is decremented conditionally, including when
+different orders compete for the last item. A fulfillment failure rolls back those
+database writes. A valid retry can repair an earlier successful payment whose
+purchase is still pending, provided its amount matches. Completed replays do not
+fulfill or decrement stock again. Invoice generation is outside that transaction;
+failure does not reverse a completed purchase, and a verified replay retries it.
+
+This does not add gateway capture reconciliation or automatic refunds. A signed
+callback and local rollback cannot reverse money already captured by the provider;
+failed fulfillment still requires a retry or operational reconciliation.
+
+## Enrollment price migration
+
+Apply `prisma/migrations/20261029000000_enrollment_price_snapshots/migration.sql`
+before deploying this application version. It only adds nullable `pricePaise`
+integer columns to the two enrollment tables. Existing rows remain intact with
+unknown historical quotes; no backfill or destructive reset is required. The
+integration suite applies this exact SQL to temporary legacy tables and checks
+row preservation. The migration has not been applied to production by this change.
+An application rollback can leave these additive columns in place.
 
 Optional analytics failures are logged separately from payment success. Tests
 wait for activity/analytics side effects rather than forcing Jest to exit.

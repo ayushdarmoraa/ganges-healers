@@ -2,16 +2,13 @@ import { isTestMode } from '@/lib/test-mode'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import crypto from 'crypto'
-import { prisma } from '@/lib/prisma'
 import { auth } from '@/lib/auth'
-import { activateProgramEnrollment } from '@/lib/payments/activateProgramEnrollment'
-import { activateStoreOrder } from '@/lib/payments/activateStoreOrder'
-import { activateCourseEnrollment } from '@/lib/payments/activateCourseEnrollment'
 import { generateInvoiceForPayment } from '@/lib/invoices/generate'
 import { logActivity } from '@/lib/activity-log'
 import { trackEvent } from '@/lib/analytics/track-event'
 import { getSessionId, getExperimentVariants } from '@/lib/analytics/session'
-import { PaymentResourceError, resolvePaymentResource } from '@/lib/payments/resource'
+import { PaymentResourceError } from '@/lib/payments/resource'
+import { finalizePayment } from '@/lib/payments/finalize'
 import { runSideEffect } from '@/lib/runSideEffect'
 
 export const runtime = 'nodejs'
@@ -52,62 +49,14 @@ export async function POST(req: Request) {
       }
     }
 
-    // Update matching payment; ensure ownership
-    const payment = await prisma.payment.findFirst({ where: { gatewayOrderId: orderId } })
-    if (!payment) return NextResponse.json({ error: 'Payment not found' }, { status: 404 })
-    if (payment.userId && payment.userId !== session.user.id) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-
-    if (payment.gateway !== 'razorpay' || payment.currency !== 'INR'
-      || !Number.isSafeInteger(payment.amountPaise) || payment.amountPaise <= 0) {
-      return NextResponse.json({ error: 'Invalid payment configuration' }, { status: 400 })
-    }
-    if (payment.statusEnum === 'REFUNDED' || payment.status === 'refunded') {
-      return NextResponse.json({ error: 'Payment has been refunded' }, { status: 409 })
-    }
-    const settled = payment.statusEnum === 'SUCCESS' || payment.status === 'success'
-    const resource = await resolvePaymentResource({
-      userId: session.user.id,
-      type: payment.type ?? (payment.bookingId ? 'SESSION' : 'MEMBERSHIP'),
-      bookingId: payment.bookingId,
-      metadata: payment.metadata,
-      settled,
-    })
-    if (settled) {
-      if (payment.gatewayPaymentId !== paymentId) {
-        return NextResponse.json({ error: 'Payment identifier mismatch' }, { status: 409 })
-      }
-      console.log('[payments][verify][idempotent-success]', { paymentId: payment.id })
+    const result = await finalizePayment({ orderId, paymentId, signature, userId: session.user.id })
+    const { payment: updated, activation, storeActivation, courseActivation } = result
+    // Invoices are retryable and must not change the result of a committed purchase.
+    await runSideEffect(generateInvoiceForPayment({ paymentId: updated.id, force: false })
+      .catch(() => console.warn('[payments][verify][invoice_failed]', { paymentId: updated.id })))
+    if (result.idempotent) {
+      console.log('[payments][verify][idempotent-success]', { paymentId: updated.id })
       return NextResponse.json({ verified: true, idempotent: true })
-    }
-    if (payment.amountPaise !== resource.amountPaise) {
-      return NextResponse.json({ error: 'Amount does not match resource price' }, { status: 400 })
-    }
-
-    const updated = await prisma.payment.update({
-      where: { id: payment.id },
-      data: {
-        gatewayPaymentId: paymentId,
-        gatewaySignature: signature,
-        statusEnum: 'SUCCESS',
-        status: 'success',
-        type: resource.type,
-        metadata: resource.metadata,
-      }
-    })
-
-    const activation = await activateProgramEnrollment({ paymentId, orderId })
-    const storeActivation = await activateStoreOrder({ paymentId, orderId })
-    const courseActivation = await activateCourseEnrollment({ paymentId, orderId })
-    // In tests, run invoice generation synchronously to avoid late logs after Jest ends
-    const runSync = process.env.NODE_ENV === 'test' || process.env.RUN_SYNC_SIDE_EFFECTS === '1'
-    if (runSync) {
-      await generateInvoiceForPayment({ paymentId: updated.id, force: false })
-    } else {
-      // Fire-and-forget in non-test environments
-      generateInvoiceForPayment({ paymentId: updated.id, force: false })
-        .catch(e => console.warn('[payments][verify][invoice_failed]', { paymentId: updated.id, error: (e as Error).message }))
     }
     console.log('[payments][verify][success]', { paymentId: updated.id, gatewayPaymentId: paymentId, activation, storeActivation, courseActivation })
     await runSideEffect(logActivity({ userId: session.user.id, action: 'payment_verified', entityType: 'payment', entityId: updated.id, metadata: { type: updated.type, amountPaise: updated.amountPaise } }))
