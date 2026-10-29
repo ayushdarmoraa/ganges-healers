@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
         where: { id: serviceId },
         select: { price: true, duration: true, name: true },
       })
-      if (!service) throw new BookingError('Service not found', 404)
+      if (!service) throw new BookingError('Service not found or inactive', 409)
       const validation = await validateBookingSlot(healerId, serviceId, scheduledDate, {
         client: tx, durationMin: service.duration,
       })

@@ -79,6 +79,15 @@ test('concurrent overlapping creates yield exactly one reservation, including in
   }
 })
 
+test('an unknown service keeps the existing booking conflict response', async () => {
+  const response = await POST(makeNextRequest('http://localhost/api/bookings', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ healerId, serviceId: 'missing-service', scheduledAt: slot(1, '15:00') }),
+  }))
+  expect(response.status).toBe(409)
+  expect(await response.json()).toEqual({ error: 'Service not found or inactive' })
+})
+
 test('a creation and reschedule cannot reserve overlapping intervals concurrently', async () => {
   const id = await created(2, '10:00')
   const responses = await Promise.all([reschedule(id, 2, '13:00'), create(2, '13:30')])
