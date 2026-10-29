@@ -69,13 +69,26 @@ test('create, reschedule and cancel a future booking', async ({ page }) => {
   expect((await afterReschedule.json()).data.scheduledAt).toBe(targetInstant.toISOString())
 
   await card.getByRole('button', { name: 'Cancel' }).click()
-  const cancelDialog = page.getByRole('dialog')
-  await expect(cancelDialog.getByText(/Refund band/i)).toBeVisible()
+  const cancelDialog = page.getByRole('dialog', { name: 'Cancel booking' })
+  await expect(cancelDialog.getByText(/Refund eligibility is calculated from your saved booking and payment/i)).toBeVisible()
+  await expect(cancelDialog.getByText(/Unpaid and credit bookings do not receive a cash refund/i)).toBeVisible()
   const cancelled = page.waitForResponse(r => r.url().endsWith(`/api/bookings/${bookingId}`) && r.request().method() === 'DELETE')
   await cancelDialog.getByRole('button', { name: 'Confirm cancel' }).click()
-  expect((await cancelled).status()).toBe(200)
+  const cancelResponse = await cancelled
+  expect(cancelResponse.status()).toBe(200)
+  const cancelResult = await cancelResponse.json()
+  expect(cancelResult.data).toMatchObject({ id: bookingId, status: 'CANCELLED' })
+  // This booking was never paid, so the policy band does not imply a cash refund.
+  expect(cancelResult.refund).toMatchObject({
+    band: 'FULL',
+    refundPaise: 0,
+    status: 'NOT_REQUIRED',
+    message: 'Booking cancelled. No cash refund is due for this booking.',
+  })
+  await expect(page.getByText(cancelResult.refund.message, { exact: true })).toBeVisible()
   await page.getByRole('tab', { name: /Past/ }).click()
   await expect(page.locator('[data-test="booking-card"]').getByLabel('status CANCELLED')).toBeVisible()
   const afterCancel = await page.request.get(`/api/bookings/${bookingId}`)
-  expect((await afterCancel.json()).data.status).toBe('CANCELLED')
+  expect(afterCancel.ok()).toBeTruthy()
+  expect((await afterCancel.json()).data).toMatchObject({ id: bookingId, status: 'CANCELLED', payment: null })
 })
