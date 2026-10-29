@@ -211,8 +211,12 @@ test.describe('VIP membership subscription', () => {
     })
     expect(res.ok()).toBeTruthy()
     const body = await res.json()
-    expect(body.plan).toBeTruthy()
-    expect(body.plan.pricePaise).toBeGreaterThan(0)
+    expect(body).toMatchObject({ marker: 'SUBSCRIBE_V3', canonical: 'vip-monthly', dry: true })
+    expect(body.planId).toBeTruthy()
+    const plansResponse = await page.request.get('/api/memberships/plans')
+    expect(plansResponse.ok()).toBeTruthy()
+    const { plans } = await plansResponse.json()
+    expect(plans.find((plan: { slug: string }) => plan.slug === 'vip-monthly')?.pricePaise).toBeGreaterThan(0)
   })
 })
 
@@ -272,9 +276,12 @@ test.describe('Audio track playback', () => {
 
     // Check audio API
     const res = await page.request.get('/api/audio')
-    if (res.ok()) {
-      const tracks = await res.json()
-      expect(Array.isArray(tracks) || tracks.data).toBeTruthy()
+    expect(res.ok()).toBeTruthy()
+    const catalog = await res.json()
+    expect(Array.isArray(catalog.tracks)).toBeTruthy()
+    expect(Array.isArray(catalog.categories)).toBeTruthy()
+    for (const track of catalog.tracks) {
+      if (track.isPremium) expect(track.audioUrl).toBeNull()
     }
   })
 })
