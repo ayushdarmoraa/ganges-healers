@@ -3,7 +3,8 @@ import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
 const db = { programs: [] as any[] }
-const cuid = () => 'id_' + Math.random().toString(36).slice(2)
+let nextId = 0
+const cuid = () => `id_${String(++nextId).padStart(4, '0')}`
 
 // eslint-disable-next-line prefer-const
 let prismaMock: any
@@ -35,11 +36,13 @@ prismaMock = {
           items = items.filter(p => p.title.toLowerCase().includes(Q) || p.description.toLowerCase().includes(Q))
         }
       }
+      // Match Prisma's orderBy before applying its cursor, not insertion order.
+      items = items.sort((a,b) => a.id.localeCompare(b.id))
       if (args.cursor?.id) {
         const idx = items.findIndex(p => p.id === args.cursor.id)
         if (idx >= 0) items = items.slice(idx + 1)
       }
-      items = items.sort((a,b) => a.id.localeCompare(b.id)).slice(0, args.take)
+      items = items.slice(0, args.take)
       return items.map(p => ({ id: p.id, slug: p.slug, title: p.title, description: p.description, pricePaise: p.pricePaise, totalSessions: p.totalSessions }))
     },
     findUnique: async () => null,
@@ -104,5 +107,6 @@ describe('Programs list API', () => {
     const res2 = await List.GET(get(`http://localhost/api/programs?limit=2&cursor=${encodeURIComponent(j1.nextCursor)}`))
     const j2 = await res2.json()
     expect(j2.items.length).toBeGreaterThanOrEqual(1)
+    expect(j2.items.every((item: { id: string }) => !j1.items.some((previous: { id: string }) => previous.id === item.id))).toBe(true)
   })
 })
