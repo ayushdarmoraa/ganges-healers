@@ -49,11 +49,15 @@ jest.mock('@/lib/auth', () => {
 
 import { prisma } from '@/lib/prisma'
 import { makeNextRequest, readJSON } from '../helpers/next-handler'
-import { addHours, addDays, setHours, setMinutes } from 'date-fns'
+import { addHours } from 'date-fns'
+import { clinicDate, clinicSlotInstant } from '@/lib/bookings/time'
 import * as BookingCollection from '@/app/api/bookings/route'
 import * as BookingById from '@/app/api/bookings/[id]/route'
 
 function iso(d: Date) { return new Date(d).toISOString() }
+function futureSlot(days: number, time: string) {
+  return clinicSlotInstant(clinicDate(new Date(Date.now() + days * 86400000)), time)
+}
 
 // NOTE: Handlers depend on auth() which reads session; for now we bypass by monkey-patching auth to return our test user session
 
@@ -117,8 +121,7 @@ describe('API /api/bookings integration', () => {
   })
 
   test('POST /api/bookings creates PENDING booking on valid future slot', async () => {
-    const base = addDays(new Date(), 2)
-    const slot = setMinutes(setHours(base, 11), 0)
+    const slot = futureSlot(2, '11:00')
 
     const req = makeNextRequest('http://localhost/api/bookings', {
       method: 'POST',
@@ -134,8 +137,7 @@ describe('API /api/bookings integration', () => {
   })
 
   test('POST /api/bookings rejects conflicting slot', async () => {
-    const base = addDays(new Date(), 3)
-    const slot = setMinutes(setHours(base, 12), 0)
+    const slot = futureSlot(3, '12:00')
     const first = makeNextRequest('http://localhost/api/bookings', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ healerId: healer!.id, serviceId: service!.id, scheduledAt: iso(slot) })
@@ -154,7 +156,7 @@ describe('API /api/bookings integration', () => {
 
   test('POST /api/bookings rejects past and misaligned', async () => {
     const past = addHours(new Date(), -1)
-    const misaligned = setMinutes(addDays(new Date(), 2), 10)
+    const misaligned = futureSlot(2, '11:10')
     for (const when of [past, misaligned]) {
       const req = makeNextRequest('http://localhost/api/bookings', {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -169,7 +171,7 @@ describe('API /api/bookings integration', () => {
 
   test('PUT /api/bookings/[id] reschedules when >24h, rejects <24h', async () => {
     // Use unique time for reschedule test to avoid conflicts
-    const t1 = setMinutes(setHours(addDays(new Date(), 5), 11), 30)
+    const t1 = futureSlot(5, '11:30')
     const cReq = makeNextRequest('http://localhost/api/bookings', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ healerId: healer!.id, serviceId: service!.id, scheduledAt: iso(t1) })
@@ -180,7 +182,7 @@ describe('API /api/bookings integration', () => {
     const id = booking?.id
     expect(id).toBeTruthy()
 
-    const t2 = setMinutes(setHours(addDays(t1, 1), 14), 0)
+    const t2 = futureSlot(6, '14:00')
     const rReq = makeNextRequest(`http://localhost/api/bookings/${id}`, {
       method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scheduledAt: iso(t2) })
@@ -188,8 +190,7 @@ describe('API /api/bookings integration', () => {
     const rRes = await IdHandlers.PUT!(rReq, { params: Promise.resolve({ id }) })
     expect(rRes.status).toBeLessThan(300)
 
-    const near = addHours(new Date(), 1) // 1 hour ahead - definitely less than 24h
-    const nearAligned = setMinutes(setHours(near, 12), 0) // Force to 12:00 PM to be within healer availability
+    const nearAligned = addHours(new Date(), 1) // Always within 24 hours
     const nearReq = makeNextRequest(`http://localhost/api/bookings/${id}`, {
       method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scheduledAt: iso(nearAligned) })
@@ -202,7 +203,7 @@ describe('API /api/bookings integration', () => {
 
   test('DELETE /api/bookings/[id] cancels >24h, rejects <24h', async () => {
     // Use unique time for cancel test to avoid conflicts  
-    const future = setMinutes(setHours(addDays(new Date(), 6), 16), 30)
+    const future = futureSlot(7, '16:30')
     const cReq = makeNextRequest('http://localhost/api/bookings', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ healerId: healer!.id, serviceId: service!.id, scheduledAt: iso(future) })

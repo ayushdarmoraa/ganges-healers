@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { validateBookingSlot } from '@/lib/availability'
+import { BookingError, lockOwnedBooking } from '@/lib/bookings/transactions'
 import { RescheduleBody } from '../types'
 import { computeRefund } from '@/lib/bookings/refund-policy'
 import { refundPayment } from '@/lib/payments/razorpay-refunds'
@@ -108,94 +109,52 @@ export async function PUT(
     }
     const { scheduledAt } = parsed.data
 
-    // Get existing booking
-    const existingBooking = await prisma.booking.findFirst({
-      where: {
-        id,
-        userId: session.user.id
-      }
-    })
-
-    if (!existingBooking) {
-      return NextResponse.json(
-        { error: 'Booking not found' },
-        { status: 404 }
-      )
-    }
-
-    // Check if booking can be rescheduled (24h rule)
-    const now = new Date()
-    const timeUntilBooking = existingBooking.scheduledAt.getTime() - now.getTime()
-    const hoursUntilBooking = timeUntilBooking / (1000 * 60 * 60)
-
-    if (hoursUntilBooking < 24) {
-      return NextResponse.json(
-        { error: 'Cannot reschedule booking less than 24 hours before scheduled time' },
-        { status: 403 }
-      )
-    }
-
     const newScheduledDate = new Date(scheduledAt)
     if (isNaN(newScheduledDate.getTime())) {
-      return NextResponse.json(
-        { error: 'Invalid scheduledAt date format' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'Invalid scheduledAt date format' }, { status: 400 })
     }
 
-    // Check if NEW time is at least 24 hours in the future
-    const timeUntilNewBooking = newScheduledDate.getTime() - now.getTime()
-    const hoursUntilNewBooking = timeUntilNewBooking / (1000 * 60 * 60)
-    
-    if (hoursUntilNewBooking < 24) {
-      return NextResponse.json(
-        { error: 'Cannot reschedule to a time less than 24 hours from now' },
-        { status: 400 }
-      )
-    }
-
-    // Validate new booking slot
-    const validation = await validateBookingSlot(
-      existingBooking.healerId,
-      existingBooking.serviceId,
-      newScheduledDate
-    )
-    
-    if (!validation.valid) {
-      return NextResponse.json(
-        { error: validation.error },
-        { status: 409 }
-      )
-    }
-
-    // Update booking
-    const updatedBooking = await prisma.booking.update({
-      where: { id },
-      data: {
-        scheduledAt: newScheduledDate,
-        status: 'RESCHEDULED',
-        updatedAt: new Date()
-      },
-      include: {
-        healer: {
-          include: {
-            user: {
-              select: {
-                name: true,
-                image: true
-              }
-            }
-          }
-        },
-        service: {
-          select: {
-            name: true,
-            category: true,
-            duration: true
-          }
-        }
+    const updatedBooking = await prisma.$transaction(async tx => {
+      const lockedHealerId = await lockOwnedBooking(tx, id, session.user.id!)
+      // Re-read after acquiring the healer lock: a competing reschedule may
+      // have changed the booking while this request waited.
+      const existingBooking = await tx.booking.findFirst({ where: { id, userId: session.user.id } })
+      if (!existingBooking || existingBooking.healerId !== lockedHealerId) {
+        throw new BookingError('Booking not found', 404)
       }
-    })
+      if (!['PENDING', 'SCHEDULED', 'CONFIRMED', 'RESCHEDULED'].includes(existingBooking.status)) {
+        throw new BookingError('Booking cannot be rescheduled in its current state', 409)
+      }
+
+      const now = new Date()
+      if (existingBooking.scheduledAt.getTime() - now.getTime() < 24 * 60 * 60 * 1000) {
+        throw new BookingError('Cannot reschedule booking less than 24 hours before scheduled time', 403)
+      }
+      if (newScheduledDate.getTime() - now.getTime() < 24 * 60 * 60 * 1000) {
+        throw new BookingError('Cannot reschedule to a time less than 24 hours from now', 400)
+      }
+
+      const validation = await validateBookingSlot(existingBooking.healerId, existingBooking.serviceId, newScheduledDate, {
+        client: tx, excludeBookingId: id, durationMin: existingBooking.durationMin,
+      })
+      if (!validation.valid) throw new BookingError(validation.error || 'Time slot not available', 409)
+
+      // A concurrent cancellation/status update need not take the healer lock.
+      // Do not overwrite it or revive a cancelled booking from a stale read.
+      const changed = await tx.booking.updateMany({
+        where: { id, userId: session.user.id, status: existingBooking.status,
+          scheduledAt: existingBooking.scheduledAt, updatedAt: existingBooking.updatedAt },
+        data: { scheduledAt: newScheduledDate, status: 'RESCHEDULED', updatedAt: new Date() },
+      })
+      if (changed.count !== 1) throw new BookingError('Booking changed; please try again', 409)
+      return tx.booking.findUniqueOrThrow({
+        where: { id },
+        include: {
+          healer: { include: { user: { select: { name: true, image: true } } } },
+          service: { select: { name: true, category: true, duration: true } },
+        },
+      })
+    }, { maxWait: 10000, timeout: 10000, isolationLevel: 'ReadCommitted' })
 
     return NextResponse.json({
       success: true,
@@ -204,6 +163,9 @@ export async function PUT(
     })
 
   } catch (error) {
+    if (error instanceof BookingError) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
     console.error('Update booking error:', error)
     return NextResponse.json(
       { error: 'Internal server error' },

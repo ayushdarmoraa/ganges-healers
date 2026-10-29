@@ -135,7 +135,7 @@ describe('BookingModal', () => {
     // Wait for availability to load and move to time selection
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/api/availability')
+        expect.stringContaining(`/api/availability?healerId=${healer.id}&date=${dateStr}&serviceId=${serviceId}`)
       );
     });
 
@@ -160,7 +160,10 @@ describe('BookingModal', () => {
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
         '/api/bookings',
-        expect.objectContaining({ method: 'POST' }),
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ healerId: healer.id, serviceId, scheduledAt: `${dateStr}T05:30:00.000Z` }),
+        }),
       );
     });
 

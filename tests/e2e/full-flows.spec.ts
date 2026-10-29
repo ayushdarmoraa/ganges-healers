@@ -98,7 +98,7 @@ test.describe('Book healing session', () => {
       d.setDate(d.getDate() + offset)
       const dateStr = d.toISOString().split('T')[0]
       const availRes = await page.request.get(
-        `/api/availability?healerId=${healerId}&date=${dateStr}`
+        `/api/availability?healerId=${healerId}&date=${dateStr}&serviceId=${serviceId}`
       )
       if (!availRes.ok()) continue
       const avail = await availRes.json()
@@ -107,7 +107,7 @@ test.describe('Book healing session', () => {
       )
       if (!slot) continue
 
-      const scheduledAt = `${dateStr}T${slot.time}:00.000Z`
+      const scheduledAt = new Date(`${dateStr}T${slot.time}:00+05:30`).toISOString()
       const bookRes = await page.request.post('/api/bookings', {
         data: { healerId, serviceId, scheduledAt },
         headers: userId ? { 'x-test-user-id': userId } : {},

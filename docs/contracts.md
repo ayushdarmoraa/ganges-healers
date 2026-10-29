@@ -14,6 +14,28 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 
 ## Public APIs: Contracts to Preserve
 
+### Booking and availability
+- `GET /api/availability?healerId=...&date=YYYY-MM-DD` uses India time
+  (`Asia/Kolkata`) for both dates and slot labels. An optional `serviceId` uses
+  that active service's duration; without it the existing 60-minute default
+  remains. An unknown or inactive service returns 404. Invalid or past India
+  dates return 400. Public availability does not expose booking IDs.
+- Booking and rescheduling requests continue to accept an ISO UTC instant.
+  The booking form converts its India-time slot to that instant and labels the
+  timezone. A slot must be in the future, aligned to 30-minute boundaries and
+  fit fully inside the healer's working window; test mode retains its existing
+  time/window shortcuts but never bypasses overlap prevention.
+- Pending, scheduled, confirmed and rescheduled bookings occupy their complete
+  intervals. Adjacent intervals are allowed. Create and reschedule serialize by
+  healer inside a PostgreSQL transaction, recheck overlaps before writing, and
+  return 409 for a conflict. Rescheduling excludes itself, retains the booked
+  duration and rejects cancelled or completed bookings. Stale confirmation and
+  reschedule transitions cannot revive a concurrently cancelled booking.
+- The advisory lock coordinates application writers that participate in this
+  protocol; it is not a database exclusion constraint. Direct SQL and external
+  writers must follow the same protocol. Existing conflicting bookings are not
+  automatically changed, and pending bookings continue to occupy their slots.
+
 ### Payments Webhook (Razorpay)
 - Path: `POST /api/payments/webhook`
 - Behavior:

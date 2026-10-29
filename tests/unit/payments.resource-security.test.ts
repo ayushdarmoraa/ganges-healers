@@ -5,7 +5,7 @@ import { POST as verifyPayment } from '@/app/api/payments/verify/route'
 jest.mock('@/lib/auth', () => ({ auth: jest.fn() }))
 jest.mock('@/lib/prisma', () => ({ prisma: {
   $transaction: jest.fn(), $executeRaw: jest.fn(),
-  booking: { findUnique: jest.fn(), update: jest.fn() },
+  booking: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
   programEnrollment: { findUnique: jest.fn(), update: jest.fn() },
   courseEnrollment: { findUnique: jest.fn(), update: jest.fn() },
   order: { findUnique: jest.fn() },
@@ -72,6 +72,7 @@ beforeEach(() => {
   db.payment.findFirst.mockResolvedValue(payment)
   db.payment.update.mockImplementation(async ({ data }) => ({ ...payment, ...data }))
   db.booking.findUnique.mockResolvedValue({ id: bookingId, healerId: 'healer', userId: 'buyer', pricePaise: 25000, status: 'PENDING', payment: null })
+  db.booking.updateMany.mockResolvedValue({ count: 1 })
   db.order.findUnique.mockResolvedValue({ id: 'owned-order', userId: 'buyer', totalPaise: 25000, status: 'pending_payment' })
   db.programEnrollment.findUnique.mockResolvedValue({
     id: 'enrollment', userId: 'buyer', programId: 'program', healerId: 'healer', status: 'pending_payment',
@@ -245,6 +246,17 @@ describe('payment verification trust boundary', () => {
     expect(db.payment.update).toHaveBeenCalled()
     expect(activateStore).toHaveBeenCalled()
     expect(console.warn).toHaveBeenCalledWith('[payments][verify][analytics_failed]', { paymentId: payment.id })
+  })
+
+  test('rejects confirmation if the booking was cancelled after the initial read', async () => {
+    db.payment.findFirst.mockResolvedValue({ ...payment, type: 'SESSION', bookingId, metadata: { bookingId } })
+    db.booking.updateMany.mockResolvedValue({ count: 0 })
+    const response = await verifyPayment(signedRequest())
+    expect(response.status).toBe(409)
+    expect(db.booking.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: bookingId, status: { in: ['PENDING', 'SCHEDULED', 'RESCHEDULED'] } },
+    }))
+    expect(trackEvent).not.toHaveBeenCalled()
   })
 
   test('a replay checks ownership without repricing a completed purchase', async () => {

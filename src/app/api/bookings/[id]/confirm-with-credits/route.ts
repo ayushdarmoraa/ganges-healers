@@ -25,12 +25,16 @@ export async function POST(
       if (booking.userId !== user.id) throw new Error('FORBIDDEN')
       if (booking.status !== 'PENDING') throw new Error('INVALID_STATE')
 
-      await tx.user.update({
-        where: { id: user.id },
-        data: { freeSessionCredits: (user.freeSessionCredits ?? 0) - 1 },
+      const confirmed = await tx.booking.updateMany({
+        where: { id, userId: user.id, status: 'PENDING' },
+        data: { status: 'CONFIRMED' },
       })
-
-      await tx.booking.update({ where: { id }, data: { status: 'CONFIRMED' } })
+      if (confirmed.count !== 1) throw new Error('INVALID_STATE')
+      const credit = await tx.user.updateMany({
+        where: { id: user.id, vip: true, freeSessionCredits: { gt: 0 } },
+        data: { freeSessionCredits: { decrement: 1 } },
+      })
+      if (credit.count !== 1) throw new Error('NO_CREDITS')
 
       await tx.payment.upsert({
         where: { bookingId: id },

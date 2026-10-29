@@ -46,7 +46,13 @@ export async function finalizePayment(input: { orderId: string; paymentId: strin
       if (!fulfilled) throw new PaymentResourceError('Purchase fulfillment is unavailable', 409)
     }
     if (type === 'SESSION' && resource.requiresFulfillment && payment.bookingId) {
-      await tx.booking.update({ where: { id: payment.bookingId }, data: { status: 'CONFIRMED' } })
+      // A cancellation can race this transaction without taking the healer
+      // lock. Never restore a cancelled/completed booking from a stale read.
+      const confirmed = await tx.booking.updateMany({
+        where: { id: payment.bookingId, status: { in: ['PENDING', 'SCHEDULED', 'RESCHEDULED'] } },
+        data: { status: 'CONFIRMED' },
+      })
+      if (confirmed.count !== 1) throw new PaymentResourceError('Booking changed before confirmation', 409)
     }
     return { payment: updated, idempotent, activation, storeActivation, courseActivation }
   }, { maxWait: 10000, timeout: 10000 })

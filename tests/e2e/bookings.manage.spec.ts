@@ -61,12 +61,12 @@ test.describe('Manage bookings', () => {
       const d = new Date(); d.setDate(d.getDate() + offset)
       const y = d.getFullYear(); const m = `${d.getMonth()+1}`.padStart(2,'0'); const dd = `${d.getDate()}`.padStart(2,'0')
       const dateStr = `${y}-${m}-${dd}`
-      const availResp = await page.request.get(`/api/availability?healerId=${healerId}&date=${dateStr}`)
+      const availResp = await page.request.get(`/api/availability?healerId=${healerId}&date=${dateStr}&serviceId=${serviceId}`)
       if (!availResp.ok()) continue
       const avail = await availResp.json()
       const first = (avail?.data?.slots || []).find((s: any) => s.available) // eslint-disable-line @typescript-eslint/no-explicit-any
       if (!first) continue
-      const scheduledAt = `${dateStr}T${first.time}:00.000Z`
+      const scheduledAt = new Date(`${dateStr}T${first.time}:00+05:30`).toISOString()
       const createResp = await page.request.post('/api/bookings', { data: { healerId, serviceId, scheduledAt }, headers: testUserId ? { 'x-test-user-id': testUserId } : {} })
       if (createResp.ok()) {
         createdOk = true

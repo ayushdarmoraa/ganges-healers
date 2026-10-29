@@ -60,9 +60,16 @@ export async function PATCH(
       COMPLETE: 'COMPLETED',
     }
 
-    const updated = await prisma.booking.update({
-      where: { id },
+    // Reject stale transitions so a concurrent cancellation cannot be undone.
+    const changed = await prisma.booking.updateMany({
+      where: { id, healerId: healer.id, status: booking.status },
       data: { status: statusMap[action] as 'CONFIRMED' | 'CANCELLED' | 'COMPLETED' },
+    })
+    if (changed.count !== 1) {
+      return NextResponse.json({ error: 'Booking changed; please try again' }, { status: 409 })
+    }
+    const updated = await prisma.booking.findUniqueOrThrow({
+      where: { id },
       include: {
         service: { select: { name: true, category: true } },
         user: { select: { id: true, name: true, email: true } },
