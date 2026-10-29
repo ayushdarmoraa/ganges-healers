@@ -2,17 +2,16 @@ import { cookies } from 'next/headers'
 import { createHash } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { auth } from '@/lib/auth'
+import { EXPERIMENT_COOKIE_PREFIX as COOKIE_PREFIX, type Variant } from './client'
 
-const COOKIE_PREFIX = 'ghx_'
-const COOKIE_MAX_AGE = 90 * 24 * 60 * 60 // 90 days
+// Preserve existing imports for server callers; browser callers use ./client directly.
+export { readVariantClient, readAllVariantsClient, type Variant } from './client'
 
 /**
  * Stable salt for experiment hashing. Once set, NEVER change this value
  * or all logged-in users will be reassigned to different variants.
  */
 const HASH_SALT = process.env.EXPERIMENT_HASH_SALT || 'ganges-healers-stable-v1'
-
-export type Variant = 'A' | 'B'
 
 /**
  * Deterministic variant assignment via SHA-256 hash.
@@ -37,14 +36,16 @@ function deterministicVariant(
 
 /**
  * Returns the assigned variant for a given experiment key.
- * If no cookie exists, assigns one and sets the cookie so the user stays bucketed.
+ * If no cookie exists, chooses a variant for the current render. Server
+ * Components cannot mutate cookies; the consuming browser must persist the
+ * chosen variant before emitting experiment-attributed events.
  *
  * Assignment priority:
  *  1. Existing cookie (already assigned)
  *  2. Logged-in userId → deterministic hash (cross-device consistency)
  *  3. Random assignment (anonymous users)
  *
- * Must be called in a Server Component or Route Handler (reads/writes cookies).
+ * Must be called in a Server Component or Route Handler (reads cookies).
  */
 export async function getVariant(
   experimentKey: string,
@@ -72,13 +73,6 @@ export async function getVariant(
     const rand = Math.random() * totalWeight
     variant = rand < weights.A ? 'A' : 'B'
   }
-
-  cookieStore.set(cookieName, variant, {
-    maxAge: COOKIE_MAX_AGE,
-    path: '/',
-    httpOnly: false, // readable by client JS for analytics
-    sameSite: 'lax',
-  })
 
   return variant
 }
@@ -114,34 +108,6 @@ export async function getAllVariants(): Promise<Record<string, Variant>> {
   for (const c of cookieStore.getAll()) {
     if (c.name.startsWith(COOKIE_PREFIX) && (c.value === 'A' || c.value === 'B')) {
       variants[c.name.slice(COOKIE_PREFIX.length)] = c.value as Variant
-    }
-  }
-  return variants
-}
-
-/**
- * Reads the current variant cookie on the client side.
- * Returns null if no variant is assigned.
- */
-export function readVariantClient(experimentKey: string): Variant | null {
-  if (typeof document === 'undefined') return null
-  const cookieName = `${COOKIE_PREFIX}${experimentKey}`
-  const match = document.cookie.match(new RegExp(`(?:^|; )${cookieName}=([AB])`))
-  return (match?.[1] as Variant) ?? null
-}
-
-/**
- * Client-side: Read all experiment variant cookies.
- */
-export function readAllVariantsClient(): Record<string, Variant> {
-  if (typeof document === 'undefined') return {}
-  const variants: Record<string, Variant> = {}
-  for (const part of document.cookie.split('; ')) {
-    if (part.startsWith(COOKIE_PREFIX)) {
-      const [name, value] = part.split('=')
-      if (value === 'A' || value === 'B') {
-        variants[name.slice(COOKIE_PREFIX.length)] = value as Variant
-      }
     }
   }
   return variants

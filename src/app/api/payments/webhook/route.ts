@@ -1,3 +1,4 @@
+import { isTestMode } from '@/lib/test-mode'
 // src/app/api/payments/webhook/route.ts
 // Copilot prompt: Review this webhook handler for Razorpay. Ensure it reads the raw request body, verifies HMAC with RAZORPAY_WEBHOOK_SECRET, returns 401 on mismatch and { ok: true } on success, and logs [webhook] verified with event + IDs. Do not add DB side-effects. Keep response shape stable.
 import { NextResponse } from 'next/server';
@@ -29,7 +30,7 @@ export async function POST(req: Request) {
   try {
     evt = JSON.parse(bodyText)
   } catch (err) {
-    if (process.env.TEST_MODE === '1') {
+    if (isTestMode()) {
       console.error('[TEST_MODE] JSON parse failed in payments webhook', err, 'raw:', bodyText)
     }
     console.error('[webhook] invalid payload')

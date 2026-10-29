@@ -12,9 +12,9 @@ test.describe('Admin Payments Dashboard', () => {
     test.setTimeout(120000);
     await page.goto('/admin/payments');
 
-    // Root should mount quickly even while loading (skeletons visible)
+    // The dashboard is a lazy client chunk; cold dev compilation can take time.
     const root = page.locator('[data-test="payments-analytics-root"]');
-    await expect(root).toBeVisible();
+    await expect(root).toBeVisible({ timeout: 30000 });
 
     const kpiRow = page.locator('[data-test="kpi-row"]');
     await expect(kpiRow).toBeVisible();
@@ -28,10 +28,16 @@ test.describe('Admin Payments Dashboard', () => {
 
     // Filter interaction (SESSION -> ensure KPIs still present)
     const typeSelect = page.locator('[data-test="filter-type"]');
-    if (await typeSelect.isVisible()) {
-      await typeSelect.selectOption('SESSION');
-      await expect(kpiRow).toBeVisible();
-    }
+    await expect(typeSelect).toBeVisible();
+    const filteredResponse = page.waitForResponse(response => {
+      const url = new URL(response.url());
+      return url.pathname === '/api/admin/payments/metrics' && url.searchParams.get('type') === 'SESSION';
+    });
+    await typeSelect.selectOption('SESSION');
+    const response = await filteredResponse;
+    expect(response.ok()).toBeTruthy();
+    const filtered = await response.json();
+    await expect(page.locator('[data-test="kpi-paymentsCount-value"]')).toHaveText(String(filtered.kpi.paymentsCount));
 
     // One of the tables (payments or refunds)
     const anyTable = page.locator('[data-test="table-payments"], [data-test="table-refunds"]');

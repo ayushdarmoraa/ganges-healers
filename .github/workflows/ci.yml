@@ -20,8 +20,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -49,17 +47,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Prepare DB
-        run: |
-          pnpm db:test:push
-          pnpm db:test:seed
       - run: pnpm test:int
 
   ui:
@@ -67,8 +59,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -82,8 +72,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -113,30 +101,16 @@ jobs:
           --health-retries=10
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ganges_healers_test
-      E2E_BASE_URL: http://localhost:3000
+      E2E_BASE_URL: http://localhost:3010
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Prepare DB
-        run: |
-          pnpm db:test:push
-          pnpm db:test:seed
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: next-build
-          path: ./.next
-      - name: Start production server
-        run: |
-          pnpm start & npx wait-on http://localhost:3000
       - name: Run E2E
         run: pnpm test:e2e

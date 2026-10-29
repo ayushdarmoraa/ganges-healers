@@ -5,7 +5,9 @@
  *
  * Usage: node scripts/verify-pipeline.js
  */
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Standalone CommonJS CLI; preserve node scripts/verify-pipeline.js usage.
 require('dotenv/config')
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Standalone CommonJS CLI; package.json does not declare an ESM runtime.
 const { PrismaClient } = require('@prisma/client')
 
 const prisma = new PrismaClient()

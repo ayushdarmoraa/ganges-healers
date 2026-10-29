@@ -2,7 +2,7 @@
 
 ## Environments & Secrets Audit
 
-- Vercel envs: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `DATABASE_URL`, `NEXTAUTH_SECRET`, `BLOB_READ_WRITE_TOKEN`, `REFUNDS_ENABLED`.
+- Vercel envs: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `DATABASE_URL`, `NEXTAUTH_SECRET`, `BLOB_READ_WRITE_TOKEN`.
 - Confirm no duplicates or outdated secrets.
 - Rotate `RAZORPAY_WEBHOOK_SECRET`:
   1) Generate new secret (securely)

@@ -9,6 +9,14 @@ interface Props {
   scheduledAt: string // ISO
 }
 
+type CancellationResponse = {
+  error?: string
+  refund?: {
+    status?: string
+    message?: string
+  }
+}
+
 export default function BookingActions({ bookingId, scheduledAt }: Props) {
   const [pending, startTransition] = useTransition()
   const router = useRouter()
@@ -17,12 +25,19 @@ export default function BookingActions({ bookingId, scheduledAt }: Props) {
     startTransition(async () => {
       try {
         const res = await fetch(`/api/bookings/${bookingId}`, { method: "DELETE" })
+        const data = await res.json().catch(() => ({})) as CancellationResponse
         if (!res.ok) {
-          const data: unknown = await res.json().catch(() => ({}))
-          const message = (data && typeof data === 'object' && 'error' in data) ? (data as { error?: string }).error : undefined
+          const message = 'error' in data && typeof data.error === 'string' ? data.error : undefined
           throw new Error(message || `Failed (${res.status})`)
         }
-        toast.success("Booking cancelled")
+        const message = data.refund?.message || 'Booking cancelled.'
+        if (data.refund?.status === 'SUCCESS' || data.refund?.status === 'NOT_REQUIRED') {
+          toast.success(message)
+        } else if (data.refund?.status === 'PENDING') {
+          toast.info(message)
+        } else {
+          toast.error(message)
+        }
         router.refresh()
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : "Could not cancel (maybe <24h?)"

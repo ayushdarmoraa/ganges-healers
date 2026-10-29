@@ -30,6 +30,25 @@
 
 ## 🧪 Manual Testing Checklist
 
+### Test-only login helper
+
+Production authentication requires a configured `AUTH_SECRET` or `NEXTAUTH_SECRET`.
+The fixed demo fallback provider has been removed; credentials login always checks
+the user's stored password hash. No accounts are created as a login fallback.
+Production/preview startup rejects either test flag set to `1`. Server shortcuts
+accept only the private `TEST_MODE` flag in a development or test runtime; the
+public flag never grants server authorization or bypasses payment signatures.
+
+`GET /api/test/login` is available only when `TEST_MODE=1` and `NODE_ENV` is
+`development` or `test`. It returns `404` in production (including preview
+production builds), even if a test flag is accidentally enabled, and also rejects
+missing or unrecognized runtime environments. `NEXT_PUBLIC_TEST_MODE` alone does
+not enable it. Rejected requests do not access user records or issue session cookies.
+
+Use the existing `pnpm dev:test` launcher for local E2E login. Production and
+preview must use normal authentication; this helper cannot log into a production
+server. Database safety for the E2E launcher must be checked separately before use.
+
 ### 1. Registration Flow
 - [ ] Visit http://localhost:3000
 - [ ] Click "Register" button in navbar  

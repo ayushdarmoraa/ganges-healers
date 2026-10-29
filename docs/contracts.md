@@ -14,6 +14,56 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 
 ## Public APIs: Contracts to Preserve
 
+### Booking and availability
+- `GET /api/availability?healerId=...&date=YYYY-MM-DD` uses India time
+  (`Asia/Kolkata`) for both dates and slot labels. An optional `serviceId` uses
+  that active service's duration; without it the existing 60-minute default
+  remains. An unknown or inactive service returns 404. Invalid or past India
+  dates return 400. Public availability does not expose booking IDs.
+- A `bookingId` on availability requests requires authentication and ownership;
+  it uses that booking's saved duration and excludes only that booking from
+  the overlap preview. Missing or mismatched bookings return 404, and inactive
+  or terminal bookings return 409. Reservation writes still recheck conflicts.
+- Booking and rescheduling requests continue to accept an ISO UTC instant.
+  The booking form converts its India-time slot to that instant and labels the
+  timezone. A slot must be in the future, aligned to 30-minute boundaries and
+  fit fully inside the healer's working window; test mode retains its existing
+  time/window shortcuts but never bypasses overlap prevention.
+- Pending, scheduled, confirmed and rescheduled bookings occupy their complete
+  intervals. Adjacent intervals are allowed. Create and reschedule serialize by
+  healer inside a PostgreSQL transaction, recheck overlaps before writing, and
+  return 409 for a conflict. Rescheduling excludes itself, retains the booked
+  duration and rejects cancelled or completed bookings. Stale confirmation and
+  reschedule transitions cannot revive a concurrently cancelled booking.
+- The advisory lock coordinates application writers that participate in this
+  protocol; it is not a database exclusion constraint. Direct SQL and external
+  writers must follow the same protocol. Existing conflicting bookings are not
+  automatically changed, and pending bookings continue to occupy their slots.
+- `DELETE /api/bookings/[id]` and legacy `PATCH /api/bookings/[id]`
+  (`{ action: "cancel" }`) use the same owned-booking cancellation flow. Only
+  pending, scheduled, confirmed, or rescheduled bookings at least 24 hours
+  before their start may be cancelled; completed bookings cannot be cancelled.
+  The response includes `{ success, ok, data, alreadyCancelled, bookingId,
+  message, refund: { band, refundPaise, status, message } }`. Refund amounts
+  are calculated server-side from the saved booking and successful payment,
+  never from client estimates. `refund.status` is `NOT_REQUIRED`, `UNAVAILABLE`,
+  `PENDING`, `SUCCESS`, `FAILED`, or `UNKNOWN`. Only successful paid Razorpay
+  payments can receive cash refunds; unpaid and credit bookings return
+  `NOT_REQUIRED`. Real refunds are recorded before submission and cancellation
+  retries serialize on the booking's healer lock. A known gateway refund is
+  fetched on retry; an uncertain result without a gateway ID is never
+  resubmitted automatically and requires reconciliation. No simulated refund
+  is reported as real. Older cancelled bookings without a refund intent require
+  support review because the previous implementation cannot prove whether the
+  gateway was called.
+
+### Product headline experiment
+- Server rendering reads existing `ghx_product_headline` assignments and selects
+  a variant without writing response cookies. The browser persists the rendered
+  assignment with the existing 90-day, path-wide, SameSite=Lax cookie before
+  sending the product-view event. Authenticated selection retains its stable
+  hash; a first anonymous view without JavaScript cannot persist its assignment.
+
 ### Payments Webhook (Razorpay)
 - Path: `POST /api/payments/webhook`
 - Behavior:
@@ -59,12 +109,41 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 
 ### Generic Payments (Unified)
 - Endpoints (as documented and tested):
-  - `POST /api/payments/create-order` (booking or generic type + amountPaise)
+  - `POST /api/payments/create-order` (owned booking, or generic type + owned resource reference)
   - `POST /api/payments/verify` (`{ orderId, paymentId, signature }`)
 - Contracts pinned by tests: order creation returns gateway order id + key; verify is idempotent on repeat success.
+- Prices and fulfillment metadata come from the linked database resource. Optional caller
+  amounts must match. Unbound SESSION/MEMBERSHIP requests are rejected; use booking and
+  subscription flows respectively. See `docs/payments.md` for migration and error details.
+- Verification checks signature, resource ownership, gateway, currency and amount before
+  success. Replays check ownership and the original gateway payment ID without repricing.
+- Program/course enrollment quotes are saved at purchase time. Matching pending orders
+  are reused. Verified payment success and fulfillment commit together; failed stock or
+  enrollment updates roll back, and retries cannot fulfill the purchase twice.
+- Deploy the additive enrollment price migration before this application version;
+  legacy rows keep a nullable quote until their next create-order request.
 - If gateway env missing: order creation returns `500 { error: 'Payment gateway unavailable' }` without affecting other routes.
 
 ---
+
+## Audio Catalog and Playback
+
+- `GET /api/audio` remains public and returns `{ tracks, categories }`, with the existing
+  category filter and track fields. Every premium track has `audioUrl: null`, including
+  cache hits. Free track URLs remain available.
+- Clients must request `/api/audio/[slug]` for playback. Premium URLs are returned only
+  after the existing session, VIP membership, or active enrollment checks. Denied access
+  keeps the `200` response with `audioUrl: null`, `locked: true`, and a reason.
+- Catalog redaction does not revoke previously shared media URLs. Storage access and
+  expiring signed media delivery remain separate deployment requirements.
+
+## Optional Admin AI Content
+
+Optional admin AI product content generation initializes its SDK only after an
+authorized, valid request. `POST /api/admin/generate-product-content` returns 503
+when `OPENAI_API_KEY` is absent, 400 for invalid input/JSON, and preserves its
+configured success response. Building/importing routes does not require this
+optional key. SDK errors are logged by type without key fragments or input text.
 
 ## Logging Invariants
 - Use stable prefixes and keys for observability/tests:

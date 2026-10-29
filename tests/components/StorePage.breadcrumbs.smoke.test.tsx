@@ -1,6 +1,13 @@
 import { render, screen, within } from '@testing-library/react'
 import StorePage from '@/app/store/page'
 
+jest.mock('@/lib/prisma', () => ({
+  prisma: {
+    productCategory: { findMany: jest.fn(async () => []) },
+    product: { findMany: jest.fn(async () => []) },
+  },
+}))
+
 jest.mock('@/lib/store/queries', () => ({
   listProducts: jest.fn(async () => ({ items: [], nextCursor: null }))
 }))

@@ -1,11 +1,14 @@
+import { isTestMode } from '@/lib/test-mode'
 // app/api/bookings/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { validateBookingSlot } from '@/lib/availability'
+import { lockTransaction } from '@/lib/db/locks'
+import { BookingError } from '@/lib/bookings/transactions'
+import { BOOKING_TIME_ZONE } from '@/lib/bookings/time'
 import { logActivity } from '@/lib/activity-log'
 import { emailService } from '@/lib/email/email.service'
-import { format } from 'date-fns'
 import { CreateBookingBody } from './types'
 
 export async function GET(request: NextRequest) {
@@ -79,7 +82,7 @@ export async function POST(request: NextRequest) {
   try {
     const session = await auth()
     // In TEST_MODE, allow an override via header for deterministic E2E API calls
-    const testUserId = (process.env.TEST_MODE === '1' || process.env.NEXT_PUBLIC_TEST_MODE === '1') ? request.headers.get('x-test-user-id') : null
+    const testUserId = isTestMode() ? request.headers.get('x-test-user-id') : null
     const userId = session?.user?.id || testUserId
     if (!userId) {
       return NextResponse.json(
@@ -89,7 +92,7 @@ export async function POST(request: NextRequest) {
     }
 
     let json: Record<string, unknown>
-    if (process.env.TEST_MODE === '1') {
+    if (isTestMode()) {
       const raw = await request.text().catch(() => '')
       console.debug('[TEST_MODE] /api/bookings POST raw body:', raw || '(none)')
       try {
@@ -114,63 +117,36 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Validate booking slot
-    const validation = await validateBookingSlot(healerId, serviceId, scheduledDate)
-    if (!validation.valid) {
-      return NextResponse.json(
-        { error: validation.error },
-        { status: 409 } // Conflict
-      )
-    }
+    // Serialize all slot checks and reservations for this healer. The lock is
+    // transaction-scoped, so a competing request rechecks after this commits.
+    const booking = await prisma.$transaction(async tx => {
+      await lockTransaction(tx, 'healer', healerId)
+      const service = await tx.service.findUnique({
+        where: { id: serviceId },
+        select: { price: true, duration: true, name: true },
+      })
+      if (!service) throw new BookingError('Service not found or inactive', 409)
+      const validation = await validateBookingSlot(healerId, serviceId, scheduledDate, {
+        client: tx, durationMin: service.duration,
+      })
+      if (!validation.valid) throw new BookingError(validation.error || 'Time slot not available', 409)
 
-    // Get service details for pricing and duration
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
-      select: {
-        price: true,
-        duration: true,
-        name: true
-      }
-    })
-
-    if (!service) {
-      return NextResponse.json(
-        { error: 'Service not found' },
-        { status: 404 }
-      )
-    }
-
-    // Create booking
-    const booking = await prisma.booking.create({
-      data: {
-        userId,
-        healerId,
-        serviceId,
-        scheduledAt: scheduledDate,
-        durationMin: service.duration,
-        status: 'PENDING',
-        pricePaise: Math.round(service.price * 100), // Convert to paise
-      },
-      include: {
-        healer: {
-          include: {
-            user: {
-              select: {
-                name: true,
-                image: true
-              }
-            }
-          }
+      return tx.booking.create({
+        data: {
+          userId,
+          healerId,
+          serviceId,
+          scheduledAt: scheduledDate,
+          durationMin: service.duration,
+          status: 'PENDING',
+          pricePaise: Math.round(service.price * 100),
         },
-        service: {
-          select: {
-            name: true,
-            category: true,
-            duration: true
-          }
-        }
-      }
-    })
+        include: {
+          healer: { include: { user: { select: { name: true, image: true } } } },
+          service: { select: { name: true, category: true, duration: true } },
+        },
+      })
+    }, { maxWait: 10000, timeout: 10000, isolationLevel: 'ReadCommitted' })
 
     // Fire and forget confirmation email
     if (booking && emailService.isEnabled()) {
@@ -183,8 +159,8 @@ export async function POST(request: NextRequest) {
         userName: session?.user?.name || 'User',
         serviceName,
         healerName,
-        date: format(scheduled, 'MMMM d, yyyy'),
-        time: format(scheduled, 'h:mm a'),
+        date: new Intl.DateTimeFormat('en-US', { timeZone: BOOKING_TIME_ZONE, month: 'long', day: 'numeric', year: 'numeric' }).format(scheduled),
+        time: `${new Intl.DateTimeFormat('en-US', { timeZone: BOOKING_TIME_ZONE, hour: 'numeric', minute: '2-digit', hour12: true }).format(scheduled)} IST`,
         bookingId: booking.id
       }).catch(err => console.error('Async email error:', err))
     }
@@ -197,6 +173,9 @@ export async function POST(request: NextRequest) {
     }, { status: 201 })
 
   } catch (error) {
+    if (error instanceof BookingError) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
     console.error('Create booking error:', error)
     
     if (error instanceof Error && error.message.includes('Unique constraint')) {

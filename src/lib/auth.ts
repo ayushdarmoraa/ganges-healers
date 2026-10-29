@@ -5,9 +5,15 @@ import { prisma } from "@/lib/prisma"
 import CredentialsProvider from "next-auth/providers/credentials"
 import bcrypt from "bcryptjs"
 
-// Build providers array dynamically so we can add a fallback in prod when no OAuth configured.
-import type { Provider } from 'next-auth/providers'
-const providers: Provider[] = []
+import { assertProductionTestModeDisabled } from '@/lib/test-mode'
+
+assertProductionTestModeDisabled()
+const authSecret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET
+if (process.env.NODE_ENV === 'production' && !authSecret) {
+  throw new Error('AUTH_SECRET or NEXTAUTH_SECRET is required for production authentication.')
+}
+
+const providers = []
 
 // Primary credentials provider (DB-backed) – keep for real users
 providers.push(
@@ -38,47 +44,10 @@ providers.push(
   })
 )
 
-// Fallback dev/prod emergency credentials provider if no GOOGLE_CLIENT_ID configured.
-if (!process.env.GOOGLE_CLIENT_ID) {
-  providers.push(
-    CredentialsProvider({
-      id: 'fallback',
-      name: 'Credentials (Fallback)',
-      credentials: {
-        email: { label: 'Email', type: 'email', value: 'test@example.com' },
-        password: { label: 'Password', type: 'password', value: 'demo123' }
-      },
-      async authorize(credentials) {
-        const rawEmail = credentials?.email
-        const rawPassword = credentials?.password
-        const email = typeof rawEmail === 'string' ? rawEmail.toLowerCase() : undefined
-        const password = typeof rawPassword === 'string' ? rawPassword : undefined
-        if (email !== 'test@example.com' || password !== 'demo123') return null
-
-        // Ensure a user exists (idempotent)
-        let user = await prisma.user.findUnique({ where: { email } })
-        if (!user) {
-          // Hash the demo password for consistency (though we don't re-use it here)
-            const hash = await bcrypt.hash('demo123', 10)
-          user = await prisma.user.create({
-            data: {
-              email,
-              name: 'Test User',
-              password: hash,
-              role: 'USER'
-            }
-          })
-        }
-        return { id: user.id, email: user.email!, name: user.name ?? 'Test User', role: user.role, vip: user.vip, freeSessionCredits: user.freeSessionCredits }
-      }
-    })
-  )
-}
-
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
-  // Prefer AUTH_SECRET (Auth.js v5), then NEXTAUTH_SECRET, then fallback
-  secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || 'dev_fallback_secret',
+  // Require a configured secret; never substitute a public fallback.
+  secret: authSecret,
   session: { strategy: 'jwt' },
   pages: { signIn: '/auth/signin', error: '/auth/error' },
   trustHost: true,

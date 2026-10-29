@@ -14,7 +14,7 @@ import { Trash2, CheckCircle } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
 import { trackInitiateCheckout, trackPurchase } from "@/lib/analytics/meta-pixel"
-import { readVariantClient } from "@/lib/experiments/ab-testing"
+import { readVariantClient } from "@/lib/experiments/client"
 import { trackClientEvent } from "@/lib/analytics/track-client-event"
 
 interface DynamicBundleData {

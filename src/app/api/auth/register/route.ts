@@ -1,3 +1,4 @@
+import { isTestMode } from '@/lib/test-mode'
 import { NextRequest, NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
@@ -13,13 +14,13 @@ const registerSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     let body: Record<string, unknown>
-    if (process.env.TEST_MODE === '1') {
+    if (isTestMode()) {
       const raw = await request.text().catch(() => '')
-      console.debug('[TEST_MODE] /api/auth/register POST raw body:', raw || '(none)')
+      console.debug('[TEST_MODE] /api/auth/register request received')
       try {
         body = raw ? JSON.parse(raw) : {}
-      } catch (err) {
-        console.error('[TEST_MODE] JSON parse failed for /api/auth/register POST', err, 'raw:', raw)
+      } catch {
+        console.error('[TEST_MODE] Invalid JSON for /api/auth/register')
         return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
       }
     } else {

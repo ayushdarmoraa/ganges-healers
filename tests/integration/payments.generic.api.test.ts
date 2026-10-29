@@ -10,6 +10,12 @@ import * as Webhook from '@/app/api/payments/webhook/route'
 
 jest.setTimeout(30000)
 
+// Direct handler calls have no Next cookies() request context; financial checks stay real.
+jest.mock('@/lib/analytics/session', () => ({
+  getSessionId: async () => null,
+  getExperimentVariants: async () => ({}),
+}))
+
 jest.mock('@/lib/auth', () => ({
   auth: async () => ({ user: { id: process.env.TEST_USER_ID, role: process.env.TEST_USER_ROLE ?? 'USER', email: 'itest@example.com' } })
 }))
@@ -22,11 +28,14 @@ describe('Generic Payments Flow', () => {
   let user: any
   let orderId: string
   let paymentRowId: string
+  let storeOrderId: string
 
   beforeAll(async () => {
     user = await prisma.user.create({ data: { email: `gen_${Date.now()}@ex.com`, password: 'hashed', role: 'USER' } })
     process.env.TEST_USER_ID = user.id
     process.env.TEST_USER_ROLE = 'USER'
+    const order = await prisma.order.create({ data: { userId: user.id, totalPaise: 1000 } })
+    storeOrderId = order.id
   })
 
   afterAll(async () => {
@@ -38,7 +47,7 @@ describe('Generic Payments Flow', () => {
     const req = makeNextRequest('http://localhost/api/payments/create-order', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'SESSION', amountPaise: 1000 })
+      body: JSON.stringify({ type: 'STORE', metadata: { orderId: storeOrderId } })
     })
     const res = await (CreateOrder as any).POST(req)
     expect(res.status).toBeLessThan(300)

@@ -1,4 +1,5 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import '../mocks/product-page-context'
+import type { ProductDetail } from '@/lib/store/queries'
 import React from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -10,16 +11,17 @@ jest.mock('@/components/store/AddToCartButton', () => ({
 }))
 
 jest.mock('@/lib/store/queries', () => ({
-  getProductBySlug: jest.fn(async () => ({
-    id: '1', slug: 'copper-bottle', title: 'Copper Bottle', shortDescription: 'Nice', longDescription: 'Long', pricePaise: 19900, imageUrl: null, ratingAvg: 4.5, stockStatus: 'IN_STOCK',
+  getProductBySlug: jest.fn(async (): Promise<ProductDetail> => ({
+    id: '1', slug: 'copper-bottle', title: 'Copper Bottle', shortDescription: 'Nice', longDescription: 'Long', pricePaise: 19900, imageUrl: null, ratingAvg: 4.5, stockStatus: 'IN_STOCK', stockCount: null, isConsecrated: false, chakra: null,
     category: { slug: 'wellness', title: 'Wellness' }, service: { slug: 'yoga-healing', title: 'Yoga Healing' }
   }))
 }))
 
-const trackSpy = jest.fn()
 jest.mock('@/lib/analytics/client', () => ({
-  track: (...args: any[]) => (trackSpy as any)(...args)
+  track: jest.fn()
 }))
+
+const trackSpy = jest.requireMock<{ track: jest.Mock }>('@/lib/analytics/client').track
 
 describe('ProductDetailPage CTA analytics', () => {
   test('fires product_service_cta_click with correct props', async () => {
@@ -28,6 +30,9 @@ describe('ProductDetailPage CTA analytics', () => {
     render(ui)
 
     const link = await screen.findByRole('link', { name: /Book a session for this product/i })
+    // Exercise the real analytics click handler; jsdom cannot perform navigation.
+    // The CTA contract test separately checks this link's exact destination.
+    link.addEventListener('click', event => event.preventDefault(), { once: true })
     await user.click(link)
 
     expect(trackSpy).toHaveBeenCalledTimes(1)

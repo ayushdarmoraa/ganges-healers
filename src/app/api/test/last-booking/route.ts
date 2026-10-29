@@ -1,3 +1,4 @@
+import { isTestMode } from '@/lib/test-mode'
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
@@ -5,7 +6,7 @@ import { prisma } from '@/lib/prisma'
 // TEST_MODE only — guarded endpoint for E2E determinism
 export async function GET(_request: Request) {
   void _request
-  if (process.env.TEST_MODE !== '1') {
+  if (!isTestMode()) {
     return NextResponse.json({ success: false, error: 'not available' }, { status: 404 })
   }
 

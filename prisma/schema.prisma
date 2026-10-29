@@ -191,6 +191,7 @@ model ProgramEnrollment {
   id        String                  @id @default(cuid())
   userId    String
   programId String
+  pricePaise Int?
   healerId  String?
   status    ProgramEnrollmentStatus @default(pending_payment)
   schedule  Json?
@@ -407,6 +408,7 @@ model CourseEnrollment {
   id        String   @id @default(cuid())
   userId    String
   courseId  String
+  pricePaise Int?
   status    String   @default("pending_payment")
   progress  Int      @default(0)
   createdAt DateTime @default(now())

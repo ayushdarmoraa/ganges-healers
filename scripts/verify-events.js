@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Standalone CommonJS CLI; preserve node scripts/verify-events.js usage.
 const { PrismaClient } = require('@prisma/client')
 const p = new PrismaClient()
 

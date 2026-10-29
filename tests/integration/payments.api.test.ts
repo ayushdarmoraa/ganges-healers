@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { addDays, setHours, setMinutes } from 'date-fns';
+import { clinicDate, clinicSlotInstant } from '@/lib/bookings/time';
 import { prisma } from '@/lib/prisma'; // adjust if your prisma client is elsewhere
 
 // Helpers
@@ -12,6 +12,9 @@ import * as ConfirmCredits from '@/app/api/bookings/[id]/confirm-with-credits/ro
 
 // ---- Helpers ----
 function iso(d: Date) { return new Date(d).toISOString(); }
+function futureSlot(days: number, time: string) {
+  return clinicSlotInstant(clinicDate(new Date(Date.now() + days * 86400000)), time);
+}
 
 // Mock Razorpay SDK
 jest.mock('@/lib/razorpay', () => ({
@@ -87,7 +90,7 @@ describe('Payments integration', () => {
       process.env.TEST_USER_VIP = 'true';
       process.env.TEST_USER_CREDITS = '1';
 
-      const future = setMinutes(setHours(addDays(new Date(), 3), 11), 0);
+      const future = futureSlot(3, '11:00');
       const req = makeNextRequest('http://localhost/api/bookings', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -111,7 +114,7 @@ describe('Payments integration', () => {
       process.env.TEST_USER_VIP = 'false';
       process.env.TEST_USER_CREDITS = '0';
 
-      const future = setMinutes(setHours(addDays(new Date(), 4), 12), 0);
+      const future = futureSlot(4, '12:00');
       const req = makeNextRequest('http://localhost/api/bookings', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },

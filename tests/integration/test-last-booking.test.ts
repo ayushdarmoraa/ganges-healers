@@ -21,7 +21,7 @@ import { prisma } from '@/lib/prisma'
 import { makeNextRequest, readJSON } from '../helpers/next-handler'
 import * as LastBooking from '@/app/api/test/last-booking/route'
 import * as BookingCollection from '@/app/api/bookings/route'
-import { addDays, setHours, setMinutes } from 'date-fns'
+import { clinicDate, clinicSlotInstant } from '@/lib/bookings/time'
 
 describe('GET /api/test/last-booking (TEST_MODE)', () => {
   let userId: string
@@ -71,8 +71,7 @@ describe('GET /api/test/last-booking (TEST_MODE)', () => {
   test('returns most recent booking when TEST_MODE=1 and authenticated', async () => {
     process.env.TEST_MODE = '1'
     // create a booking via handler
-    const slotBase = addDays(new Date(), 3)
-    const slot = setMinutes(setHours(slotBase, 11), 0)
+    const slot = clinicSlotInstant(clinicDate(new Date(Date.now() + 3 * 86400000)), '11:00')
     const postReq = makeNextRequest('http://localhost/api/bookings', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ healerId: healer!.id, serviceId: service!.id, scheduledAt: new Date(slot).toISOString() })

@@ -1,6 +1,11 @@
 import OpenAI from 'openai'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+export class AIContentNotConfiguredError extends Error {
+  constructor() {
+    super('AI content generation is not configured.')
+    this.name = 'AIContentNotConfiguredError'
+  }
+}
 
 export interface ProductContentInput {
   title: string
@@ -21,6 +26,10 @@ export interface ProductContentOutput {
 export async function generateProductContent(
   input: ProductContentInput,
 ): Promise<ProductContentOutput> {
+  const apiKey = process.env.OPENAI_API_KEY?.trim()
+  if (!apiKey) throw new AIContentNotConfiguredError()
+  // The optional SDK client must not be constructed while Next collects routes.
+  const openai = new OpenAI({ apiKey })
   const prompt = `You are a spiritual product copywriter for a sacred healing store. Generate product content for:
 
 Product: ${input.title}

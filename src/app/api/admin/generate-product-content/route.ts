@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/rbac'
-import { generateProductContent } from '@/lib/ai/generate-product-content'
+import { AIContentNotConfiguredError, generateProductContent } from '@/lib/ai/generate-product-content'
 import { z } from 'zod'
 
 const inputSchema = z.object({
@@ -16,7 +16,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  const body = await request.json()
+  let body: unknown
+  try { body = await request.json() } catch {
+    return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
+  }
   const parsed = inputSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json(
@@ -29,7 +32,11 @@ export async function POST(request: Request) {
     const content = await generateProductContent(parsed.data)
     return NextResponse.json(content)
   } catch (err) {
-    console.error('[AI Generate Product Content]', err)
+    if (err instanceof AIContentNotConfiguredError) {
+      return NextResponse.json({ error: err.message }, { status: 503 })
+    }
+    // SDK error messages can contain key fragments or submitted content.
+    console.error('[AI Generate Product Content]', { type: err instanceof Error ? err.name : 'UnknownError' })
     return NextResponse.json(
       { error: 'Failed to generate content. Please check your OpenAI API key and try again.' },
       { status: 500 },
