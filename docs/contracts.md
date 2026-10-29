@@ -82,6 +82,14 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 - Catalog redaction does not revoke previously shared media URLs. Storage access and
   expiring signed media delivery remain separate deployment requirements.
 
+## Optional Admin AI Content
+
+Optional admin AI product content generation initializes its SDK only after an
+authorized, valid request. `POST /api/admin/generate-product-content` returns 503
+when `OPENAI_API_KEY` is absent, 400 for invalid input/JSON, and preserves its
+configured success response. Building/importing routes does not require this
+optional key. SDK errors are logged by type without key fragments or input text.
+
 ## Logging Invariants
 - Use stable prefixes and keys for observability/tests:
   - Webhook: `[webhook] verified { type, subId, payId }`
