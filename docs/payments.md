@@ -90,7 +90,8 @@ wait for activity/analytics side effects rather than forcing Jest to exit.
 
 - Environment
   - `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`
-  - `REFUNDS_ENABLED` (explained in invoices doc)
+  - Booking cancellation refunds use `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`;
+    see the booking refund contract and [invoice operations notes](./invoices.md).
 
 - Testing (contracts pinned by)
   - `membership.plans.api.contract.test.ts`

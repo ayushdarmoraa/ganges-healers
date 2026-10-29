@@ -39,6 +39,23 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
   protocol; it is not a database exclusion constraint. Direct SQL and external
   writers must follow the same protocol. Existing conflicting bookings are not
   automatically changed, and pending bookings continue to occupy their slots.
+- `DELETE /api/bookings/[id]` and legacy `PATCH /api/bookings/[id]`
+  (`{ action: "cancel" }`) use the same owned-booking cancellation flow. Only
+  pending, scheduled, confirmed, or rescheduled bookings at least 24 hours
+  before their start may be cancelled; completed bookings cannot be cancelled.
+  The response includes `{ success, ok, data, alreadyCancelled, bookingId,
+  message, refund: { band, refundPaise, status, message } }`. Refund amounts
+  are calculated server-side from the saved booking and successful payment,
+  never from client estimates. `refund.status` is `NOT_REQUIRED`, `UNAVAILABLE`,
+  `PENDING`, `SUCCESS`, `FAILED`, or `UNKNOWN`. Only successful paid Razorpay
+  payments can receive cash refunds; unpaid and credit bookings return
+  `NOT_REQUIRED`. Real refunds are recorded before submission and cancellation
+  retries serialize on the booking's healer lock. A known gateway refund is
+  fetched on retry; an uncertain result without a gateway ID is never
+  resubmitted automatically and requires reconciliation. No simulated refund
+  is reported as real. Older cancelled bookings without a refund intent require
+  support review because the previous implementation cannot prove whether the
+  gateway was called.
 
 ### Product headline experiment
 - Server rendering reads existing `ghx_product_headline` assignments and selects
