@@ -82,7 +82,8 @@ test('concurrent overlapping creates yield exactly one reservation, including in
 test('a creation and reschedule cannot reserve overlapping intervals concurrently', async () => {
   const id = await created(2, '10:00')
   const responses = await Promise.all([reschedule(id, 2, '13:00'), create(2, '13:30')])
-  expect(responses.map(r => r.status).sort((a, b) => a - b)).toEqual([200, 409])
+  // Either request may acquire the lock first; each route has its own success status.
+  expect([[200, 409], [409, 201]]).toContainEqual(responses.map(r => r.status))
   const bookings = await prisma.booking.findMany({ where: { healerId, scheduledAt: { gte: new Date(slot(2, '13:00')), lt: new Date(slot(2, '15:00')) } } })
   expect(bookings).toHaveLength(1)
 })
