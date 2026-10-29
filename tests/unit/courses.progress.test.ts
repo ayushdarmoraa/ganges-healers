@@ -16,6 +16,7 @@ const db = jest.requireMock<{ prisma: {
 } }>('@/lib/prisma').prisma
 const params = { params: Promise.resolve({ slug: 'course' }) }
 const lessons = [1, 2, 3, 4, 5].map(order => ({ order }))
+const saved = (progress: number, status: string) => ({ id: 'enrollment', userId: 'learner', courseId: 'course-id', progress, status })
 const request = (lessonOrder: number) => new Request('http://localhost/api/courses/course/progress', {
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ lessonOrder }),
 })
@@ -26,22 +27,22 @@ beforeEach(() => {
   db.course.findFirst.mockResolvedValue({ id: 'course-id', lessons })
   db.courseEnrollment.findFirst.mockResolvedValue({ id: 'enrollment', progress: 0, status: 'active' })
   db.courseEnrollment.updateMany.mockResolvedValue({ count: 1 })
-  db.courseEnrollment.findUnique.mockResolvedValue({ id: 'enrollment', progress: 2, status: 'active' })
+  db.courseEnrollment.findUnique.mockResolvedValue(saved(2, 'active'))
 })
 
 test.each([1, 4])('lesson %i does not complete a five-lesson, one-based course', async lessonOrder => {
-  db.courseEnrollment.findUnique.mockResolvedValue({ progress: lessonOrder + 1, status: 'active' })
+  db.courseEnrollment.findUnique.mockResolvedValue(saved(lessonOrder + 1, 'active'))
   const response = await recordProgress(request(lessonOrder), params)
   expect(response.status).toBe(200)
   expect(await response.json()).toEqual({ progress: lessonOrder + 1, status: 'active' })
   expect(db.courseEnrollment.updateMany).toHaveBeenCalledWith({
-    where: { id: 'enrollment', progress: { lt: lessonOrder + 1 }, status: { in: ['active', 'completed'] } },
+    where: { id: 'enrollment', userId: 'learner', courseId: 'course-id', progress: { lt: lessonOrder + 1 }, status: { in: ['active', 'completed'] } },
     data: { progress: lessonOrder + 1 },
   })
 })
 
 test('only the final lesson reaches the completion threshold', async () => {
-  db.courseEnrollment.findUnique.mockResolvedValue({ progress: 6, status: 'completed' })
+  db.courseEnrollment.findUnique.mockResolvedValue(saved(6, 'completed'))
   const response = await recordProgress(request(5), params)
   expect(await response.json()).toEqual({ progress: 6, status: 'completed' })
   expect(db.courseEnrollment.updateMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -57,7 +58,7 @@ test.each([0, 6, 2147483647])('rejects nonexistent or unrepresentable lesson ord
 
 test('a stale request returns the later saved progress instead of overwriting it', async () => {
   db.courseEnrollment.updateMany.mockResolvedValue({ count: 0 })
-  db.courseEnrollment.findUnique.mockResolvedValue({ progress: 6, status: 'completed' })
+  db.courseEnrollment.findUnique.mockResolvedValue(saved(6, 'completed'))
   const response = await recordProgress(request(1), params)
   expect(await response.json()).toEqual({ progress: 6, status: 'completed' })
   expect(logActivity).not.toHaveBeenCalled()
@@ -69,6 +70,13 @@ test('requires an authenticated, active enrollment', async () => {
   db.courseEnrollment.findFirst.mockResolvedValueOnce(null)
   expect((await recordProgress(request(1), params)).status).toBe(403)
   expect(db.courseEnrollment.updateMany).not.toHaveBeenCalled()
+})
+
+test('does not return or update another learner’s enrollment after an ownership change', async () => {
+  db.courseEnrollment.updateMany.mockResolvedValue({ count: 0 })
+  db.courseEnrollment.findUnique.mockResolvedValue({ ...saved(6, 'completed'), userId: 'another-learner' })
+  expect((await recordProgress(request(1), params)).status).toBe(409)
+  expect(logActivity).not.toHaveBeenCalled()
 })
 
 test.each([
