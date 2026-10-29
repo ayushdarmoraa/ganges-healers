@@ -11,6 +11,9 @@ import BlogPreview from "@/components/home/BlogPreview"
 import VIPMembershipSection from "@/components/home/VIPMembershipSection"
 import CTASection from "@/components/home/CTASection"
 
+// The homepage includes live database-backed sections; render them per request.
+export const dynamic = "force-dynamic"
+
 export const metadata: Metadata = {
   title: "Ganges Healers — Holistic Wellness & Healing Marketplace",
   description:
