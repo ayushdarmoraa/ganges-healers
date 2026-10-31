@@ -114,3 +114,10 @@ jobs:
         run: npx playwright install --with-deps
       - name: Run E2E
         run: pnpm test:e2e
+      - name: Upload E2E diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results-${{ github.run_attempt }}
+          path: test-results/
+          if-no-files-found: ignore
