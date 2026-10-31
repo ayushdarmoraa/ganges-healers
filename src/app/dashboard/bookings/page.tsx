@@ -7,6 +7,7 @@ import BookingCard from '../../../components/bookings/BookingCard'
 import RescheduleModal from '../../../components/bookings/RescheduleModal'
 import CancelDialog from '../../../components/bookings/CancelDialog'
 import { track } from '@/lib/analytics/client'
+import { toast } from 'sonner'
 
 type ApiBooking = {
   id: string
@@ -160,9 +161,16 @@ export default function MyBookingsPage() {
           open={!!selectedForCancel}
           onOpenChange={(open: boolean) => { if (!open) setCancelId(null) }}
           booking={selectedForCancel}
-          onSuccess={() => {
+          onSuccess={(result) => {
             applyCancel(selectedForCancel.id)
             setCancelId(null)
+            if (result.status === 'SUCCESS' || result.status === 'NOT_REQUIRED') {
+              toast.success(result.message)
+            } else if (result.status === 'PENDING') {
+              toast.info(result.message)
+            } else {
+              toast.error(result.message)
+            }
           }}
         />
       )}

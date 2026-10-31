@@ -33,9 +33,21 @@
   - POST `/api/admin/invoices/generate` `{ id, force? }` → `{ url } | { error, detail }`
   - Logging: `[admin][invoices][generate]`
 
-- Refunds feature flag (cross-ref Bookings)
-  - `REFUNDS_ENABLED=false` → simulated `Refund` row only (if paid & eligible)
-  - `REFUNDS_ENABLED=true` → real Razorpay refund with idempotency based on `(paymentId + amountPaise)`; stores `gatewayRefundId`
+- Booking refunds
+  - Booking cancellation uses the saved booking and successful Razorpay payment
+    amount to calculate the policy refund on the server.
+  - A refund intent is stored before calling Razorpay. The API reports the
+    provider state as pending, confirmed, failed, unavailable, or unknown; it
+    never treats a simulated refund as completed.
+  - Retries fetch a known Razorpay refund instead of issuing another request.
+    If the request outcome is uncertain and no refund ID was received, automatic
+    retries stop and the refund requires operational reconciliation.
+  - Older cancelled bookings without a persisted refund intent are not refunded
+    automatically because the earlier flow cannot prove whether Razorpay was
+    already called. Support must verify the payment/refund in the Razorpay
+    dashboard before taking action.
+  - `REFUNDS_ENABLED` is no longer used; eligible cancellations attempt a real
+    Razorpay refund when the gateway credentials are configured.
 
 - Tests that pin contracts
   - `invoices.public.route.precedence.test.ts`
