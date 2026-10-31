@@ -38,6 +38,10 @@ publication clears the saved draft; **Discard draft** asks for confirmation and
 clears the editor and device copy. These drafts are device-local and are not
 synced between browsers or devices.
 
+A topic whose actual slug is `all` has a separate draft key from the general
+composer. Existing general and other topic keys remain compatible. The old
+ambiguous key is retained as the general draft rather than guessing its owner.
+
 ## My discussions, tags, and feed controls
 
 - `/community/mine` lists only the signed-in account’s non-deleted posts. The
@@ -147,3 +151,65 @@ client workspace is separate from its server authorization boundary. These are
 wired into the existing routes, with no dependencies or schema migrations.
 Reverting the moderation commit restores the previous UI/API; existing report
 history and soft deletions remain valid data and are not automatically undone.
+
+## Manage topics and tags
+
+From **Community Moderation**, open **Manage topics & tags** at
+`/admin/community/catalog`. Both screens use the same server authorization
+boundary, and the catalog API independently checks the current admin role.
+
+- Create topics with a name, description, display order, permanent URL slug,
+  and initial active/inactive status. The form suggests a slug from the name;
+  it can be adjusted before creation. Slugs use letters, numbers, and single
+  hyphens, and are normalized to lowercase. A duplicate returns a clear conflict.
+- Edit topic names/descriptions and numeric display order. Lower numbers sort
+  first, with alphabetical ties. Existing topic URLs and discussion associations
+  stay unchanged; slugs cannot be edited after creation.
+- Activate or deactivate a topic with confirmation. Inactive topics disappear
+  from the member directory and composer choices. Their topic landing pages are
+  unavailable until reactivation, matching the existing active-topic rule.
+  Their discussions remain accessible in feeds and at direct discussion URLs.
+  Deactivation does not delete discussions, comments, tags, or moderation history.
+- Create and rename tags while preserving their URLs and existing post links.
+  Tags have no activation or ordering state in the current schema; the editor
+  exposes only supported fields. This workflow does not delete topics or tags.
+- Search by name/slug, filter topic status, and load additional pages. Each item
+  shows its linked discussion count, including hidden discussions. Failed
+  pagination preserves loaded items and supports retry.
+
+Editors and status confirmations use an opaque version of the editable fields.
+Concurrent admin edits return `409 CATALOG_CHANGED`; the form retains entered
+text and offers **Close & refresh list**. New discussions change usage counts
+without invalidating a name edit. A no-op save does not add an audit entry.
+Catalog creation/updates and their audit records commit together; audit failure
+rolls back the catalog change.
+
+Publishing checks an assigned topic under a PostgreSQL shared row lock through
+the post commit. Admin topic changes use an exclusive row lock, so deactivation
+and publishing cannot bypass each other's active-state check. Publishing that
+commits first remains valid; once deactivation wins, publication returns the
+existing `400 TOPIC_UNAVAILABLE`. The composer retains the draft, reloads choices,
+and asks the author to choose another topic or publish without one. Multiple
+publishers can hold shared locks concurrently.
+
+The API is `GET|POST|PATCH /api/admin/community/catalog`. GET accepts
+`kind=topic|tag`, `status=all|active|inactive` (topics), `q`, `cursor`, and
+`limit=1..100` (default 25), returning `{ success, data, nextCursor }`.
+POST accepts `{ kind, name, slug }`, with optional topic `description`, `order`,
+and `isActive`; it returns `201 { success, data }`. PATCH accepts
+`{ kind, id, version, changes }` and returns `{ success, data, idempotent }`.
+Version, counts, and catalog administration metadata are not added to the member
+topic/tag API responses. No schema, dependency, or environment change is needed.
+
+The separate catalog service/API/client screen keeps content organization out
+of the report-decision service. The existing moderation page now shares its
+server guard through a layout; its API checks are unchanged. Reverting the
+catalog commits restores the prior screens while leaving the created catalog
+records compatible with the existing schema and member pages.
+
+Coverage: `community.catalog.api.test.ts` in unit/integration suites,
+`CommunityCatalog.test.tsx`, the composer draft regression, and
+`community.catalog.spec.ts`. The integration tests cover actual PostgreSQL
+locking, concurrent edits/creation, audit rollback, counts, and stable
+associations. The browser flow covers creation, publication, renaming,
+deactivation during an open composer, retained text, and reactivation.

@@ -183,7 +183,7 @@ export default function CommunityModeration() {
 
   return (
     <div className="container mx-auto max-w-5xl px-4 py-8 space-y-6">
-      <nav className="flex flex-wrap gap-3 text-sm"><Link href="/admin" className="text-primary underline">← Admin</Link><Link href="/community" className="text-primary underline">Community</Link></nav>
+      <nav className="flex flex-wrap gap-3 text-sm"><Link href="/admin" className="text-primary underline">← Admin</Link><Link href="/admin/community/catalog" className="text-primary underline">Manage topics & tags</Link><Link href="/community" className="text-primary underline">Community</Link></nav>
       <header className="flex flex-wrap items-start justify-between gap-4"><div className="space-y-2"><h1 className="text-3xl font-semibold">Community Moderation</h1><p className="text-muted-foreground">Review reports, manage visibility, and keep a clear decision history.</p></div><Button variant="outline" onClick={() => setRevision(value => value + 1)}>Refresh</Button></header>
       <div className="flex flex-wrap gap-2" aria-label="Moderation views">{(['reports', 'content', 'metrics'] as const).map(item => <Button key={item} variant={view === item ? 'default' : 'outline'} aria-pressed={view === item} onClick={() => { setView(item); setSearch(''); setSearchInput('') }}>{item === 'reports' ? `Reports (${pendingCount} pending)` : item === 'content' ? 'Content' : 'Metrics'}</Button>)}</div>
       {view !== 'metrics' && <div className="rounded-lg border p-4 space-y-3">
