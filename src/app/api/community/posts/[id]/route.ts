@@ -3,7 +3,6 @@ import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { logActivity } from '@/lib/activity-log'
-import { enqueueNotification } from '@/lib/queues/jobs'
 
 // GET /api/community/posts/[id] — fetch single post with comments
 export async function GET(
@@ -45,9 +44,24 @@ export async function GET(
       select: { id: true },
     })
 
+    const pendingReports = await prisma.communityReport.findMany({
+      where: {
+        userId: session.user.id, status: 'pending',
+        OR: [
+          { targetType: 'post', targetId: id },
+          { targetType: 'comment', targetId: { in: post.comments.map(comment => comment.id) } },
+        ],
+      },
+      select: { targetType: true, targetId: true },
+    })
+    const pending = new Set(pendingReports.map(report => `${report.targetType}:${report.targetId}`))
+
     return NextResponse.json({
       success: true,
-      data: { ...post, liked: !!userLike },
+      data: {
+        ...post, liked: !!userLike, hasPendingReport: pending.has(`post:${id}`),
+        comments: post.comments.map(comment => ({ ...comment, hasPendingReport: pending.has(`comment:${comment.id}`) })),
+      },
     })
   } catch (error) {
     console.error('Community post GET error:', error)

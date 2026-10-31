@@ -5,6 +5,7 @@ import { requireVIP } from '@/lib/auth/requireVIP'
 import { z } from 'zod'
 import { logActivity } from '@/lib/activity-log'
 import { enqueueNotification } from '@/lib/queues/jobs'
+import { CommunityModerationError, withCommunityTargetLock } from '@/lib/community/moderation'
 
 const commentSchema = z.object({
   postId: z.string().min(1),
@@ -26,24 +27,27 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Verify post exists and get author
-    const post = await prisma.communityPost.findUnique({
-      where: { id: parsed.data.postId, deletedAt: null },
-      select: { id: true, userId: true, title: true },
-    })
-    if (!post) {
-      return NextResponse.json({ error: 'Post not found' }, { status: 404 })
-    }
+    // Serialize the active-parent check and comment write with moderation.
+    const { post, comment } = await withCommunityTargetLock('post', parsed.data.postId, async tx => {
+      const post = await tx.communityPost.findUnique({
+        where: { id: parsed.data.postId, deletedAt: null },
+        select: { id: true, userId: true, title: true },
+      })
+      if (!post) {
+        throw new CommunityModerationError('Post not found', 404)
+      }
 
-    const comment = await prisma.communityComment.create({
-      data: {
-        postId: parsed.data.postId,
-        userId,
-        content: parsed.data.content,
-      },
-      include: {
-        user: { select: { id: true, name: true, image: true } },
-      },
+      const comment = await tx.communityComment.create({
+        data: {
+          postId: parsed.data.postId,
+          userId,
+          content: parsed.data.content,
+        },
+        include: {
+          user: { select: { id: true, name: true, image: true } },
+        },
+      })
+      return { post, comment }
     })
 
     // Notify post author (if not commenting on own post)
@@ -55,12 +59,13 @@ export async function POST(request: NextRequest) {
         type: 'community_comment',
         title: 'New comment on your post',
         message: `${commenterName} commented on "${titlePreview}"`,
-      })
+      }).catch(() => console.warn('[community][comment_notification_failed]', { commentId: comment.id }))
     }
 
     logActivity({ userId, action: 'community_comment_created', entityType: 'community_comment', entityId: comment.id })
     return NextResponse.json({ success: true, data: comment }, { status: 201 })
   } catch (error: unknown) {
+    if (error instanceof CommunityModerationError) return NextResponse.json({ error: error.message }, { status: error.status })
     const status = (error as { status?: number }).status
     if (status === 401 || status === 403) {
       return NextResponse.json({ error: (error as Error).message }, { status })
