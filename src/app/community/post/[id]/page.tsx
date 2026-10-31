@@ -324,7 +324,7 @@ export default function PostDetailPage() {
 
           {/* Topic + Tags */}
           <div className="flex flex-wrap gap-1.5">
-            {post.topic && <Badge variant="outline">{post.topic.name}</Badge>}
+            {post.topic && <Link href={`/community/topic/${encodeURIComponent(post.topic.slug)}`}><Badge variant="outline">{post.topic.name}</Badge></Link>}
             {post.tags.map((pt) => (
               <Badge key={pt.tag.id} variant="secondary" className="text-xs">
                 {pt.tag.name}

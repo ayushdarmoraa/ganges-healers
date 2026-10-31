@@ -4,12 +4,10 @@ import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
-import { Loader2, Heart, MessageCircle, Search, Pin } from "lucide-react"
-import { formatDistanceToNow } from "date-fns"
+import { Loader2, Search } from "lucide-react"
+import PostCard, { type CommunityPost } from "@/components/community/PostCard"
 
 interface Topic {
   id: string
@@ -18,26 +16,10 @@ interface Topic {
   description: string | null
 }
 
-interface Tag {
-  tag: { id: string; slug: string; name: string }
-}
-
-interface Post {
-  id: string
-  title: string
-  content: string
-  isPinned: boolean
-  createdAt: string
-  user: { id: string; name: string | null; image: string | null }
-  topic: { id: string; slug: string; name: string } | null
-  tags: Tag[]
-  _count: { comments: number; likes: number }
-}
-
 type SortMode = "latest" | "most_liked" | "most_commented"
 
 export default function CommunityPage() {
-  const [posts, setPosts] = useState<Post[]>([])
+  const [posts, setPosts] = useState<CommunityPost[]>([])
   const [topics, setTopics] = useState<Topic[]>([])
   const [loading, setLoading] = useState(true)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
@@ -102,11 +84,12 @@ export default function CommunityPage() {
   return (
     <div className="container mx-auto p-6 max-w-3xl space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Community</h1>
-        <Button asChild>
-          <Link href="/community/create">Create Post</Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline"><Link href="/community/topics">Explore Topics</Link></Button>
+          <Button asChild><Link href="/community/create">Create Post</Link></Button>
+        </div>
       </div>
 
       {/* Search */}
@@ -185,59 +168,7 @@ export default function CommunityPage() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {posts.map((post) => (
-            <Link href={`/community/post/${post.id}`} key={post.id}>
-              <Card className="hover:border-primary/50 transition-colors cursor-pointer">
-                <CardContent className="py-4 space-y-2">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="w-8 h-8">
-                      <AvatarImage src={post.user.image || ""} />
-                      <AvatarFallback>
-                        {post.user.name?.charAt(0).toUpperCase() || "U"}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">{post.user.name || "Anonymous"}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
-                      </p>
-                    </div>
-                    {post.isPinned && (
-                      <Badge variant="secondary" className="flex items-center gap-1">
-                        <Pin className="w-3 h-3" /> Pinned
-                      </Badge>
-                    )}
-                  </div>
-
-                  {/* Topic + Tags */}
-                  <div className="flex flex-wrap gap-1.5">
-                    {post.topic && (
-                      <Badge variant="outline">{post.topic.name}</Badge>
-                    )}
-                    {post.tags.map((pt) => (
-                      <Badge key={pt.tag.id} variant="secondary" className="text-xs">
-                        {pt.tag.name}
-                      </Badge>
-                    ))}
-                  </div>
-
-                  <h2 className="text-lg font-semibold">{post.title}</h2>
-                  <p className="text-sm text-muted-foreground line-clamp-3">
-                    {post.content}
-                  </p>
-
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground pt-1">
-                    <span className="flex items-center gap-1">
-                      <Heart className="w-4 h-4" /> {post._count.likes}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <MessageCircle className="w-4 h-4" /> {post._count.comments}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
+          {posts.map(post => <PostCard key={post.id} post={post} />)}
         </div>
       )}
 
