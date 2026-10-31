@@ -1,0 +1,70 @@
+import { test, expect } from '@playwright/test'
+
+test('community activity reaches an owned inbox with shared bell counts and read controls', async ({ page, browser, baseURL }) => {
+  test.setTimeout(180_000)
+  const token = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+  const member = await browser.newContext({ baseURL })
+  const anonymous = await browser.newContext({ baseURL })
+  let postId = ''
+  try {
+    expect((await page.goto(`/api/test/login?role=USER&vip=1&email=notification-author-${token}@example.test`))?.ok()).toBeTruthy()
+    const created = await page.request.post('/api/community/posts', { data: { title: `Notification practice ${token}`, content: 'A discussion for the notification workflow.' } })
+    expect(created.status()).toBe(201)
+    const post = (await created.json()).data
+    postId = post.id
+    expect((await member.request.get(`/api/test/login?role=USER&vip=1&email=notification-member-${token}@example.test`)).ok()).toBeTruthy()
+    expect((await member.request.post('/api/community/comments', { data: { postId, content: 'First reply from another member.' } })).status()).toBe(201)
+    expect((await member.request.post('/api/community/likes', { data: { postId } })).status()).toBe(200)
+
+    await page.goto('/dashboard/notifications')
+    await expect(page.getByRole('heading', { level: 1, name: 'Notifications', exact: true })).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByRole('article')).toHaveCount(2, { timeout: 30_000 })
+    const bell = page.getByRole('button', { name: 'Notifications', exact: true })
+    await expect(bell).toHaveAttribute('data-unread-count', '2')
+    await page.getByLabel('Activity type').selectOption('community_like')
+    await expect(page.getByRole('article')).toHaveCount(1)
+    await expect(page.getByRole('article', { name: 'Your post was liked', exact: true })).toBeVisible()
+    await expect(bell).toHaveAttribute('data-unread-count', '2')
+    await page.getByLabel('Activity type').selectOption('all')
+    await expect(page.getByRole('article')).toHaveCount(2)
+    await bell.click()
+    const panel = page.getByRole('dialog', { name: 'Notifications' })
+    await expect(panel.getByRole('link', { name: 'View all notifications' })).toHaveAttribute('href', '/dashboard/notifications')
+    await panel.getByRole('button', { name: 'Mark as read', exact: true }).first().click()
+    await expect(bell).toHaveAttribute('data-unread-count', '1')
+    await page.keyboard.press('Escape')
+    await expect(panel).not.toBeVisible()
+    await page.getByLabel('Read status').selectOption('read')
+    await expect(page.getByRole('article')).toHaveCount(1)
+    await page.getByRole('article').getByRole('button', { name: 'Mark as unread', exact: true }).click()
+    await expect(bell).toHaveAttribute('data-unread-count', '2')
+    await expect(page.getByText('No notifications match these filters.', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Mark all as read', exact: true }).click()
+    await expect(bell).toHaveAttribute('data-unread-count', '0')
+    await expect(page.getByRole('article')).toHaveCount(2)
+    await expect(page.getByRole('button', { name: 'Mark all as read', exact: true })).toBeDisabled()
+
+    const own = await (await page.request.get('/api/notifications')).json()
+    expect(own.ownerId).toBe(post.userId)
+    expect(own.notifications.every((row: { userId: string; read: boolean }) => row.userId === post.userId && row.read)).toBe(true)
+    expect((await (await member.request.get(`/api/notifications?userId=${post.userId}`)).json()).notifications).toEqual([])
+    expect((await member.request.patch(`/api/notifications/${own.notifications[0].id}/read`, { data: { read: false } })).status()).toBe(404)
+    expect((await member.request.patch('/api/notifications', { data: { ownerId: post.userId, action: 'readAll' } })).status()).toBe(409)
+
+    expect((await member.request.post('/api/community/comments', { data: { postId, content: 'A later reply stays unread.' } })).status()).toBe(201)
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await expect(page.getByRole('article')).toHaveCount(3)
+    await expect(bell).toHaveAttribute('data-unread-count', '1')
+    await page.getByLabel('Read status').selectOption('unread')
+    await expect(page.getByRole('article')).toHaveCount(1)
+    await expect(page.getByRole('article', { name: 'New comment on your post', exact: true })).toBeVisible()
+    expect((await anonymous.request.get('/api/notifications')).status()).toBe(401)
+    expect((await anonymous.request.patch('/api/notifications', { data: { action: 'readAll', ownerId: post.userId } })).status()).toBe(401)
+    const visitor = await anonymous.newPage()
+    await visitor.goto('/dashboard/notifications')
+    await expect(visitor).toHaveURL(/\/auth\/signin/)
+  } finally {
+    if (postId) await page.request.delete(`/api/community/posts/${postId}`)
+    await member.close(); await anonymous.close()
+  }
+})

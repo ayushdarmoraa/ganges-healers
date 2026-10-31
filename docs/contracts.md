@@ -171,6 +171,30 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
   environment, dependency, or deletion endpoint is added. See
   `docs/blog-publishing.md` for the workflow and rollback.
 
+- **Notification inbox and read state**
+  - Authenticated `GET /api/notifications` retains `notifications` and account-wide
+    `unreadCount`, adding `ownerId` and `nextCursor`. Optional filters are
+    `status=all|unread|read`, `type=all|community_comment|community_like|other`,
+    `q` (up to 200 characters), `limit` (integer 1–100, default 30), and `cursor`.
+    Results order by `createdAt DESC, id DESC`; cursors must belong to the session.
+  - `PATCH /api/notifications/[id]/read` retains empty-body mark-read behavior and
+    `{ok:true}`. New `{read:boolean, ownerId?:string}` supports marking unread
+    and rendered-account verification; success adds `ownerId` and `unreadCount`.
+  - New `PATCH /api/notifications` requires `{action:'readAll', ownerId:string}`.
+    It marks all current owned unread rows, including rows outside filters, and
+    returns `{ok:true, ownerId, updated, unreadCount}`. Later arrivals stay unread.
+  - All operations require the session owner. Invalid input returns 400, anonymous
+    access 401, missing/unowned IDs or cursors 404, and mismatched expected account
+    409 with `SESSION_CHANGED` before writing. All responses are private/no-store.
+  - Community notifications persist inline on confirmed queue unavailability.
+    New jobs reuse a producer ID on retry without resetting read state; uncertain
+    enqueue errors are not submitted again inline. Notification failure preserves
+    the successful community interaction and its existing warning log.
+  - Socket rooms require a valid Auth.js session cookie, ignore claimed user IDs,
+    reject foreign browser origins, and expire with the token. Socket events are
+    refresh hints; polling remains available. See `docs/notifications.md` for the
+    full workflow, deployment limits, test coverage, and rollback.
+
 ### Payments Webhook (Razorpay)
 - Path: `POST /api/payments/webhook`
 - Behavior:

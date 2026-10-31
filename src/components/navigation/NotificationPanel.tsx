@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +28,14 @@ export interface NotificationGroupData {
 }
 
 export interface NotificationPanelProps {
+  id?: string;
+  viewAllHref?: string;
+  onMarkAllRead?: () => void;
+  markAllDisabled?: boolean;
+  onMarkRead?: (id: string) => void;
+  pendingIds?: ReadonlySet<string>;
+  readDisabled?: boolean;
+  notice?: ReactNode;
   /** Whether the panel is open. */
   open?: boolean;
   /** Callback for open state changes. */
@@ -69,6 +78,14 @@ export function NotificationPanel({
   markAllAsReadLabel = "Mark all as read",
   viewAllLabel = "View all notifications",
   className,
+  id,
+  viewAllHref,
+  onMarkAllRead,
+  markAllDisabled,
+  onMarkRead,
+  pendingIds,
+  readDisabled,
+  notice,
 }: NotificationPanelProps) {
   if (!open) {
     return null;
@@ -76,6 +93,7 @@ export function NotificationPanel({
 
   return (
     <Card
+      id={id}
       className={cn(
         "w-[min(100vw-2rem,24rem)] border-border/60 bg-card shadow-lg sm:w-96",
         className,
@@ -101,18 +119,22 @@ export function NotificationPanel({
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
+            onClick={onMarkAllRead}
+            disabled={markAllDisabled}
             className="rounded-md border border-border/60 px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent/70 hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             {markAllAsReadLabel}
           </button>
-          <button
+          {viewAllHref ? <Link href={viewAllHref} onClick={() => onOpenChange?.(false)} className="rounded-md px-3 py-1.5 text-sm font-medium focus-ring">{viewAllLabel}</Link> : <button
             type="button"
             className="rounded-md px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent/70 hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             {viewAllLabel}
-          </button>
+          </button>}
         </div>
       </CardHeader>
+
+      {notice}
 
       <CardContent className="max-h-[70vh] overflow-y-auto p-0">
         {loading ? (
@@ -150,8 +172,9 @@ export function NotificationPanel({
                               <span className="size-2 rounded-full bg-primary" aria-label="Unread" />
                             ) : null}
                           </div>
-                          <p className="mt-1 text-sm text-muted-foreground">{item.message}</p>
+                          <p className="mt-1 break-words text-sm text-muted-foreground">{item.message}</p>
                           <p className="mt-1 text-xs text-muted-foreground">{item.time}</p>
+                          {!item.read && onMarkRead && <button type="button" disabled={readDisabled || pendingIds?.has(item.id)} onClick={() => onMarkRead(item.id)} className="mt-2 rounded text-xs underline focus-ring disabled:opacity-50">{pendingIds?.has(item.id) ? 'Saving…' : 'Mark as read'}</button>}
                         </div>
                       </div>
                     </li>
