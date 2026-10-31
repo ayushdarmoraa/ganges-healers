@@ -52,8 +52,15 @@ export async function GET(req: Request) {
       })
     }
 
-    const results = await cached(`search:${tsquery}`, async () => {
-      const [services, healers, programs, courses, products, blog, audio] =
+    const freshBlog = prisma.$queryRawUnsafe<Array<{ id: string; slug: string; title: string; excerpt: string | null; createdAt: Date }>>(
+      `SELECT id, slug, title, excerpt, "createdAt" FROM "BlogPost"
+       WHERE published = true AND "searchVector" @@ to_tsquery('english', $1)
+       ORDER BY ts_rank("searchVector", to_tsquery('english', $1)) DESC
+       LIMIT 10`,
+      tsquery,
+    )
+    const cachedResults = cached(`search:${tsquery}`, async () => {
+      const [services, healers, programs, courses, products, audio] =
       await Promise.all([
         prisma.$queryRawUnsafe<Array<{ id: string; slug: string; name: string; category: string; tagline: string | null }>>(
           `SELECT id, slug, name, category, tagline FROM "Service"
@@ -93,13 +100,6 @@ export async function GET(req: Request) {
            LIMIT 10`,
           tsquery
         ),
-        prisma.$queryRawUnsafe<Array<{ id: string; slug: string; title: string; excerpt: string | null; createdAt: Date }>>(
-          `SELECT id, slug, title, excerpt, "createdAt" FROM "BlogPost"
-           WHERE published = true AND "searchVector" @@ to_tsquery('english', $1)
-           ORDER BY ts_rank("searchVector", to_tsquery('english', $1)) DESC
-           LIMIT 10`,
-          tsquery
-        ),
         prisma.$queryRawUnsafe<Array<{ id: string; slug: string; title: string; category: string; duration: number; isPremium: boolean }>>(
           `SELECT id, slug, title, category, duration, "isPremium" FROM "AudioTrack"
            WHERE "searchVector" @@ to_tsquery('english', $1)
@@ -109,8 +109,11 @@ export async function GET(req: Request) {
         ),
       ])
 
-      return { services, healers, programs, courses, products, blog, audio }
+      return { services, healers, programs, courses, products, audio }
     })
+
+    // Publication state is read afresh even when the other result groups are cached.
+    const [results, blog] = await Promise.all([cachedResults, freshBlog])
 
     // Reshape healers to match previous API contract
     const shapedHealers = results.healers.map((h) => ({
@@ -126,9 +129,9 @@ export async function GET(req: Request) {
       programs: results.programs,
       courses: results.courses,
       products: results.products,
-      blog: results.blog,
+      blog,
       audio: results.audio,
-    })
+    }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (err) {
     console.error('[search][error]', err)
     return NextResponse.json({ error: 'Search failed' }, { status: 500 })

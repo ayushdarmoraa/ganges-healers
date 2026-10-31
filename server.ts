@@ -3,6 +3,7 @@ import { parse } from 'url'
 import next from 'next'
 import { Server as SocketServer } from 'socket.io'
 import { setIO } from './src/lib/socket'
+import { registerNotificationSockets } from './src/lib/notifications/socket-auth'
 
 const dev = process.env.NODE_ENV !== 'production'
 const app = next({ dev })
@@ -19,21 +20,13 @@ app.prepare().then(() => {
     cors: {
       origin: process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000',
       methods: ['GET', 'POST'],
+      credentials: true,
     },
   })
 
   setIO(io)
 
-  io.on('connection', (socket) => {
-    const userId = socket.handshake.auth?.userId
-    if (typeof userId === 'string' && userId.length > 0) {
-      socket.join(`user:${userId}`)
-    }
-
-    socket.on('disconnect', () => {
-      // cleanup handled automatically by socket.io
-    })
-  })
+  registerNotificationSockets(io)
 
   const port = parseInt(process.env.PORT || '3000', 10)
   httpServer.listen(port, () => {

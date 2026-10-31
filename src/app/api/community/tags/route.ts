@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
-import { prisma } from '@/lib/prisma'
+import { getCommunityTags } from '@/lib/community/tags'
 
 // GET /api/community/tags — list all tags (auth required)
 export async function GET() {
@@ -10,10 +10,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const tags = await prisma.communityTag.findMany({
-      orderBy: { name: 'asc' },
-      select: { id: true, slug: true, name: true },
-    })
+    const tags = await getCommunityTags()
 
     return NextResponse.json({ success: true, data: tags })
   } catch (error) {

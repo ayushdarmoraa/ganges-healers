@@ -18,6 +18,7 @@ interface Comment {
   createdAt: string
   updatedAt: string
   user: { id: string; name: string | null; image: string | null }
+  hasPendingReport?: boolean
 }
 
 interface Tag {
@@ -37,6 +38,7 @@ interface Post {
   comments: Comment[]
   _count: { likes: number }
   liked: boolean
+  hasPendingReport?: boolean
 }
 
 export default function PostDetailPage() {
@@ -47,6 +49,8 @@ export default function PostDetailPage() {
 
   const [post, setPost] = useState<Post | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadState, setLoadState] = useState<'missing' | 'signed-out' | 'error' | null>(null)
+  const [reload, setReload] = useState(0)
   const [comment, setComment] = useState("")
   const [commenting, setCommenting] = useState(false)
   const [liking, setLiking] = useState(false)
@@ -66,22 +70,29 @@ export default function PostDetailPage() {
   const [reportTarget, setReportTarget] = useState<{ type: "post" | "comment"; id: string } | null>(null)
   const [reportReason, setReportReason] = useState("")
   const [reporting, setReporting] = useState(false)
+  const [reportNotice, setReportNotice] = useState<string | null>(null)
 
   useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true); setPost(null); setLoadState(null); setReportTarget(null); setReportNotice(null)
     async function load() {
       try {
-        const res = await fetch(`/api/community/posts/${params.id}`)
+        const res = await fetch(`/api/community/posts/${params.id}`, { signal: controller.signal })
+        if (controller.signal.aborted) return
+        if (res.status === 404) { setLoadState('missing'); return }
+        if (res.status === 401) { setLoadState('signed-out'); return }
         if (!res.ok) throw new Error()
         const { data } = await res.json()
-        setPost(data)
+        if (!controller.signal.aborted) setPost(data)
       } catch {
-        toast.error("Failed to load post")
+        if (!controller.signal.aborted) setLoadState('error')
       } finally {
-        setLoading(false)
+        if (!controller.signal.aborted) setLoading(false)
       }
     }
-    load()
-  }, [params.id])
+    void load()
+    return () => controller.abort()
+  }, [params.id, reload])
 
   const handleLike = async () => {
     if (!post || liking) return
@@ -243,6 +254,7 @@ export default function PostDetailPage() {
 
   // Report
   const submitReport = async () => {
+    if (reporting) return
     if (!reportTarget || reportReason.trim().length < 5) {
       toast.error("Please provide a reason (at least 5 characters)")
       return
@@ -258,11 +270,16 @@ export default function PostDetailPage() {
           reason: reportReason.trim(),
         }),
       })
-      if (!res.ok) {
+      if (!res.ok && res.status !== 409) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.error || "Failed to report")
       }
-      toast.success("Report submitted. Thank you.")
+      setPost(previous => previous ? {
+        ...previous,
+        ...(reportTarget.type === 'post' ? { hasPendingReport: true } : {}),
+        comments: previous.comments.map(item => reportTarget.type === 'comment' && item.id === reportTarget.id ? { ...item, hasPendingReport: true } : item),
+      } : previous)
+      setReportNotice(res.status === 409 ? 'You already have a pending report for this content.' : 'Your report was submitted for moderator review. Thank you.')
       setReportTarget(null)
       setReportReason("")
     } catch (err) {
@@ -274,7 +291,7 @@ export default function PostDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex justify-center py-20">
+      <div role="status" aria-label="Loading discussion" className="flex justify-center py-20">
         <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     )
@@ -282,8 +299,11 @@ export default function PostDetailPage() {
 
   if (!post) {
     return (
-      <div className="container mx-auto p-6 max-w-3xl text-center">
-        <p className="text-muted-foreground">Post not found</p>
+      <div className="container mx-auto p-6 max-w-3xl text-center space-y-4">
+        <h1 className="text-2xl font-semibold">{loadState === 'signed-out' ? 'Sign in to read this discussion' : loadState === 'error' ? 'We couldn’t load the discussion' : 'This discussion is unavailable'}</h1>
+        <p className="text-muted-foreground">{loadState === 'missing' ? 'It may have been removed or is no longer available.' : loadState === 'error' ? 'Please try again in a moment.' : 'Community discussions are available to signed-in members.'}</p>
+        {loadState === 'signed-out' && <Button asChild><Link href="/auth/signin">Sign in</Link></Button>}
+        {loadState === 'error' && <Button onClick={() => setReload(value => value + 1)}>Try again</Button>}
         <Button asChild variant="outline" className="mt-4">
           <Link href="/community">Back to Community</Link>
         </Button>
@@ -298,6 +318,7 @@ export default function PostDetailPage() {
       <Button asChild variant="ghost" size="sm">
         <Link href="/community">← Back</Link>
       </Button>
+      {reportNotice && <p role="status" className="rounded-lg border bg-muted/20 p-4 text-sm">{reportNotice}</p>}
 
       {/* Post */}
       <Card>
@@ -324,11 +345,11 @@ export default function PostDetailPage() {
 
           {/* Topic + Tags */}
           <div className="flex flex-wrap gap-1.5">
-            {post.topic && <Badge variant="outline">{post.topic.name}</Badge>}
+            {post.topic && <Link href={`/community/topic/${encodeURIComponent(post.topic.slug)}`}><Badge variant="outline">{post.topic.name}</Badge></Link>}
             {post.tags.map((pt) => (
-              <Badge key={pt.tag.id} variant="secondary" className="text-xs">
+              <Link key={pt.tag.id} href={`/community/tag/${encodeURIComponent(pt.tag.slug)}`}><Badge variant="secondary" className="text-xs">
                 {pt.tag.name}
-              </Badge>
+              </Badge></Link>
             ))}
           </div>
 
@@ -391,9 +412,11 @@ export default function PostDetailPage() {
               <Button
                 variant="ghost"
                 size="sm"
+                disabled={post.hasPendingReport}
+                aria-label={post.hasPendingReport ? 'Discussion already reported' : 'Report discussion'}
                 onClick={() => setReportTarget({ type: "post", id: post.id })}
               >
-                <Flag className="w-4 h-4 mr-1" /> Report
+                <Flag className="w-4 h-4 mr-1" /> {post.hasPendingReport ? 'Reported' : 'Report'}
               </Button>
             )}
           </div>
@@ -407,7 +430,9 @@ export default function PostDetailPage() {
             <p className="text-sm font-medium">
               Report this {reportTarget.type}
             </p>
+            <label htmlFor="community-report-reason" className="sr-only">Reason for reporting</label>
             <textarea
+              id="community-report-reason"
               value={reportReason}
               onChange={(e) => setReportReason(e.target.value)}
               placeholder="Why are you reporting this? (min 5 characters)"
@@ -442,7 +467,7 @@ export default function PostDetailPage() {
         </h2>
 
         {post.comments.map((c) => (
-          <Card key={c.id}>
+          <Card key={c.id} id={`comment-${c.id}`}>
             <CardContent className="py-3">
               <div className="flex items-start gap-3">
                 <Avatar className="w-7 h-7 mt-0.5">
@@ -495,9 +520,11 @@ export default function PostDetailPage() {
                             variant="ghost"
                             size="sm"
                             className="h-6 px-2 text-xs"
+                            disabled={c.hasPendingReport}
+                            aria-label={c.hasPendingReport ? 'Comment already reported' : 'Report comment'}
                             onClick={() => setReportTarget({ type: "comment", id: c.id })}
                           >
-                            <Flag className="w-3 h-3 mr-1" /> Report
+                            <Flag className="w-3 h-3 mr-1" /> {c.hasPendingReport ? 'Reported' : 'Report'}
                           </Button>
                         )}
                       </div>

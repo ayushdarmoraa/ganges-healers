@@ -1,190 +1,82 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { useRef, type ReactNode } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import type { SearchSuggestionGroup } from "@/lib/search/results";
 
 export interface SearchPaletteSection {
-  /** Section heading. */
   title: string;
-  /** Content rendered inside the section. */
   items: Array<{ label: string; description?: string; href?: string }>;
 }
-
 export interface SearchPaletteProps {
-  /** Whether the dialog is open. */
+  id?: string;
   open?: boolean;
-  /** Callback for open state changes. */
   onOpenChange?: (open: boolean) => void;
-  /** The current search string. */
   query?: string;
-  /** Optional placeholder content for the input. */
+  onQueryChange?: (query: string) => void;
+  onSubmit?: () => void;
+  onNavigate?: () => void;
+  onCloseFocus?: () => void;
   placeholder?: string;
-  /** Optional title for the dialog. */
   title?: string;
-  /** Optional description for the dialog. */
   description?: string;
-  /** Optional recent searches section. */
   recentSearches?: SearchPaletteSection;
-  /** Optional quick links section. */
   quickLinks?: SearchPaletteSection;
-  /** Optional popular searches section. */
   popularSearches?: SearchPaletteSection;
-  /** Optional empty state content. */
+  resultGroups?: SearchSuggestionGroup[];
+  viewAllHref?: string;
   emptyState?: ReactNode;
-  /** Optional loading state content. */
   loadingState?: ReactNode;
-  /** Whether to show the loading state. */
   loading?: boolean;
-  /** Whether to show the empty state. */
   empty?: boolean;
-  /** Optional keyboard shortcut hint. */
+  error?: boolean;
+  onRetry?: () => void;
   shortcutLabel?: string;
-  /** Additional classes for the dialog content. */
   className?: string;
 }
 
-/**
- * Reusable search palette shell for Navigation V2.
- *
- * This component is intentionally UI-only and does not perform routing, API
- * calls, or business logic. It provides the structure for future search
- * experiences with placeholder sections and state handling.
- */
+/** Search presentation stays reusable; the mounted navbar owns fetching and navigation. */
 export function SearchPalette({
-  open = false,
-  onOpenChange,
-  query = "",
-  placeholder = "Search programs, services, and more",
-  title = "Search",
-  description = "Find what you need quickly",
-  recentSearches,
-  quickLinks,
-  popularSearches,
-  emptyState,
-  loadingState,
-  loading = false,
-  empty = false,
-  shortcutLabel = "⌘K / Ctrl+K",
-  className,
+  id, open = false, onOpenChange, query = "", onQueryChange, onSubmit, onNavigate, onCloseFocus,
+  placeholder = "Search programs, services, and more", title = "Search", description = "Find services, healers, programs, courses, products, articles, and audio.",
+  recentSearches, quickLinks, popularSearches, resultGroups = [], viewAllHref,
+  emptyState, loadingState, loading = false, empty = false, error = false, onRetry,
+  shortcutLabel = "⌘K / Ctrl+K", className,
 }: SearchPaletteProps) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className={cn(
-          "max-w-2xl gap-0 overflow-hidden border-border/60 p-0 sm:max-w-2xl",
-          className,
-        )}
-        aria-label={title}
-      >
-        <div className="border-b border-border/60 p-4 sm:p-6">
-          <DialogHeader className="gap-2">
-            <DialogTitle className="text-base font-semibold text-foreground">{title}</DialogTitle>
-            <DialogDescription className="text-sm text-muted-foreground">
-              {description}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="mt-4 flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2 shadow-sm">
-            <span className="text-sm text-muted-foreground" aria-hidden="true">
-              ⌕
-            </span>
-            <input
-              value={query}
-              placeholder={placeholder}
-              className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-              aria-label="Search input"
-            />
-            <span className="rounded-md border border-border/60 px-2 py-1 text-xs text-muted-foreground">
-              {shortcutLabel}
-            </span>
-          </div>
-        </div>
-
-        <div className="max-h-[60vh] overflow-y-auto p-4 sm:p-6">
-          {loading ? (
-            loadingState ?? (
-              <div className="rounded-md border border-dashed border-border/60 p-6 text-sm text-muted-foreground">
-                Loading suggestions...
-              </div>
-            )
-          ) : empty ? (
-            emptyState ?? (
-              <div className="rounded-md border border-dashed border-border/60 p-6 text-sm text-muted-foreground">
-                No results yet. Try another search term.
-              </div>
-            )
-          ) : (
-            <div className="space-y-6">
-              {recentSearches ? (
-                <section className="space-y-2">
-                  <h3 className="text-sm font-semibold text-foreground">{recentSearches.title}</h3>
-                  <ul className="space-y-2">
-                    {recentSearches.items.map((item) => (
-                      <li key={item.label}>
-                        <button
-                          type="button"
-                          className="flex w-full items-start justify-between rounded-md px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent/70 hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                        >
-                          <span>{item.label}</span>
-                          {item.description ? (
-                            <span className="text-muted-foreground">{item.description}</span>
-                          ) : null}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-
-              {quickLinks ? (
-                <section className="space-y-2">
-                  <h3 className="text-sm font-semibold text-foreground">{quickLinks.title}</h3>
-                  <ul className="grid gap-2 sm:grid-cols-2">
-                    {quickLinks.items.map((item) => (
-                      <li key={item.label}>
-                        <button
-                          type="button"
-                          className="flex w-full flex-col rounded-md border border-border/60 px-3 py-3 text-left text-sm text-foreground transition-colors hover:bg-accent/70 hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                        >
-                          <span className="font-medium">{item.label}</span>
-                          {item.description ? (
-                            <span className="mt-1 text-muted-foreground">{item.description}</span>
-                          ) : null}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-
-              {popularSearches ? (
-                <section className="space-y-2">
-                  <h3 className="text-sm font-semibold text-foreground">{popularSearches.title}</h3>
-                  <ul className="flex flex-wrap gap-2">
-                    {popularSearches.items.map((item) => (
-                      <li key={item.label}>
-                        <button
-                          type="button"
-                          className="rounded-full border border-border/60 px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-accent/70 hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                        >
-                          {item.label}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-            </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
+  const content = useRef<HTMLDivElement>(null);
+  const navigate = () => { onNavigate?.(); onOpenChange?.(false); };
+  return <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent id={id} ref={content} className={cn("max-w-2xl gap-0 overflow-hidden p-0", className)} aria-label={title}
+      onCloseAutoFocus={event => { if (onCloseFocus) { event.preventDefault(); onCloseFocus(); } }}
+      onKeyDown={event => {
+        if (event.nativeEvent.isComposing || !['ArrowDown', 'ArrowUp'].includes(event.key) || event.altKey || event.ctrlKey || event.metaKey) return;
+        const stops = Array.from(content.current?.querySelectorAll<HTMLElement>('input, [data-search-result]') || []);
+        if (stops.length < 2 || !stops.includes(document.activeElement as HTMLElement)) return;
+        event.preventDefault();
+        const index = stops.indexOf(document.activeElement as HTMLElement);
+        stops[(index + (event.key === 'ArrowDown' ? 1 : -1) + stops.length) % stops.length].focus();
+      }}>
+      <div className="border-b p-4 sm:p-6">
+        <DialogHeader><DialogTitle>{title}</DialogTitle><DialogDescription>{description}</DialogDescription></DialogHeader>
+        <form className="mt-4 flex gap-2" onSubmit={event => { event.preventDefault(); if (query.trim().length >= 2) onSubmit?.(); }}>
+          <input value={query} readOnly={!onQueryChange} onChange={event => onQueryChange?.(event.target.value)} maxLength={200} placeholder={placeholder} className="min-w-0 flex-1 rounded border bg-background px-3 py-2 text-sm focus-ring" aria-label="Search input" />
+          <button type="submit" disabled={query.trim().length < 2} className="rounded border px-3 text-sm focus-ring disabled:opacity-50">Search</button>
+        </form>
+        <p className="mt-2 text-xs text-muted-foreground">{shortcutLabel} · Use Tab or arrow keys to browse suggestions</p>
+      </div>
+      <div className="max-h-[60vh] space-y-5 overflow-y-auto p-4 sm:p-6" aria-busy={loading}>
+        {loading ? loadingState ?? <p role="status">Loading suggestions…</p> : error ? <div role="alert" className="space-y-2"><p>Search could not be loaded. Please try again.</p><button type="button" onClick={onRetry} className="underline focus-ring">Try again</button></div> : query.trim().length >= 2 ? empty || !resultGroups.length ? emptyState ?? <p role="status">No matches yet. Try a broader search term.</p> : <>
+          <p className="text-sm text-muted-foreground" role="status">Suggestions for “{query.trim()}”</p>
+          {resultGroups.map(group => <section key={group.title}><h3 className="mb-2 text-sm font-semibold">{group.title}</h3><ul className="space-y-1">{group.items.map(item => <li key={item.id}><Link data-search-result href={item.href} onClick={navigate} className="block rounded px-3 py-2 text-sm hover:bg-accent focus-ring"><span className="block font-medium">{item.label}</span>{item.description && <span className="block truncate text-xs text-muted-foreground">{item.description}</span>}</Link></li>)}</ul></section>)}
+        </> : <>
+          <p className="text-sm text-muted-foreground">Enter at least two characters, or browse a destination below.</p>
+          {[recentSearches, quickLinks, popularSearches].filter((section): section is SearchPaletteSection => Boolean(section)).map(section => <section key={section.title}><h3 className="mb-2 text-sm font-semibold">{section.title}</h3><ul className="grid gap-2 sm:grid-cols-2">{section.items.map(item => <li key={item.label}>{item.href ? <Link data-search-result href={item.href} onClick={navigate} className="block rounded border px-3 py-2 text-sm hover:bg-accent focus-ring">{item.label}{item.description && <span className="ml-2 text-muted-foreground">{item.description}</span>}</Link> : <button type="button" onClick={() => onQueryChange?.(item.label)} className="rounded border px-3 py-2 text-sm focus-ring">{item.label}</button>}</li>)}</ul></section>)}
+        </>}
+        {viewAllHref && query.trim().length >= 2 && <Link href={viewAllHref} onClick={navigate} className="block border-t pt-3 text-sm font-medium underline focus-ring">View all results for “{query.trim()}”</Link>}
+      </div>
+    </DialogContent>
+  </Dialog>;
 }
-
 export default SearchPalette;

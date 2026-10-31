@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { getPublishedBlogPost } from '@/lib/blog/queries'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -11,15 +11,13 @@ export async function GET(
   try {
     const { slug } = await params
 
-    const post = await prisma.blogPost.findFirst({
-      where: { OR: [{ id: slug }, { slug }], published: true },
-    })
+    const post = await getPublishedBlogPost(slug)
 
     if (!post) {
-      return NextResponse.json({ error: 'Post not found' }, { status: 404 })
+      return NextResponse.json({ error: 'Post not found' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
     }
 
-    return NextResponse.json(post)
+    return NextResponse.json(post, { headers: { 'Cache-Control': 'no-store' } })
   } catch (err) {
     console.error('[blog][detail][error]', err)
     return NextResponse.json({ error: 'Failed to fetch blog post' }, { status: 500 })

@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma"
+import { getPublishedBlogSummaries } from '@/lib/blog/queries'
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { BookOpen } from "lucide-react"
@@ -6,19 +6,7 @@ import { format } from "date-fns"
 import Link from "next/link"
 
 export default async function BlogPreview() {
-  const posts = await prisma.blogPost.findMany({
-    where: { published: true },
-    orderBy: { createdAt: "desc" },
-    take: 3,
-    select: {
-      id: true,
-      slug: true,
-      title: true,
-      excerpt: true,
-      imageUrl: true,
-      createdAt: true,
-    },
-  })
+  const posts = await getPublishedBlogSummaries(3)
 
   if (posts.length === 0) return null
 

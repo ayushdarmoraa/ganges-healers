@@ -1,4 +1,6 @@
-import { prisma } from '@/lib/prisma'
+import { cache } from 'react'
+import { getPublishedBlogPost } from '@/lib/blog/queries'
+import ArticleBody from '@/components/blog/ArticleBody'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import Image from 'next/image'
@@ -9,11 +11,12 @@ interface Props {
   params: Promise<{ slug: string }>
 }
 
+export const dynamic = 'force-dynamic'
+const getPost = cache(getPublishedBlogPost)
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
-  const post = await prisma.blogPost.findFirst({
-    where: { OR: [{ id: slug }, { slug }], published: true },
-  })
+  const post = await getPost(slug)
   if (!post) return { title: 'Post Not Found' }
   return {
     title: `${post.title} | Blog | Ganges Healers`,
@@ -22,7 +25,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title: post.title,
       description: post.excerpt || post.content.slice(0, 160),
       type: 'article',
-      publishedTime: post.createdAt.toISOString(),
       ...(post.imageUrl ? { images: [{ url: post.imageUrl }] } : {}),
     },
   }
@@ -31,9 +33,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function BlogPostPage({ params }: Props) {
   const { slug } = await params
 
-  const post = await prisma.blogPost.findFirst({
-    where: { OR: [{ id: slug }, { slug }], published: true },
-  })
+  const post = await getPost(slug)
 
   if (!post) notFound()
 
@@ -55,12 +55,10 @@ export default async function BlogPostPage({ params }: Props) {
 
       <h1 className="text-3xl font-bold mb-2">{post.title}</h1>
       <p className="text-sm text-muted-foreground mb-8">
-        Published {format(new Date(post.createdAt), 'dd MMMM yyyy')}
+        Article date: {format(new Date(post.createdAt), 'dd MMMM yyyy')}
       </p>
 
-      <div className="prose prose-neutral max-w-none whitespace-pre-line">
-        {post.content}
-      </div>
+      <ArticleBody content={post.content} />
     </article>
   )
 }
