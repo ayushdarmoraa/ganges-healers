@@ -5,6 +5,7 @@ jest.mock('@/lib/auth', () => ({ auth: jest.fn() }))
 jest.mock('@/lib/auth/requireVIP', () => ({ requireVIP: jest.fn() }))
 jest.mock('@/lib/activity-log', () => ({ logActivity: jest.fn() }))
 jest.mock('@/lib/prisma', () => ({ prisma: {
+  $transaction: jest.fn(), $queryRaw: jest.fn(),
   communityTopic: { findFirst: jest.fn() },
   communityPost: { create: jest.fn() },
   communityTag: { count: jest.fn() },
@@ -12,6 +13,8 @@ jest.mock('@/lib/prisma', () => ({ prisma: {
 
 const vip = jest.requireMock<{ requireVIP: jest.Mock }>('@/lib/auth/requireVIP').requireVIP
 const db = jest.requireMock<{ prisma: {
+  $transaction: jest.Mock
+  $queryRaw: jest.Mock
   communityTopic: { findFirst: jest.Mock }
   communityPost: { create: jest.Mock }
   communityTag: { count: jest.Mock }
@@ -23,6 +26,8 @@ const request = (topicId?: string, tagIds?: string[]) => new NextRequest('http:/
 
 beforeEach(() => {
   jest.resetAllMocks()
+  db.$transaction.mockImplementation(async (operation: (tx: typeof db) => Promise<unknown>) => operation(db))
+  db.$queryRaw.mockResolvedValue([])
   vip.mockResolvedValue({ user: { id: 'member' } })
   db.communityTopic.findFirst.mockResolvedValue({ id: 'active-topic' })
   db.communityPost.create.mockResolvedValue({ id: 'new-post' })

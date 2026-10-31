@@ -5,6 +5,7 @@ import { requireVIP } from '@/lib/auth/requireVIP'
 import { z } from 'zod'
 import { logActivity } from '@/lib/activity-log'
 import { Prisma } from '@prisma/client'
+import { CommunityCatalogError, requireActivePublishingTopic } from '@/lib/community/catalog'
 
 // GET /api/community/posts — list posts with pagination, filtering, sorting, search (auth required)
 export async function GET(request: NextRequest) {
@@ -128,46 +129,34 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const topicId = parsed.data.topicId || undefined
-    if (topicId) {
-      const topic = await prisma.communityTopic.findFirst({
-        where: { id: topicId, isActive: true },
-        select: { id: true },
-      })
-      if (!topic) {
-        return NextResponse.json({
-          error: 'This topic is no longer available. Please choose another topic.',
-          code: 'TOPIC_UNAVAILABLE',
-        }, { status: 400 })
+    const post = await prisma.$transaction(async tx => {
+      const topicId = parsed.data.topicId || undefined
+      if (topicId) await requireActivePublishingTopic(tx, topicId)
+      const tagIds = [...new Set(parsed.data.tagIds || [])]
+      if (tagIds.length && await tx.communityTag.count({ where: { id: { in: tagIds } } }) !== tagIds.length) {
+        throw new CommunityCatalogError('One or more tags are no longer available. Please choose again.', 400, 'TAG_UNAVAILABLE')
       }
-    }
-
-    const tagIds = [...new Set(parsed.data.tagIds || [])]
-    if (tagIds.length && await prisma.communityTag.count({ where: { id: { in: tagIds } } }) !== tagIds.length) {
-      return NextResponse.json({ error: 'One or more tags are no longer available. Please choose again.', code: 'TAG_UNAVAILABLE' }, { status: 400 })
-    }
-
-    const post = await prisma.communityPost.create({
-      data: {
-        userId: session.user!.id,
-        title: parsed.data.title,
-        content: parsed.data.content,
-        topicId,
-        ...(tagIds.length
-          ? { tags: { create: tagIds.map((tagId) => ({ tagId })) } }
-          : {}),
-      },
-      include: {
-        user: { select: { id: true, name: true, image: true } },
-        topic: { select: { id: true, slug: true, name: true } },
-        tags: { include: { tag: { select: { id: true, slug: true, name: true } } } },
-        _count: { select: { comments: { where: { deletedAt: null } }, likes: true } },
-      },
-    })
+      return tx.communityPost.create({
+        data: {
+          userId: session.user!.id,
+          title: parsed.data.title,
+          content: parsed.data.content,
+          topicId,
+          ...(tagIds.length ? { tags: { create: tagIds.map(tagId => ({ tagId })) } } : {}),
+        },
+        include: {
+          user: { select: { id: true, name: true, image: true } },
+          topic: { select: { id: true, slug: true, name: true } },
+          tags: { include: { tag: { select: { id: true, slug: true, name: true } } } },
+          _count: { select: { comments: { where: { deletedAt: null } }, likes: true } },
+        },
+      })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted })
 
     logActivity({ userId: session.user!.id, action: 'community_post_created', entityType: 'community_post', entityId: post.id })
     return NextResponse.json({ success: true, data: post }, { status: 201 })
   } catch (error: unknown) {
+    if (error instanceof CommunityCatalogError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status })
     const status = (error as { status?: number }).status
     if (status === 401 || status === 403) {
       return NextResponse.json({ error: (error as Error).message }, { status })

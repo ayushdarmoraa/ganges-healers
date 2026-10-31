@@ -106,6 +106,36 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
   closed. Pinning hidden discussions returns `409`; unpinning them is allowed.
   See `docs/community-topics.md` for the moderator workflow and rollback.
 
+### Community catalog administration
+- `GET|POST|PATCH /api/admin/community/catalog` require a real signed-in actor
+  with the current database role `ADMIN`, using the existing community guard.
+  Member topic/tag APIs retain their current response fields and sign-in rules.
+- GET accepts `kind=topic|tag`, `status=all|active|inactive` (topics), `q` up to
+  200 characters, cursor, and an integer limit of 1–100 (default 25). It returns
+  `{ success, data, nextCursor }`. Items include stable IDs/slugs, editable
+  display fields, an opaque `version`, and linked `postCount` including hidden
+  discussions. Invalid filters return `400`.
+- POST accepts `{ kind, name, slug }` plus optional topic `description`, integer
+  `order` (-1,000,000 to 1,000,000, default 0), and `isActive` (default true).
+  Names are trimmed to 1–100 characters; descriptions to at most 1,000. New
+  slugs normalize to lowercase and permit 1–80 letters/numbers separated by
+  single hyphens. Success is `201 { success, data }`; a duplicate slug within
+  the same kind returns `409` with `code: SLUG_UNAVAILABLE`.
+- PATCH requires `{ kind, id, version, changes }`. Slugs are immutable; unknown
+  or unsupported fields are rejected with `400`. Editable topic fields are
+  `name`, `description`, `order`, and `isActive`; tags support `name` only.
+  Stale versions return `409 CATALOG_CHANGED`; missing records return `404`.
+  Success is `{ success, data, idempotent }`. Versions cover editable fields,
+  not usage counts. No-op edits do not add audit history.
+- Catalog changes and auditing commit together. Admin topic updates take an
+  exclusive row lock. Publishing holds a shared topic row lock while checking
+  availability and inserting the post, retaining `400 TOPIC_UNAVAILABLE` when
+  the topic is unavailable. Multiple publishers can proceed concurrently.
+- Deactivation preserves all existing content and associations while removing
+  the topic from directories and publication choices; its landing page remains
+  unavailable under the existing active-topic rule. Reactivation restores it.
+  This workflow adds no deletion endpoint, schema migration, or dependency.
+
 ### Payments Webhook (Razorpay)
 - Path: `POST /api/payments/webhook`
 - Behavior:

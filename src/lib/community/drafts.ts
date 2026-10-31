@@ -8,7 +8,9 @@ export interface CommunityDraft {
 
 /** Keep device drafts separate for each signed-in account and originating topic. */
 export function communityDraftKey(ownerId: string, topicSlug: string) {
-  return `gh-community-draft:v1:${encodeURIComponent(ownerId)}:${encodeURIComponent(topicSlug || 'all')}`
+  // Keep existing keys; escape a real "all" topic so it cannot replace the general draft.
+  const scope = topicSlug === 'all' ? 'topic:all' : topicSlug || 'all'
+  return `gh-community-draft:v1:${encodeURIComponent(ownerId)}:${encodeURIComponent(scope)}`
 }
 
 /** Ignore malformed or incompatible device data instead of filling the composer with it. */

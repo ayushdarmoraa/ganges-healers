@@ -182,6 +182,22 @@ test('blocked device storage does not prevent writing and publishing', async () 
   } finally { storage.mockRestore() }
 })
 
+test('a real all topic cannot restore or overwrite the general composer draft', async () => {
+  const generalKey = communityDraftKey('member', '')
+  const general = JSON.stringify({ version: 1, title: 'General draft', content: 'Keep this separate', topicId: '', tagIds: [], topicChosen: true })
+  window.localStorage.setItem(generalKey, general)
+  fetchMock.mockImplementation(async (url: RequestInfo | URL) => String(url) === '/api/community/topics'
+    ? options([{ id: 'topic-all', slug: 'all', name: 'All practices', description: null }])
+    : new Response(JSON.stringify({ data: [] }), { status: 200 }))
+  const user = userEvent.setup()
+  render(<CreatePostForm draftOwnerId="member" initialTopicSlug="all" />)
+  expect(await screen.findByRole('combobox', { name: 'Topic' })).toHaveValue('topic-all')
+  expect(screen.getByLabelText('Title')).toHaveValue('')
+  await writeDraft(user)
+  expect(window.localStorage.getItem(generalKey)).toBe(general)
+  expect(JSON.parse(window.localStorage.getItem(communityDraftKey('member', 'all'))!)).toMatchObject({ title: 'A new practice', topicId: 'topic-all' })
+})
+
 test('typing is saved even while the topic list is still loading', async () => {
   let resolveTopics!: (value: Response) => void
   fetchMock.mockImplementation(async (url: RequestInfo | URL) => {
