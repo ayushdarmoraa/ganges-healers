@@ -6,7 +6,7 @@ export default defineConfig({
   workers: 1, // run serially for deterministic server load (analytics endpoints are heavy)
   use: {
     baseURL: process.env.E2E_BASE_URL || 'http://localhost:3010',
-    trace: 'on-first-retry',
+    trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },

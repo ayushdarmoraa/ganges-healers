@@ -1,7 +1,7 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Request, type Response } from '@playwright/test'
 import { BOOKING_TIME_ZONE, clinicDate, clinicSlotInstant } from '../../src/lib/bookings/time'
 
-test('create, reschedule and cancel a future booking', async ({ page }) => {
+test('create, reschedule and cancel a future booking', async ({ page }, testInfo) => {
   test.setTimeout(120_000)
   const email = `booking-e2e-${Date.now()}@example.test`
   const login = await page.goto(`/api/test/login?role=USER&vip=1&credits=5&email=${encodeURIComponent(email)}`)
@@ -54,9 +54,79 @@ test('create, reschedule and cancel a future booking', async ({ page }) => {
   const targetInstant = clinicSlotInstant(targetDate, targetTime)
   const targetLabel = targetInstant.toLocaleTimeString('en-US', { timeZone: BOOKING_TIME_ZONE, hour: 'numeric', minute: '2-digit' })
 
-  await page.goto('/dashboard/bookings')
   const card = page.locator('[data-test="booking-card"]').first()
-  await expect(card).toBeVisible({ timeout: 30000 })
+  const loadEvents: Array<Record<string, unknown>> = []
+  let failureView: unknown
+  const record = (event: Record<string, unknown>) => { if (loadEvents.length < 50) loadEvents.push(event) }
+  const object = (value: unknown) => value && typeof value === 'object' ? value as Record<string, unknown> : undefined
+  const safeMessage = (message: string) => message.split('\n')[0]
+    .replace(/(?:https?|postgres(?:ql)?):\/\/\S+/gi, '[url]')
+    .replace(/\b[^\s@]+@[^\s@]+\b/g, '[email]')
+    .replace(/\b(cookie|authorization|password|secret|token)\s*[:=]\s*\S+/gi, '$1=[redacted]')
+    .slice(0, 240)
+  const observedPath = (request: Request) => {
+    const path = new URL(request.url()).pathname
+    return request.method() === 'GET' && ['/api/bookings', '/api/auth/session'].includes(path) ? path : null
+  }
+  const onRequest = (request: Request) => {
+    const path = observedPath(request)
+    if (path) record({ event: 'request', path })
+  }
+  const onRequestFailed = (request: Request) => {
+    const path = observedPath(request)
+    if (path) record({ event: 'requestfailed', path, message: safeMessage(request.failure()?.errorText || 'Unknown network error') })
+  }
+  const onPageError = (error: Error) => record({ event: 'pageerror', message: safeMessage(error.message) })
+  const onResponse = (response: Response) => {
+    const path = observedPath(response.request())
+    if (!path) return
+    const event: Record<string, unknown> = { event: 'response', path, status: response.status(), bodyPending: true }
+    record(event)
+    void response.json().then((body: unknown) => {
+      event.bodyPending = false
+      if (path === '/api/auth/session') {
+        event.sessionUserMatchesExpected = object(object(body)?.user)?.id === userId
+        return
+      }
+      const data = object(body)?.data
+      const row = Array.isArray(data) ? data.map(object).find(item => item?.id === bookingId) : undefined
+      const scheduledAt = typeof row?.scheduledAt === 'string' ? Date.parse(row.scheduledAt) : NaN
+      Object.assign(event, {
+        dataIsArray: Array.isArray(data), count: Array.isArray(data) ? data.length : null,
+        createdBookingPresent: !!row, ownerMatchesExpected: row ? row.userId === userId : null,
+        validDate: row ? Number.isFinite(scheduledAt) : null, futureDate: row ? scheduledAt > Date.now() : null,
+      })
+    }).catch(() => { event.bodyPending = false; event.bodyUnreadable = true })
+  }
+  page.on('request', onRequest)
+  page.on('response', onResponse)
+  page.on('requestfailed', onRequestFailed)
+  page.on('pageerror', onPageError)
+  try {
+    await page.goto('/dashboard/bookings')
+    await expect(card).toBeVisible({ timeout: 30000 })
+  } catch (error) {
+    failureView = await page.evaluate(() => {
+      const main = document.querySelector('main')
+      const text = main?.textContent || ''
+      return {
+        path: location.pathname, loading: text.includes('Loading...'),
+        error: !!main?.querySelector('.text-red-600'), noUpcoming: text.includes('No upcoming bookings.'),
+        cardCount: main?.querySelectorAll('[data-test="booking-card"]').length || 0,
+      }
+    }).catch(() => ({ unavailable: true }))
+    throw error
+  } finally {
+    page.off('request', onRequest)
+    page.off('response', onResponse)
+    page.off('requestfailed', onRequestFailed)
+    page.off('pageerror', onPageError)
+    try {
+      const body = JSON.stringify({ events: loadEvents, failureView })
+      console.info(`[booking-load] ${body}`)
+      await testInfo.attach('booking-load', { body, contentType: 'application/json' })
+    } catch { /* Diagnostics must preserve the original assertion result. */ }
+  }
   await card.getByRole('button', { name: 'Reschedule' }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Select date').fill(targetDate)
