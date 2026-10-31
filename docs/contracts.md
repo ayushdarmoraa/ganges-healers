@@ -136,6 +136,37 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
   unavailable under the existing active-topic rule. Reactivation restores it.
   This workflow adds no deletion endpoint, schema migration, or dependency.
 
+### Blog drafting and publication
+- `GET|POST|PATCH /api/admin/blog` use the real current-role admin guard and
+  `Cache-Control: private, no-store`. GET supports `id` for full content/version,
+  or `status=all|draft|published`, `q`, `limit=1..100` (default 25), and cursor
+  for `{ success, data, counts, nextCursor }` metadata pages. Missing IDs return
+  404; invalid input returns 400.
+- POST accepts title, permanent slug, optional plain-text content, excerpt,
+  and image URL. It always creates `published: false`, overriding the legacy
+  default, with `201 { success, data }`. Slugs normalize to lowercase and remain
+  immutable; conflicts return `409 SLUG_UNAVAILABLE`.
+- PATCH requires `{ id, version, changes }`. Editable fields are title, content,
+  excerpt, image URL, and published state. Omitted fields stay unchanged. Stale
+  versions return `409 ARTICLE_CHANGED`; empty published content returns
+  `400 CONTENT_REQUIRED`. No-op saves do not add audit history.
+- Changes and audits commit together under a row lock. Activity actions are
+  `blog_draft_created`, `blog_article_updated`, `blog_article_published`, and
+  `blog_article_unpublished`. Audit failure rolls back publication/content;
+  audit metadata contains field names/status rather than article bodies.
+- Public `GET /api/blog` keeps its published metadata array; public
+  `GET /api/blog/[slug]` keeps the raw article and ID-or-slug lookup, returning
+  404 for drafts/withdrawn records. Successful blog APIs use `no-store`, and
+  lists no longer read the process-local blog cache.
+- Global search keeps its response groups and cache for non-blog groups. Blog
+  results are always queried fresh, ignoring old cached blog payloads. Search
+  successes use `no-store`. Blog detail pages and the sitemap render dynamically.
+- Preview/public bodies render escaped plain text; image validation shares the
+  existing Next/Image host configuration. Dates retain the existing creation
+  timestamp; separate publication/revision history is not claimed. No schema,
+  environment, dependency, or deletion endpoint is added. See
+  `docs/blog-publishing.md` for the workflow and rollback.
+
 ### Payments Webhook (Razorpay)
 - Path: `POST /api/payments/webhook`
 - Behavior:

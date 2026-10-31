@@ -49,7 +49,7 @@ export default async function AdminPage() {
   return (
     <div className="container mx-auto px-4 py-8 space-y-8">
       <h1 className="text-2xl font-semibold">Admin · VIP Management</h1>
-      <nav className="flex flex-wrap gap-3" aria-label="Admin workspaces"><Button asChild variant="outline"><Link href="/admin/community">Community Moderation</Link></Button><Button asChild variant="outline"><Link href="/admin/payments">Payments</Link></Button><Button asChild variant="outline"><Link href="/admin/analytics">Analytics</Link></Button></nav>
+      <nav className="flex flex-wrap gap-3" aria-label="Admin workspaces"><Button asChild variant="outline"><Link href="/admin/community">Community Moderation</Link></Button><Button asChild variant="outline"><Link href="/admin/blog">Manage Articles</Link></Button><Button asChild variant="outline"><Link href="/admin/payments">Payments</Link></Button><Button asChild variant="outline"><Link href="/admin/analytics">Analytics</Link></Button></nav>
 
       <Card>
         <CardContent className="p-0">

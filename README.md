@@ -6,6 +6,7 @@ A modern healthcare management system built with Next.js 14, TypeScript, and a c
 > Engineering process: See docs/GUARDRAILS.md for change management and contribution rules.
 > Contracts & Invariants: See docs/contracts.md for pinned API/logging/DB/env contracts and Patch Plan template.
 > Authentication: See docs/AUTH_IMPLEMENTATION.md for NextAuth setup and testing guide.
+> Blog publishing: See [docs/blog-publishing.md](docs/blog-publishing.md) for admin drafts, review, publication, and withdrawal.
 > Analytics: See docs/analytics.md for the client-only analytics shim and events.
 > SEO: See docs/seo.md for canonical URLs, Breadcrumbs & JSON-LD components.
 > Sitemap: Generated via app/sitemap.ts using a helper that outputs canonical URLs only; see docs/seo.md.
