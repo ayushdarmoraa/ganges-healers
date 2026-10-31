@@ -13,7 +13,7 @@ interface PostPage {
 }
 
 /** Browse the existing authenticated post API within a single topic. */
-export default function TopicPosts({ topicId }: { topicId: string }) {
+export default function TopicPosts({ topicId, topicSlug }: { topicId: string; topicSlug: string }) {
   const [posts, setPosts] = useState<CommunityPost[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -117,7 +117,7 @@ export default function TopicPosts({ topicId }: { topicId: string }) {
         <Card><CardContent className="py-12 text-center space-y-4">
           <h2 className="text-lg font-medium">Start the first discussion</h2>
           <p className="text-sm text-muted-foreground">There are no posts in this topic yet. Share a question, an experience, or something you’re learning.</p>
-          <Button asChild><Link href="/community/create">Create Post</Link></Button>
+          <Button asChild><Link href={`/community/create?topic=${encodeURIComponent(topicSlug)}`}>Create Post</Link></Button>
         </CardContent></Card>
       ) : posts.map(post => <PostCard key={post.id} post={post} />)}
       {nextCursor && (

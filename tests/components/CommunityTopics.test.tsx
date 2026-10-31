@@ -58,6 +58,7 @@ test('topic pages show their description and fetch only that topic’s discussio
   render(await TopicPage({ params: Promise.resolve({ slug: 'reiki' }) }))
   expect(screen.getByRole('heading', { level: 1, name: 'Reiki' })).toBeVisible()
   expect(screen.getByText(topic.description)).toBeVisible()
+  expect(screen.getByRole('link', { name: 'Create Post' })).toHaveAttribute('href', '/community/create?topic=reiki')
   expect(await screen.findByRole('link', { name: 'Read discussion: My first practice' })).toHaveAttribute('href', '/community/post/post-1')
   expect(global.fetch).toHaveBeenCalledWith('/api/community/posts?topicId=topic-1', expect.objectContaining({ signal: expect.any(AbortSignal) }))
 })
@@ -66,7 +67,7 @@ test('load more keeps existing discussions and does not repeat cards', async () 
   const fetchMock = jest.fn().mockResolvedValueOnce(response([first], 'cursor-1')).mockResolvedValueOnce(response([first, second]))
   global.fetch = fetchMock
   const user = userEvent.setup()
-  render(<TopicPosts topicId="topic-1" />)
+  render(<TopicPosts topicId="topic-1" topicSlug="reiki" />)
   await user.click(await screen.findByRole('button', { name: 'Load More' }))
   expect(await screen.findByRole('link', { name: 'Read discussion: A question about Reiki' })).toBeVisible()
   expect(screen.getAllByRole('link', { name: 'Read discussion: My first practice' })).toHaveLength(1)
@@ -77,7 +78,7 @@ test('load more keeps existing discussions and does not repeat cards', async () 
 test('failed pagination preserves loaded posts and allows retry from the same cursor', async () => {
   global.fetch = jest.fn().mockResolvedValueOnce(response([first], 'cursor-1')).mockResolvedValueOnce(new Response('{}', { status: 500 })).mockResolvedValueOnce(response([second]))
   const user = userEvent.setup()
-  render(<TopicPosts topicId="topic-1" />)
+  render(<TopicPosts topicId="topic-1" topicSlug="reiki" />)
   await user.click(await screen.findByRole('button', { name: 'Load More' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('Your place has been saved')
   expect(screen.getByRole('link', { name: 'Read discussion: My first practice' })).toBeVisible()
@@ -89,7 +90,7 @@ test('failed pagination preserves loaded posts and allows retry from the same cu
 test('initial loading errors can be retried without showing a false empty state', async () => {
   global.fetch = jest.fn().mockResolvedValueOnce(new Response('{}', { status: 500 })).mockResolvedValueOnce(response([first]))
   const user = userEvent.setup()
-  render(<TopicPosts topicId="topic-1" />)
+  render(<TopicPosts topicId="topic-1" topicSlug="reiki" />)
   expect(await screen.findByRole('alert')).toHaveTextContent('couldn’t load the discussions')
   expect(screen.queryByText('Start the first discussion')).not.toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: 'Try again' }))
@@ -98,14 +99,14 @@ test('initial loading errors can be retried without showing a false empty state'
 
 test('an empty topic invites a new discussion', async () => {
   global.fetch = jest.fn(async () => response([])) as typeof fetch
-  render(<TopicPosts topicId="topic-1" />)
+  render(<TopicPosts topicId="topic-1" topicSlug="reiki" />)
   expect(await screen.findByRole('heading', { name: 'Start the first discussion' })).toBeVisible()
-  expect(screen.getByRole('link', { name: 'Create Post' })).toHaveAttribute('href', '/community/create')
+  expect(screen.getByRole('link', { name: 'Create Post' })).toHaveAttribute('href', '/community/create?topic=reiki')
 })
 
 test('an expired session asks the reader to sign in', async () => {
   global.fetch = jest.fn(async () => new Response('{}', { status: 401 })) as typeof fetch
-  render(<TopicPosts topicId="topic-1" />)
+  render(<TopicPosts topicId="topic-1" topicSlug="reiki" />)
   expect(await screen.findByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/auth/signin')
 })
 
@@ -119,8 +120,8 @@ test('changing topics aborts the old request and ignores its late result', async
     }
     return Promise.resolve(response([second]))
   }) as typeof fetch
-  const { rerender } = render(<TopicPosts topicId="topic-1" />)
-  rerender(<TopicPosts topicId="topic-2" />)
+  const { rerender } = render(<TopicPosts topicId="topic-1" topicSlug="reiki" />)
+  rerender(<TopicPosts topicId="topic-2" topicSlug="meditation" />)
   expect(await screen.findByRole('link', { name: 'Read discussion: A question about Reiki' })).toBeVisible()
   expect(oldSignal?.aborted).toBe(true)
   await act(async () => { resolveOld(response([first])) })

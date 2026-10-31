@@ -126,12 +126,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const topicId = parsed.data.topicId || undefined
+    if (topicId) {
+      const topic = await prisma.communityTopic.findFirst({
+        where: { id: topicId, isActive: true },
+        select: { id: true },
+      })
+      if (!topic) {
+        return NextResponse.json({
+          error: 'This topic is no longer available. Please choose another topic.',
+          code: 'TOPIC_UNAVAILABLE',
+        }, { status: 400 })
+      }
+    }
+
     const post = await prisma.communityPost.create({
       data: {
         userId: session.user!.id,
         title: parsed.data.title,
         content: parsed.data.content,
-        topicId: parsed.data.topicId || undefined,
+        topicId,
         ...(parsed.data.tagIds?.length
           ? { tags: { create: parsed.data.tagIds.map((tagId) => ({ tagId })) } }
           : {}),

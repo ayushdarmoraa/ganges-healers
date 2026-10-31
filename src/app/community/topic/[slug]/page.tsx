@@ -25,9 +25,9 @@ export default async function CommunityTopicPage({ params }: { params: Promise<{
           <h1 className="text-3xl font-semibold tracking-tight">{topic.name}</h1>
           {topic.description && <p className="text-muted-foreground leading-relaxed">{topic.description}</p>}
         </div>
-        <Button asChild className="shrink-0"><Link href="/community/create">Create Post</Link></Button>
+        <Button asChild className="shrink-0"><Link href={`/community/create?topic=${encodeURIComponent(topic.slug)}`}>Create Post</Link></Button>
       </header>
-      <TopicPosts key={topic.id} topicId={topic.id} />
+      <TopicPosts key={topic.id} topicId={topic.id} topicSlug={topic.slug} />
     </div>
   )
 }
