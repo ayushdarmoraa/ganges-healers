@@ -64,6 +64,48 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
   sending the product-view event. Authenticated selection retains its stable
   hash; a first anonymous view without JavaScript cannot persist its assignment.
 
+### Community moderation
+- `POST /api/community/reports` retains `201 { success: true, data: { id } }`,
+  `401` for signed-out requests, `404` for missing/hidden targets, `409` for an
+  existing pending report, and `400` for validation errors. Reasons are trimmed
+  before the 5–500 character check. Self-reports now return `400`; a comment
+  under a hidden parent now returns `404`. Concurrent duplicate submissions
+  serialize on the target and create one pending report and audit record.
+- `GET /api/community/posts/[id]` adds `hasPendingReport` to the discussion and
+  each returned comment, scoped to the authenticated member's pending reports.
+  It does not disclose other reporters or reasons. Hidden discussions remain
+  `404`; hidden comments remain excluded. New likes/comments recheck parent
+  visibility under the moderation lock and return `404` after hiding.
+- `GET /api/admin/community` retains `{ success, data, pendingCount }` for the
+  report view and the existing nine metrics fields for `view=metrics`. Report
+  results add `counts`, `nextCursor`, and target visibility/version metadata.
+  `status=pending|reviewed|dismissed|all`, `type=post|comment|all`, `q`, `cursor`,
+  and a sanitized `limit` (1–200, default 50) are supported. Invalid enumerated
+  filters return `400`. `view=content` adds paginated text/visibility browsing;
+  `visibility=visible|hidden|all` includes hidden parents for comment visibility.
+  Metrics add `hiddenPosts`, `hiddenComments`, and `pendingReports`; visible
+  comment/contributor metrics now exclude hidden parent discussions.
+- `PATCH /api/admin/community` retains `{ reportId, action: reviewed|dismissed }`
+  and `200 { success: true, data }`. Legacy `reviewed` still hides the target;
+  it now closes all pending reports for that target atomically. `dismissed`
+  closes only one report. Additive actions are `resolve` (close one without
+  changing visibility), `hide`, `restore`, `pin`, and `unpin`. Direct actions
+  accept `{ targetType, targetId }`; optional `expectedUpdatedAt` rejects stale
+  content with `409`. Responses add `idempotent` and `resolvedCount`.
+- Moderation requires a real signed-in actor whose current database role is
+  `ADMIN`, including in the guarded test runtime. The global test-mode guard
+  and production gating remain unchanged. Conflicting completed decisions
+  return `409`; repeating the same completed report decision as its moderator
+  returns its saved result without repeating visibility changes.
+- Report creation and moderation write their audit record in the same
+  transaction. Parent-first PostgreSQL locks serialize reports, decisions,
+  new comments, and like toggles. This is an application locking protocol,
+  not a database uniqueness constraint for pending reports.
+- Restore rejects author deletions, unknown removal history, hidden parent
+  discussions, and unresolved reports with `409`. Closed report history stays
+  closed. Pinning hidden discussions returns `409`; unpinning them is allowed.
+  See `docs/community-topics.md` for the moderator workflow and rollback.
+
 ### Payments Webhook (Razorpay)
 - Path: `POST /api/payments/webhook`
 - Behavior:
