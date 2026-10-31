@@ -27,7 +27,6 @@ const publicLinks = [
 const authLinks = [
   { href: "/community", label: "Community" },
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/dashboard/notifications", label: "Notifications" },
 ]
 
 export function Navbar() {

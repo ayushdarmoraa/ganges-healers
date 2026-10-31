@@ -78,6 +78,7 @@ export function MobileNav({
         className={cn("flex h-full w-[85vw] flex-col justify-between gap-0 border-r bg-background p-0 sm:max-w-sm", className)}
         aria-label={ariaLabel}
       >
+        <SheetHeader className="sr-only"><SheetTitle>{ariaLabel}</SheetTitle><SheetDescription>Browse Ganges Healers and your member notifications.</SheetDescription></SheetHeader>
         <div className="flex flex-col gap-6 p-6">
           <div className="flex items-center justify-between gap-3">
             {headerContent ?? <Logo title="Ganges Healers" href="/" size="md" {...logoProps} />}
@@ -89,6 +90,7 @@ export function MobileNav({
                 {primaryItems.map((item) => (
                   <NavItem
                     key={item.href ?? item.label}
+                    onClick={() => onOpenChange?.(false)}
                     label={item.label}
                     href={item.href}
                     icon={item.icon}
@@ -111,6 +113,7 @@ export function MobileNav({
                 {secondaryItems.map((item) => (
                   <NavItem
                     key={item.href ?? item.label}
+                    onClick={() => onOpenChange?.(false)}
                     label={item.label}
                     href={item.href}
                     icon={item.icon}

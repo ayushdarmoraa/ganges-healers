@@ -2,6 +2,8 @@
 
 Signed-in members can open `/dashboard/notifications` through the notification bell or account navigation. The inbox has read-status and activity-type filters, title/message search, stable cursor pagination, individual read/unread controls, and account-wide mark-all-as-read. The bell uses the existing Navigation V2 notification panel with working actions and a link to the inbox.
 
+The root layout mounts `components/navigation/Navbar.tsx`. Both its desktop and mobile headers use the live bell; the mobile menu includes the member inbox link and closes on navigation. The older `components/navbar.tsx` is not the mounted application header. Tests cover the mounted navigation composition as well as the inbox and bell in isolation.
+
 ## Account isolation and state
 
 Every list, count, cursor lookup, and write uses the authenticated session's user ID. A supplied `userId` query parameter cannot select another account. Missing and unowned notification IDs/cursors produce the same 404. Responses use `Cache-Control: private, no-store`.

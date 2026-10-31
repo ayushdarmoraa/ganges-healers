@@ -32,6 +32,8 @@ export interface DesktopNavProps {
   searchLabel?: ReactNode;
   /** Placeholder label for the notification trigger. */
   notificationLabel?: ReactNode;
+  /** Live notification control; null hides the utility for signed-out visitors. */
+  notificationControl?: ReactNode;
   /** Placeholder label for the user menu trigger. */
   userMenuLabel?: ReactNode;
   /** Accessible label for the desktop navigation landmark. */
@@ -57,6 +59,7 @@ export function DesktopNav({
   ctaProps,
   searchLabel = "Search",
   notificationLabel = "Alerts",
+  notificationControl,
   userMenuLabel = "Account",
   ariaLabel = "Desktop navigation",
   className,
@@ -108,13 +111,13 @@ export function DesktopNav({
             {searchLabel}
           </button>
 
-          <button
+          {notificationControl !== undefined ? notificationControl : <button
             type="button"
             className="rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/70 hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             aria-label="Open notifications"
           >
             {notificationLabel}
-          </button>
+          </button>}
 
           <button
             type="button"

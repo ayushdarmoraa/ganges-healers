@@ -5,6 +5,7 @@ import { NotificationProvider } from '@/components/notifications/NotificationPro
 import NotificationBell from '@/components/notifications/NotificationBell'
 import NotificationInbox from '@/components/notifications/NotificationInbox'
 import NotificationsPage from '@/app/dashboard/notifications/page'
+import { Navbar } from '@/components/navigation/Navbar'
 import type { NotificationItem } from '@/lib/notifications/types'
 
 jest.mock('@/lib/auth', () => ({ auth: jest.fn() }))
@@ -47,6 +48,38 @@ test('the server inbox page redirects anonymous visitors and admits signed-in ac
   await expect(NotificationsPage()).rejects.toThrow('REDIRECT:/auth/signin?callbackUrl=%2Fdashboard%2Fnotifications')
   auth.mockResolvedValue({ user: { id: 'alice' } })
   expect(await NotificationsPage()).toEqual(<NotificationInbox />)
+})
+
+test('the mounted V2 header wires both responsive bells and closes the mobile menu after inbox navigation', async () => {
+  const user = userEvent.setup()
+  render(<NotificationProvider><Navbar /><NotificationInbox /></NotificationProvider>)
+  await screen.findByRole('article', { name: 'Activity one' })
+  const bells = screen.getAllByRole('button', { name: 'Notifications' })
+  expect(bells).toHaveLength(2)
+  bells.forEach(bell => expect(bell).toHaveAttribute('data-unread-count', '2'))
+  expect(screen.queryByRole('button', { name: 'Open notifications' })).not.toBeInTheDocument()
+  await user.click(bells[0])
+  await user.click(within(screen.getByRole('dialog', { name: 'Notifications' })).getAllByRole('button', { name: 'Mark as read' })[0])
+  await waitFor(() => bells.forEach(bell => expect(bell).toHaveAttribute('data-unread-count', '1')))
+  await user.keyboard('{Escape}')
+  await user.click(screen.getByRole('button', { name: 'Open navigation menu' }))
+  const menu = screen.getByRole('dialog', { name: 'Mobile navigation' })
+  expect(within(menu).getByRole('link', { name: 'Notifications' })).toHaveAttribute('href', '/dashboard/notifications')
+  const inboxLink = within(menu).getByRole('link', { name: 'Notifications' })
+  // JSDOM cannot navigate documents; E2E exercises the real destination.
+  inboxLink.addEventListener('click', event => event.preventDefault(), { once: true })
+  await user.click(inboxLink)
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Mobile navigation' })).not.toBeInTheDocument())
+})
+
+test('the mounted header hides live notifications and the member inbox link for guests', async () => {
+  signIn(null)
+  render(<NotificationProvider><Navbar /></NotificationProvider>)
+  expect(screen.queryByRole('button', { name: 'Notifications' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Open notifications' })).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Open navigation menu' }))
+  expect(screen.queryByRole('link', { name: 'Notifications' })).not.toBeInTheDocument()
+  expect(global.fetch).not.toHaveBeenCalled()
 })
 
 test('read, unread, and bulk actions keep the inbox and bell on one confirmed count', async () => {

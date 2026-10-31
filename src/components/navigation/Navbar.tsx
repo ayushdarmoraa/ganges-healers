@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useSession } from "next-auth/react";
 import { BookSessionButton } from "./BookSessionButton";
 import { DesktopNav } from "./DesktopNav";
 import { MobileNav } from "./MobileNav";
-import { NotificationPanel } from "./NotificationPanel";
+import NotificationBell from "@/components/notifications/NotificationBell";
 import { SearchPalette } from "./SearchPalette";
 import { UserMenu } from "./UserMenu";
 
@@ -14,16 +15,14 @@ export interface NavigationV2NavbarProps {
 }
 
 /**
- * Composition shell for Navigation V2.
- *
- * This component assembles the new desktop and mobile navigation surfaces with
- * placeholder state only. It is intentionally isolated from the existing app
- * wiring and does not replace the current navbar yet.
+ * Mounted Navigation V2 header. Desktop and mobile surfaces share the live
+ * notification provider; existing search and account shells retain their behavior.
  */
 export function Navbar({ className }: NavigationV2NavbarProps) {
+  const { data: session } = useSession();
+  const signedIn = Boolean(session?.user?.id);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   const desktopItems = [
@@ -45,6 +44,7 @@ export function Navbar({ className }: NavigationV2NavbarProps) {
     { label: "Courses", href: "/courses" },
     { label: "Blog", href: "/blog" },
     { label: "Store", href: "/store" },
+    ...(signedIn ? [{ label: "Notifications", href: "/dashboard/notifications" }] : []),
   ];
 
   return (
@@ -53,6 +53,7 @@ export function Navbar({ className }: NavigationV2NavbarProps) {
         items={desktopItems}
         searchLabel="Search"
         notificationLabel="Alerts"
+        notificationControl={signedIn ? <NotificationBell /> : null}
         userMenuLabel="Account"
         ctaLabel="Book a Session"
         ctaHref="/"
@@ -69,9 +70,9 @@ export function Navbar({ className }: NavigationV2NavbarProps) {
           Menu
         </button>
 
-        <BookSessionButton size="sm" href="/">
+        <div className="flex items-center gap-2"><BookSessionButton size="sm" href="/">
           Book a Session
-        </BookSessionButton>
+        </BookSessionButton>{signedIn && <NotificationBell />}</div>
       </div>
 
       <MobileNav
@@ -105,35 +106,6 @@ export function Navbar({ className }: NavigationV2NavbarProps) {
           title: "Popular searches",
           items: [{ label: "Meditation" }, { label: "Ayurveda" }, { label: "Healing" }],
         }}
-      />
-
-      <NotificationPanel
-        open={notificationsOpen}
-        onOpenChange={setNotificationsOpen}
-        groups={[
-          {
-            title: "Today",
-            items: [
-              {
-                id: "n1",
-                title: "New session available",
-                message: "A new healing session is ready to book.",
-                time: "Just now",
-              },
-            ],
-          },
-          {
-            title: "Yesterday",
-            items: [
-              {
-                id: "n2",
-                title: "Program update",
-                message: "A new guided program was added.",
-                time: "Yesterday",
-              },
-            ],
-          },
-        ]}
       />
 
       <UserMenu
