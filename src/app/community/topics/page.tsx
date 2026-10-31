@@ -17,7 +17,7 @@ export default async function CommunityTopicsPage() {
 
   return (
     <div className="container mx-auto p-6 max-w-4xl space-y-8">
-      <Button asChild variant="ghost" size="sm"><Link href="/community">← Back to Community</Link></Button>
+      <nav className="flex flex-wrap gap-2" aria-label="Community browsing"><Button asChild variant="ghost" size="sm"><Link href="/community">← Back to Community</Link></Button><Button asChild variant="outline" size="sm"><Link href="/community/tags">Explore Tags</Link></Button><Button asChild variant="outline" size="sm"><Link href="/community/mine">My Discussions</Link></Button></nav>
       <header className="space-y-3">
         <p className="text-sm font-medium text-primary">A space to connect</p>
         <h1 className="text-3xl font-semibold tracking-tight">Community Topics</h1>

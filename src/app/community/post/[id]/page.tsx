@@ -326,9 +326,9 @@ export default function PostDetailPage() {
           <div className="flex flex-wrap gap-1.5">
             {post.topic && <Link href={`/community/topic/${encodeURIComponent(post.topic.slug)}`}><Badge variant="outline">{post.topic.name}</Badge></Link>}
             {post.tags.map((pt) => (
-              <Badge key={pt.tag.id} variant="secondary" className="text-xs">
+              <Link key={pt.tag.id} href={`/community/tag/${encodeURIComponent(pt.tag.slug)}`}><Badge variant="secondary" className="text-xs">
                 {pt.tag.name}
-              </Badge>
+              </Badge></Link>
             ))}
           </div>
 

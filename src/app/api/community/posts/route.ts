@@ -15,44 +15,47 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url)
-    const cursor = searchParams.get('cursor') ?? undefined
-    const take = Math.min(Number(searchParams.get('take')) || 20, 50)
+    const cursor = searchParams.get('cursor') || undefined
+    const requestedTake = Number(searchParams.get('take'))
+    const take = Number.isFinite(requestedTake) && requestedTake >= 1 ? Math.min(Math.floor(requestedTake), 50) : 20
     const topicId = searchParams.get('topicId') ?? undefined
     const tagId = searchParams.get('tagId') ?? undefined
-    const sort = searchParams.get('sort') ?? 'latest'
-    const search = searchParams.get('search')?.trim() ?? undefined
+    const requestedSort = searchParams.get('sort')
+    const sort = requestedSort === 'most_liked' || requestedSort === 'most_commented' ? requestedSort : 'latest'
+    const search = searchParams.get('search')?.trim().slice(0, 200) || undefined
+    const mine = searchParams.get('mine') === '1'
 
     // Build where clause (always exclude soft-deleted)
     const where: Prisma.CommunityPostWhereInput = {
       deletedAt: null,
+      ...(mine ? { userId: session.user.id } : {}),
       ...(topicId ? { topicId } : {}),
       ...(tagId ? { tags: { some: { tagId } } } : {}),
     }
 
-    // Full-text search: use raw SQL to get matching post IDs via tsvector
+    // Apply the same ownership and topic/tag scope before limiting full-text hits.
     if (search) {
-      const sanitized = search.replace(/[&|!():*<>'"\\]/g, ' ').trim()
-      if (sanitized) {
-        const tsquery = sanitized.split(/\s+/).filter(Boolean).join(' & ')
-        const matchingIds: { id: string }[] = await prisma.$queryRawUnsafe(
-          `SELECT "id" FROM "CommunityPost" WHERE "deletedAt" IS NULL AND "searchVector" @@ to_tsquery('english', $1) LIMIT 200`,
-          tsquery,
-        )
-        where.id = { in: matchingIds.map((r) => r.id) }
-      }
+      const conditions = [Prisma.sql`p."deletedAt" IS NULL`, Prisma.sql`p."searchVector" @@ plainto_tsquery('english', ${search})`]
+      if (mine) conditions.push(Prisma.sql`p."userId" = ${session.user.id}`)
+      if (topicId) conditions.push(Prisma.sql`p."topicId" = ${topicId}`)
+      if (tagId) conditions.push(Prisma.sql`EXISTS (SELECT 1 FROM "CommunityPostTag" pt WHERE pt."postId" = p."id" AND pt."tagId" = ${tagId})`)
+      const matchingIds = await prisma.$queryRaw<Array<{ id: string }>>(
+        Prisma.sql`SELECT p."id" FROM "CommunityPost" p WHERE ${Prisma.join(conditions, ' AND ')} ORDER BY p."createdAt" DESC, p."id" DESC LIMIT 200`,
+      )
+      where.id = { in: matchingIds.map(row => row.id) }
     }
 
     // Determine ordering
     let orderBy: Prisma.CommunityPostOrderByWithRelationInput[]
     switch (sort) {
       case 'most_liked':
-        orderBy = [{ likes: { _count: 'desc' } }, { createdAt: 'desc' }]
+        orderBy = [{ likes: { _count: 'desc' } }, { createdAt: 'desc' }, { id: 'desc' }]
         break
       case 'most_commented':
-        orderBy = [{ comments: { _count: 'desc' } }, { createdAt: 'desc' }]
+        orderBy = [{ comments: { _count: 'desc' } }, { createdAt: 'desc' }, { id: 'desc' }]
         break
       default: // 'latest'
-        orderBy = [{ createdAt: 'desc' }]
+        orderBy = [{ createdAt: 'desc' }, { id: 'desc' }]
     }
 
     const postInclude = {
@@ -65,22 +68,21 @@ export async function GET(request: NextRequest) {
     // Fetch pinned posts separately (only on first page, no cursor, default sort, no search)
     type PostWithIncludes = Prisma.CommunityPostGetPayload<{ include: typeof postInclude }>
     let pinnedPosts: PostWithIncludes[] = []
-    if (!cursor && sort === 'latest' && !search) {
+    const pinnedFirst = sort === 'latest' && !search
+    if (!cursor && pinnedFirst) {
       pinnedPosts = await prisma.communityPost.findMany({
         where: { ...where, isPinned: true },
-        orderBy: [{ createdAt: 'desc' }],
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: postInclude,
       })
     }
-
-    const pinnedIds = pinnedPosts.map((p) => p.id)
 
     const posts = await prisma.communityPost.findMany({
       take: take + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       where: {
         ...where,
-        ...(pinnedIds.length > 0 ? { id: { notIn: pinnedIds } } : {}),
+        ...(pinnedFirst ? { isPinned: false } : {}),
       },
       orderBy,
       include: postInclude,
@@ -140,14 +142,19 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const tagIds = [...new Set(parsed.data.tagIds || [])]
+    if (tagIds.length && await prisma.communityTag.count({ where: { id: { in: tagIds } } }) !== tagIds.length) {
+      return NextResponse.json({ error: 'One or more tags are no longer available. Please choose again.', code: 'TAG_UNAVAILABLE' }, { status: 400 })
+    }
+
     const post = await prisma.communityPost.create({
       data: {
         userId: session.user!.id,
         title: parsed.data.title,
         content: parsed.data.content,
         topicId,
-        ...(parsed.data.tagIds?.length
-          ? { tags: { create: parsed.data.tagIds.map((tagId) => ({ tagId })) } }
+        ...(tagIds.length
+          ? { tags: { create: tagIds.map((tagId) => ({ tagId })) } }
           : {}),
       },
       include: {

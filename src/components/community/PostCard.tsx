@@ -20,7 +20,6 @@ export interface CommunityPost {
 /** The same discussion card is used by the main feed and topic pages. */
 export default function PostCard({ post }: { post: CommunityPost }) {
   return (
-    <Link href={`/community/post/${post.id}`} aria-label={`Read discussion: ${post.title}`} className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
       <Card className="hover:border-primary/50 transition-colors">
         <CardContent className="py-4 space-y-2">
           <div className="flex items-center gap-3">
@@ -41,11 +40,13 @@ export default function PostCard({ post }: { post: CommunityPost }) {
             )}
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {post.topic && <Badge variant="outline">{post.topic.name}</Badge>}
-            {post.tags.map(({ tag }) => <Badge key={tag.id} variant="secondary" className="text-xs">{tag.name}</Badge>)}
+            {post.topic && <Link href={`/community/topic/${encodeURIComponent(post.topic.slug)}`} className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Badge variant="outline">{post.topic.name}</Badge></Link>}
+            {post.tags.map(({ tag }) => <Link key={tag.id} href={`/community/tag/${encodeURIComponent(tag.slug)}`} className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Badge variant="secondary" className="text-xs">#{tag.name}</Badge></Link>)}
           </div>
-          <h2 className="text-lg font-semibold">{post.title}</h2>
-          <p className="text-sm text-muted-foreground line-clamp-3">{post.content}</p>
+          <Link href={`/community/post/${post.id}`} aria-label={`Read discussion: ${post.title}`} className="block rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring space-y-2">
+            <h2 className="text-lg font-semibold">{post.title}</h2>
+            <p className="text-sm text-muted-foreground line-clamp-3">{post.content}</p>
+          </Link>
           <div className="flex items-center gap-4 text-sm text-muted-foreground pt-1">
             <span className="flex items-center gap-1" aria-label={`${post._count.likes} likes`}>
               <Heart className="w-4 h-4" aria-hidden="true" /> {post._count.likes}
@@ -56,6 +57,5 @@ export default function PostCard({ post }: { post: CommunityPost }) {
           </div>
         </CardContent>
       </Card>
-    </Link>
   )
 }
