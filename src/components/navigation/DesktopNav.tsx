@@ -30,12 +30,17 @@ export interface DesktopNavProps {
   ctaProps?: Omit<BookSessionButtonProps, "children" | "href">;
   /** Placeholder label for the search trigger. */
   searchLabel?: ReactNode;
+  /** Live search control, replacing the presentation fallback. */
+  searchControl?: ReactNode;
   /** Placeholder label for the notification trigger. */
   notificationLabel?: ReactNode;
   /** Live notification control; null hides the utility for signed-out visitors. */
   notificationControl?: ReactNode;
   /** Placeholder label for the user menu trigger. */
   userMenuLabel?: ReactNode;
+  /** Live account and cart controls. */
+  userControl?: ReactNode;
+  cartControl?: ReactNode;
   /** Accessible label for the desktop navigation landmark. */
   ariaLabel?: string;
   /** Additional classes for the outer shell. */
@@ -46,8 +51,8 @@ export interface DesktopNavProps {
  * Desktop-only navigation shell for Navigation V2.
  *
  * The component provides a sticky, accessible header layout with a logo, a
- * configurable center navigation group, and placeholder utility controls for
- * search, notifications, user actions, and the primary conversion CTA.
+ * configurable center navigation group, and slots for live search, notifications,
+ * account, and cart controls. Presentation fallbacks remain available to other callers.
  */
 export function DesktopNav({
   items = [],
@@ -58,9 +63,12 @@ export function DesktopNav({
   ctaHref,
   ctaProps,
   searchLabel = "Search",
+  searchControl,
   notificationLabel = "Alerts",
   notificationControl,
   userMenuLabel = "Account",
+  userControl,
+  cartControl,
   ariaLabel = "Desktop navigation",
   className,
 }: DesktopNavProps) {
@@ -69,7 +77,7 @@ export function DesktopNav({
   return (
     <header
       className={cn(
-        "sticky top-0 z-50 hidden w-full border-b border-border/60 bg-background/95 backdrop-blur-sm md:block",
+        "sticky top-0 z-50 hidden w-full border-b border-border/60 bg-background/95 backdrop-blur-sm lg:block",
         className,
       )}
     >
@@ -78,7 +86,7 @@ export function DesktopNav({
           {leftContent ?? defaultLogo}
         </div>
 
-        <nav aria-label={ariaLabel} className="hidden flex-1 items-center justify-center md:flex">
+        <nav aria-label={ariaLabel} className="hidden flex-1 items-center justify-center lg:flex">
           <NavSection className="w-full">
             <ul className="flex items-center justify-center gap-1">
               {items.map((item) => (
@@ -103,13 +111,13 @@ export function DesktopNav({
         </nav>
 
         <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-          <button
+          {searchControl !== undefined ? searchControl : <button
             type="button"
             className="rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/70 hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             aria-label="Open search"
           >
             {searchLabel}
-          </button>
+          </button>}
 
           {notificationControl !== undefined ? notificationControl : <button
             type="button"
@@ -119,13 +127,14 @@ export function DesktopNav({
             {notificationLabel}
           </button>}
 
-          <button
+          {cartControl}
+          {userControl !== undefined ? userControl : <button
             type="button"
             className="rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/70 hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             aria-label="Open user menu"
           >
             {userMenuLabel}
-          </button>
+          </button>}
 
           {rightContent ?? (
             <BookSessionButton href={ctaHref} {...ctaProps}>

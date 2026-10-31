@@ -6,10 +6,11 @@ import NotificationBell from '@/components/notifications/NotificationBell'
 import NotificationInbox from '@/components/notifications/NotificationInbox'
 import NotificationsPage from '@/app/dashboard/notifications/page'
 import { Navbar } from '@/components/navigation/Navbar'
+import { CartProvider } from '@/components/store/CartProvider'
 import type { NotificationItem } from '@/lib/notifications/types'
 
 jest.mock('@/lib/auth', () => ({ auth: jest.fn() }))
-jest.mock('next/navigation', () => ({ redirect: (path: string) => { throw new Error(`REDIRECT:${path}`) } }))
+jest.mock('next/navigation', () => ({ usePathname: () => '/', useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }), redirect: (path: string) => { throw new Error(`REDIRECT:${path}`) } }))
 jest.mock('@/lib/socket-client', () => ({ getSocket: jest.fn(), disconnectSocket: jest.fn() }))
 const session = jest.requireMock<{ useSession: jest.Mock }>('next-auth/react').useSession
 const auth = jest.requireMock<{ auth: jest.Mock }>('@/lib/auth').auth
@@ -52,7 +53,7 @@ test('the server inbox page redirects anonymous visitors and admits signed-in ac
 
 test('the mounted V2 header wires both responsive bells and closes the mobile menu after inbox navigation', async () => {
   const user = userEvent.setup()
-  render(<NotificationProvider><Navbar /><NotificationInbox /></NotificationProvider>)
+  render(<NotificationProvider><CartProvider><Navbar /><NotificationInbox /></CartProvider></NotificationProvider>)
   await screen.findByRole('article', { name: 'Activity one' })
   const bells = screen.getAllByRole('button', { name: 'Notifications' })
   expect(bells).toHaveLength(2)
@@ -74,7 +75,7 @@ test('the mounted V2 header wires both responsive bells and closes the mobile me
 
 test('the mounted header hides live notifications and the member inbox link for guests', async () => {
   signIn(null)
-  render(<NotificationProvider><Navbar /></NotificationProvider>)
+  render(<NotificationProvider><CartProvider><Navbar /></CartProvider></NotificationProvider>)
   expect(screen.queryByRole('button', { name: 'Notifications' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Open notifications' })).not.toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: 'Open navigation menu' }))

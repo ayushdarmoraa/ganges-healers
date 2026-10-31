@@ -193,7 +193,26 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
   - Socket rooms require a valid Auth.js session cookie, ignore claimed user IDs,
     reject foreign browser origins, and expire with the token. Socket events are
     refresh hints; polling remains available. See `docs/notifications.md` for the
-    full workflow, deployment limits, test coverage, and rollback.
+  full workflow, deployment limits, test coverage, and rollback.
+
+- **Live application navigation**
+  - The mounted Navigation V2 header uses the existing `/api/search` raw seven-group
+    envelope. Suggestions use two or more trimmed characters, a 200-character client
+    bound, a 300 ms debounce, HTTP/schema validation, and request cancellation.
+    Server endpoint filtering, limits, cache policy, and error/logging keys are unchanged.
+  - Search suggestions construct internal destinations from encoded resource fields.
+    Enter routes to `/search?q=...`. Errors offer retry and are not shown as empty results.
+  - Account identity and role shortcuts come from the existing session. Guest,
+    member, healer, and admin links target existing guarded routes. These UI links
+    do not change authorization or entitlement rules.
+  - Sign out uses Auth.js with a fixed local destination. A success redirect requires
+    a returned URL and an HTTP-successful empty/null `/api/auth/session` response.
+    Active or uncertain sessions remain recoverable without a success redirect.
+  - Header cart counts/actions use the existing cart provider and drawer; client
+    display prices do not replace checkout's server-side pricing/ownership checks.
+    The booking call to action leads to `/services`.
+  - No schema, dependency, environment, authentication-provider, or test-mode contract
+    changes. See `docs/navigation.md` for behavior, limits, verification, and rollback.
 
 ### Payments Webhook (Razorpay)
 - Path: `POST /api/payments/webhook`

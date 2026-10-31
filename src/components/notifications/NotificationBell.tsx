@@ -8,13 +8,14 @@ import { NotificationPanel } from '@/components/navigation/NotificationPanel'
 import { useNotifications } from './NotificationProvider'
 
 /** The bell and full inbox share confirmed server state through NotificationProvider. */
-export default function NotificationBell() {
+export default function NotificationBell({ closeWhen = false }: { closeWhen?: boolean }) {
   const { ownerId, notifications, unreadCount, status, refresh, markRead, markAllRead, pendingIds, markingAll, actionError } = useNotifications()
   const [open, setOpen] = useState(false)
   const wrapper = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const panelId = useId()
   useEffect(() => { setOpen(false) }, [ownerId])
+  useEffect(() => { if (closeWhen) setOpen(false) }, [closeWhen])
   useEffect(() => {
     if (!open) return
     const outside = (event: MouseEvent) => { if (!wrapper.current?.contains(event.target as Node)) setOpen(false) }

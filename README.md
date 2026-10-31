@@ -8,6 +8,7 @@ A modern healthcare management system built with Next.js 14, TypeScript, and a c
 > Authentication: See docs/AUTH_IMPLEMENTATION.md for NextAuth setup and testing guide.
 > Blog publishing: See [docs/blog-publishing.md](docs/blog-publishing.md) for admin drafts, review, publication, and withdrawal.
 > Notifications: See [docs/notifications.md](docs/notifications.md) for the member inbox, read controls, optional Redis delivery, and authenticated real-time updates.
+> Navigation: See [docs/navigation.md](docs/navigation.md) for live search, session/role shortcuts, verified sign-out, mobile controls, and cart access.
 > Analytics: See docs/analytics.md for the client-only analytics shim and events.
 > SEO: See docs/seo.md for canonical URLs, Breadcrumbs & JSON-LD components.
 > Sitemap: Generated via app/sitemap.ts using a helper that outputs canonical URLs only; see docs/seo.md.
