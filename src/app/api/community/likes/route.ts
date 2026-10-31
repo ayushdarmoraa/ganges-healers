@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireVIP } from '@/lib/auth/requireVIP'
 import { z } from 'zod'
-import { enqueueNotification } from '@/lib/queues/jobs'
+import { deliverNotification } from '@/lib/notifications/delivery'
 import { CommunityModerationError, withCommunityTargetLock } from '@/lib/community/moderation'
 
 const likeSchema = z.object({
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       })
       const likerName = liker?.name || 'Someone'
       const titlePreview = post.title.length > 40 ? post.title.slice(0, 40) + '…' : post.title
-      await enqueueNotification({
+      await deliverNotification({
         userId: post.userId,
         type: 'community_like',
         title: 'Your post was liked',

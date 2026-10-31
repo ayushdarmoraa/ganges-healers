@@ -4,7 +4,7 @@ import { auth } from '@/lib/auth'
 import { requireVIP } from '@/lib/auth/requireVIP'
 import { z } from 'zod'
 import { logActivity } from '@/lib/activity-log'
-import { enqueueNotification } from '@/lib/queues/jobs'
+import { deliverNotification } from '@/lib/notifications/delivery'
 import { CommunityModerationError, withCommunityTargetLock } from '@/lib/community/moderation'
 
 const commentSchema = z.object({
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     if (post.userId !== userId) {
       const commenterName = comment.user.name || 'Someone'
       const titlePreview = post.title.length > 40 ? post.title.slice(0, 40) + '…' : post.title
-      await enqueueNotification({
+      await deliverNotification({
         userId: post.userId,
         type: 'community_comment',
         title: 'New comment on your post',
