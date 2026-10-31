@@ -43,6 +43,14 @@ function article(row: BlogPost): BlogArticle {
   return { ...data, version: createHash('sha256').update(JSON.stringify(data)).digest('hex') }
 }
 
+/** Keep app-written articles searchable in schema-only databases as well as migrated ones. */
+async function indexArticle(tx: Prisma.TransactionClient, id: string) {
+  const vector = Prisma.sql`to_tsvector('english', coalesce("title", '') || ' ' || coalesce("content", '') || ' ' || coalesce("excerpt", ''))`
+  // Existing migration triggers may already have produced this value; avoid a second row write.
+  await tx.$executeRaw(Prisma.sql`UPDATE "BlogPost" SET "searchVector" = ${vector}
+    WHERE "id" = ${id} AND "searchVector" IS DISTINCT FROM ${vector}`)
+}
+
 /** Lists fetch metadata only; full content and its version are loaded when an editor opens. */
 export async function listBlogArticles(query: z.infer<typeof blogAdminQuerySchema>) {
   if (query.id) {
@@ -72,6 +80,7 @@ export async function createBlogDraft(actorId: string, input: z.infer<typeof cre
       const existing = await tx.blogPost.findFirst({ where: { OR: [{ slug: { equals: input.slug, mode: 'insensitive' } }, { id: input.slug }] }, select: { id: true } })
       if (existing) throw new BlogAdminError('This URL slug is already in use. Choose another.', 409, 'SLUG_UNAVAILABLE')
       const row = await tx.blogPost.create({ data: { ...input, excerpt: input.excerpt || null, imageUrl: input.imageUrl || null, published: false } })
+      await indexArticle(tx, row.id)
       await tx.activityLog.create({ data: { userId: actorId, action: 'blog_draft_created', entityType: 'blog_post', entityId: row.id, metadata: { slug: row.slug } } })
       return { data: article(row) }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted })
@@ -97,8 +106,12 @@ export async function updateBlogArticle(actorId: string, input: z.infer<typeof u
     const next = { ...current, ...changes }
     if (next.published && !next.content.trim()) throw new BlogAdminError('Add article content before publishing.', 400, 'CONTENT_REQUIRED')
     const changedFields = Object.entries(changes).filter(([key, value]) => current[key as keyof BlogPost] !== value).map(([key]) => key)
-    if (!changedFields.length) return { data: saved, idempotent: true }
+    if (!changedFields.length) {
+      await indexArticle(tx, current.id)
+      return { data: saved, idempotent: true }
+    }
     const updated = await tx.blogPost.update({ where: { id: input.id }, data: changes })
+    await indexArticle(tx, updated.id)
     const action = current.published !== updated.published ? updated.published ? 'blog_article_published' : 'blog_article_unpublished' : 'blog_article_updated'
     await tx.activityLog.create({ data: { userId: actorId, action, entityType: 'blog_post', entityId: updated.id, metadata: { changedFields, published: updated.published } } })
     return { data: article(updated), idempotent: false }

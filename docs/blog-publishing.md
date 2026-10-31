@@ -60,6 +60,11 @@ Duplicate slugs return `409 SLUG_UNAVAILABLE` and can be corrected before saving
 Mutations lock the row and commit article changes and audit records together.
 Audit failure rolls back the change, including publication. No-op saves do not
 add audit history. Decisions apply to the version actually reviewed.
+The same transaction maintains the article's full-text search vector, including
+when publishing an older record without one. This also works in schema-only
+development/test databases without the migration's search trigger. Already
+correct vectors are not rewritten; a no-op save may repair a missing index
+without changing editable fields, dates, or audit history.
 
 Public lists read published records directly instead of the old `blog:list`
 memory cache. Global search caches other result groups but refreshes blog

@@ -154,6 +154,10 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
   `blog_draft_created`, `blog_article_updated`, `blog_article_published`, and
   `blog_article_unpublished`. Audit failure rolls back publication/content;
   audit metadata contains field names/status rather than article bodies.
+- Admin article writes maintain the full-text search vector in that transaction,
+  independently of migration triggers. Already current vectors are not rewritten.
+  A no-op save may repair indexing without changing the editable version or
+  adding a publication/content audit event.
 - Public `GET /api/blog` keeps its published metadata array; public
   `GET /api/blog/[slug]` keeps the raw article and ID-or-slug lookup, returning
   404 for drafts/withdrawn records. Successful blog APIs use `no-store`, and

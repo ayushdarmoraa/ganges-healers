@@ -151,6 +151,14 @@ test('publishing appears immediately even when an earlier empty search was cache
   expect((await (await listPublic()).json())).toEqual(expect.arrayContaining([expect.objectContaining({ id: draft.id })]))
 })
 
+test('publication repairs a missing legacy search vector without changing its URL', async () => {
+  await prisma.$executeRaw`UPDATE "BlogPost" SET "searchVector" = NULL WHERE "id" = ${draft.id}`
+  const response = await edit(draft, { published: true })
+  expect(response.status).toBe(200)
+  expect((await response.json()).data).toMatchObject({ id: draft.id, slug: draft.slug, published: true })
+  expect((await (await searchPublic()).json()).blog).toEqual(expect.arrayContaining([expect.objectContaining({ id: draft.id })]))
+})
+
 test('manager search and pagination include private drafts without returning their full bodies', async () => {
   const second = (await createBlogDraft(users[0], { title: `Other ${term}`, slug: `other-${term}`, content: 'Private body', excerpt: '', imageUrl: '' })).data
   articles.push(second.id)
