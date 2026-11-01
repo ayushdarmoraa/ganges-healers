@@ -54,10 +54,13 @@ test('desktop and mobile header search real content and retain a working cart', 
     await page.getByRole('button', { name: 'Open cart', exact: true }).click()
     cart = page.getByRole('dialog', { name: 'Your Cart (1)', exact: true })
     await cart.getByRole('button', { name: `Increase quantity of ${product.title}`, exact: true }).click()
-    await expect(page.getByRole('button', { name: 'Open cart', exact: true })).toHaveAttribute('data-cart-count', '2')
-    await expect(page.getByRole('link', { name: 'Proceed to Checkout' })).toHaveAttribute('href', '/store/checkout')
+    const updatedCart = page.getByRole('dialog', { name: 'Your Cart (2)', exact: true })
+    await expect(updatedCart).toBeVisible()
+    await expect(updatedCart.getByRole('link', { name: 'Proceed to Checkout' })).toHaveAttribute('href', '/store/checkout')
     await page.keyboard.press('Escape')
-    await expect(page.getByRole('dialog', { name: 'Your Cart (2)', exact: true })).not.toBeVisible()
+    await expect(updatedCart).not.toBeVisible()
+    // The modal hides background controls from accessibility queries until closed.
+    await expect(page.getByRole('button', { name: 'Open cart', exact: true })).toHaveAttribute('data-cart-count', '2')
 
     for (const width of [768, 390]) {
       await page.setViewportSize({ width, height: 844 })
