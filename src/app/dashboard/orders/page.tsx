@@ -101,8 +101,11 @@ export default async function OrdersPage() {
                   ))}
                 </div>
 
-                <div className="mt-3 text-xs text-muted-foreground">
-                  Order ID: {order.id}
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <span className="break-all text-xs text-muted-foreground">Order ID: {order.id}</span>
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/dashboard/orders/${encodeURIComponent(order.id)}`}>View details</Link>
+                  </Button>
                 </div>
               </Card>
             )
