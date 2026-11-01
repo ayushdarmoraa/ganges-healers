@@ -113,4 +113,11 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
       - name: Run E2E
-        run: pnpm test:e2e
+        run: pnpm test:e2e --max-failures=1
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-failure
+          path: test-results/
+          retention-days: 3
