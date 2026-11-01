@@ -92,6 +92,7 @@ export type EmailJobData =
   | { type: 'invoice'; payload: { to: string; invoiceNumber: string; amountPaise: number; link: string } }
 
 export interface NotificationJobData {
+  notificationId?: string
   userId: string
   type: string
   title: string

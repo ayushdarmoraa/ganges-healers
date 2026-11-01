@@ -64,6 +64,156 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
   sending the product-view event. Authenticated selection retains its stable
   hash; a first anonymous view without JavaScript cannot persist its assignment.
 
+### Community moderation
+- `POST /api/community/reports` retains `201 { success: true, data: { id } }`,
+  `401` for signed-out requests, `404` for missing/hidden targets, `409` for an
+  existing pending report, and `400` for validation errors. Reasons are trimmed
+  before the 5–500 character check. Self-reports now return `400`; a comment
+  under a hidden parent now returns `404`. Concurrent duplicate submissions
+  serialize on the target and create one pending report and audit record.
+- `GET /api/community/posts/[id]` adds `hasPendingReport` to the discussion and
+  each returned comment, scoped to the authenticated member's pending reports.
+  It does not disclose other reporters or reasons. Hidden discussions remain
+  `404`; hidden comments remain excluded. New likes/comments recheck parent
+  visibility under the moderation lock and return `404` after hiding.
+- `GET /api/admin/community` retains `{ success, data, pendingCount }` for the
+  report view and the existing nine metrics fields for `view=metrics`. Report
+  results add `counts`, `nextCursor`, and target visibility/version metadata.
+  `status=pending|reviewed|dismissed|all`, `type=post|comment|all`, `q`, `cursor`,
+  and a sanitized `limit` (1–200, default 50) are supported. Invalid enumerated
+  filters return `400`. `view=content` adds paginated text/visibility browsing;
+  `visibility=visible|hidden|all` includes hidden parents for comment visibility.
+  Metrics add `hiddenPosts`, `hiddenComments`, and `pendingReports`; visible
+  comment/contributor metrics now exclude hidden parent discussions.
+- `PATCH /api/admin/community` retains `{ reportId, action: reviewed|dismissed }`
+  and `200 { success: true, data }`. Legacy `reviewed` still hides the target;
+  it now closes all pending reports for that target atomically. `dismissed`
+  closes only one report. Additive actions are `resolve` (close one without
+  changing visibility), `hide`, `restore`, `pin`, and `unpin`. Direct actions
+  accept `{ targetType, targetId }`; optional `expectedUpdatedAt` rejects stale
+  content with `409`. Responses add `idempotent` and `resolvedCount`.
+- Moderation requires a real signed-in actor whose current database role is
+  `ADMIN`, including in the guarded test runtime. The global test-mode guard
+  and production gating remain unchanged. Conflicting completed decisions
+  return `409`; repeating the same completed report decision as its moderator
+  returns its saved result without repeating visibility changes.
+- Report creation and moderation write their audit record in the same
+  transaction. Parent-first PostgreSQL locks serialize reports, decisions,
+  new comments, and like toggles. This is an application locking protocol,
+  not a database uniqueness constraint for pending reports.
+- Restore rejects author deletions, unknown removal history, hidden parent
+  discussions, and unresolved reports with `409`. Closed report history stays
+  closed. Pinning hidden discussions returns `409`; unpinning them is allowed.
+  See `docs/community-topics.md` for the moderator workflow and rollback.
+
+### Community catalog administration
+- `GET|POST|PATCH /api/admin/community/catalog` require a real signed-in actor
+  with the current database role `ADMIN`, using the existing community guard.
+  Member topic/tag APIs retain their current response fields and sign-in rules.
+- GET accepts `kind=topic|tag`, `status=all|active|inactive` (topics), `q` up to
+  200 characters, cursor, and an integer limit of 1–100 (default 25). It returns
+  `{ success, data, nextCursor }`. Items include stable IDs/slugs, editable
+  display fields, an opaque `version`, and linked `postCount` including hidden
+  discussions. Invalid filters return `400`.
+- POST accepts `{ kind, name, slug }` plus optional topic `description`, integer
+  `order` (-1,000,000 to 1,000,000, default 0), and `isActive` (default true).
+  Names are trimmed to 1–100 characters; descriptions to at most 1,000. New
+  slugs normalize to lowercase and permit 1–80 letters/numbers separated by
+  single hyphens. Success is `201 { success, data }`; a duplicate slug within
+  the same kind returns `409` with `code: SLUG_UNAVAILABLE`.
+- PATCH requires `{ kind, id, version, changes }`. Slugs are immutable; unknown
+  or unsupported fields are rejected with `400`. Editable topic fields are
+  `name`, `description`, `order`, and `isActive`; tags support `name` only.
+  Stale versions return `409 CATALOG_CHANGED`; missing records return `404`.
+  Success is `{ success, data, idempotent }`. Versions cover editable fields,
+  not usage counts. No-op edits do not add audit history.
+- Catalog changes and auditing commit together. Admin topic updates take an
+  exclusive row lock. Publishing holds a shared topic row lock while checking
+  availability and inserting the post, retaining `400 TOPIC_UNAVAILABLE` when
+  the topic is unavailable. Multiple publishers can proceed concurrently.
+- Deactivation preserves all existing content and associations while removing
+  the topic from directories and publication choices; its landing page remains
+  unavailable under the existing active-topic rule. Reactivation restores it.
+  This workflow adds no deletion endpoint, schema migration, or dependency.
+
+### Blog drafting and publication
+- `GET|POST|PATCH /api/admin/blog` use the real current-role admin guard and
+  `Cache-Control: private, no-store`. GET supports `id` for full content/version,
+  or `status=all|draft|published`, `q`, `limit=1..100` (default 25), and cursor
+  for `{ success, data, counts, nextCursor }` metadata pages. Missing IDs return
+  404; invalid input returns 400.
+- POST accepts title, permanent slug, optional plain-text content, excerpt,
+  and image URL. It always creates `published: false`, overriding the legacy
+  default, with `201 { success, data }`. Slugs normalize to lowercase and remain
+  immutable; conflicts return `409 SLUG_UNAVAILABLE`.
+- PATCH requires `{ id, version, changes }`. Editable fields are title, content,
+  excerpt, image URL, and published state. Omitted fields stay unchanged. Stale
+  versions return `409 ARTICLE_CHANGED`; empty published content returns
+  `400 CONTENT_REQUIRED`. No-op saves do not add audit history.
+- Changes and audits commit together under a row lock. Activity actions are
+  `blog_draft_created`, `blog_article_updated`, `blog_article_published`, and
+  `blog_article_unpublished`. Audit failure rolls back publication/content;
+  audit metadata contains field names/status rather than article bodies.
+- Admin article writes maintain the full-text search vector in that transaction,
+  independently of migration triggers. Already current vectors are not rewritten.
+  A no-op save may repair indexing without changing the editable version or
+  adding a publication/content audit event.
+- Public `GET /api/blog` keeps its published metadata array; public
+  `GET /api/blog/[slug]` keeps the raw article and ID-or-slug lookup, returning
+  404 for drafts/withdrawn records. Successful blog APIs use `no-store`, and
+  lists no longer read the process-local blog cache.
+- Global search keeps its response groups and cache for non-blog groups. Blog
+  results are always queried fresh, ignoring old cached blog payloads. Search
+  successes use `no-store`. Blog detail pages and the sitemap render dynamically.
+- Preview/public bodies render escaped plain text; image validation shares the
+  existing Next/Image host configuration. Dates retain the existing creation
+  timestamp; separate publication/revision history is not claimed. No schema,
+  environment, dependency, or deletion endpoint is added. See
+  `docs/blog-publishing.md` for the workflow and rollback.
+
+- **Notification inbox and read state**
+  - Authenticated `GET /api/notifications` retains `notifications` and account-wide
+    `unreadCount`, adding `ownerId` and `nextCursor`. Optional filters are
+    `status=all|unread|read`, `type=all|community_comment|community_like|other`,
+    `q` (up to 200 characters), `limit` (integer 1–100, default 30), and `cursor`.
+    Results order by `createdAt DESC, id DESC`; cursors must belong to the session.
+  - `PATCH /api/notifications/[id]/read` retains empty-body mark-read behavior and
+    `{ok:true}`. New `{read:boolean, ownerId?:string}` supports marking unread
+    and rendered-account verification; success adds `ownerId` and `unreadCount`.
+  - New `PATCH /api/notifications` requires `{action:'readAll', ownerId:string}`.
+    It marks all current owned unread rows, including rows outside filters, and
+    returns `{ok:true, ownerId, updated, unreadCount}`. Later arrivals stay unread.
+  - All operations require the session owner. Invalid input returns 400, anonymous
+    access 401, missing/unowned IDs or cursors 404, and mismatched expected account
+    409 with `SESSION_CHANGED` before writing. All responses are private/no-store.
+  - Community notifications persist inline on confirmed queue unavailability.
+    New jobs reuse a producer ID on retry without resetting read state; uncertain
+    enqueue errors are not submitted again inline. Notification failure preserves
+    the successful community interaction and its existing warning log.
+  - Socket rooms require a valid Auth.js session cookie, ignore claimed user IDs,
+    reject foreign browser origins, and expire with the token. Socket events are
+    refresh hints; polling remains available. See `docs/notifications.md` for the
+  full workflow, deployment limits, test coverage, and rollback.
+
+- **Live application navigation**
+  - The mounted Navigation V2 header uses the existing `/api/search` raw seven-group
+    envelope. Suggestions use two or more trimmed characters, a 200-character client
+    bound, a 300 ms debounce, HTTP/schema validation, and request cancellation.
+    Server endpoint filtering, limits, cache policy, and error/logging keys are unchanged.
+  - Search suggestions construct internal destinations from encoded resource fields.
+    Enter routes to `/search?q=...`. Errors offer retry and are not shown as empty results.
+  - Account identity and role shortcuts come from the existing session. Guest,
+    member, healer, and admin links target existing guarded routes. These UI links
+    do not change authorization or entitlement rules.
+  - Sign out uses Auth.js with a fixed local destination. A success redirect requires
+    a returned URL and an HTTP-successful empty/null `/api/auth/session` response.
+    Active or uncertain sessions remain recoverable without a success redirect.
+  - Header cart counts/actions use the existing cart provider and drawer; client
+    display prices do not replace checkout's server-side pricing/ownership checks.
+    The booking call to action leads to `/services`.
+  - No schema, dependency, environment, authentication-provider, or test-mode contract
+    changes. See `docs/navigation.md` for behavior, limits, verification, and rollback.
+
 ### Payments Webhook (Razorpay)
 - Path: `POST /api/payments/webhook`
 - Behavior:

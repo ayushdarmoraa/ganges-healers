@@ -1,205 +1,70 @@
+"use client";
+
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { NavItem, type NavItemProps } from "./NavItem";
 import { NavSection } from "./NavSection";
 
 export type UserMenuMode = "guest" | "logged-in" | "healer" | "admin";
-
-export interface UserMenuItem
-  extends Pick<NavItemProps, "label" | "href" | "active" | "disabled" | "badge" | "external" | "showDropdownIndicator"> {
-  /** Optional content override for custom item rendering. */
+export interface UserMenuItem extends Pick<NavItemProps, "label" | "href" | "active" | "disabled" | "badge" | "external" | "showDropdownIndicator"> {
   children?: ReactNode;
-  /** Optional classes applied to the list item. */
   className?: string;
-  /** Optional classes applied to the interactive element. */
   linkClassName?: string;
 }
-
 export interface UserMenuProps {
-  /** Whether the menu is open. */
+  id?: string;
   open?: boolean;
-  /** Callback for opening and closing the menu. */
   onOpenChange?: (open: boolean) => void;
-  /** The visual mode that changes the content tone. */
+  onCloseFocus?: () => void;
   mode?: UserMenuMode;
-  /** Name shown in the profile header. */
   name?: string;
-  /** Optional email shown beneath the name. */
   email?: string;
-  /** Optional badge shown in the profile header. */
+  image?: string | null;
   membershipBadge?: ReactNode;
-  /** Optional avatar fallback text. */
   avatarFallback?: string;
-  /** Sections rendered inside the menu. */
-  sections?: Array<{
-    title?: string;
-    description?: string;
-    items: UserMenuItem[];
-  }>;
-  /** Optional loading state content. */
+  sections?: Array<{ title?: string; description?: string; items: UserMenuItem[] }>;
   loadingState?: ReactNode;
-  /** Optional empty state content. */
   emptyState?: ReactNode;
-  /** Whether the menu is in a loading state. */
   loading?: boolean;
-  /** Whether the menu has no items. */
   empty?: boolean;
-  /** Label for the logout action. */
   logoutLabel?: string;
-  /** Additional classes for the card container. */
+  onLogout?: () => void;
+  logoutPending?: boolean;
+  logoutError?: string | null;
   className?: string;
 }
 
-/**
- * Presentational user menu shell for Navigation V2.
- *
- * This component renders placeholder account navigation content for guest,
- * logged-in, healer, and admin contexts without introducing authentication or
- * routing logic.
- */
+/** Session data and actions come from the navbar; links remain subject to server-side authorization. */
 export function UserMenu({
-  open = false,
-  onOpenChange,
-  mode = "logged-in",
-  name = "Guest",
-  email,
-  membershipBadge,
-  avatarFallback = "U",
-  sections = [],
-  loadingState,
-  emptyState,
-  loading = false,
-  empty = false,
-  logoutLabel = "Log out",
-  className,
+  id, open = false, onOpenChange, onCloseFocus, mode = "logged-in", name = "Guest", email, image,
+  membershipBadge, avatarFallback = "U", sections = [], loadingState, emptyState,
+  loading = false, empty = false, logoutLabel = "Sign out", onLogout, logoutPending = false, logoutError, className,
 }: UserMenuProps) {
-  if (!open) {
-    return null;
-  }
-
-  const defaultSections: Array<{
-    title?: string;
-    description?: string;
-    items: UserMenuItem[];
-  }> = [
-    {
-      title: mode === "healer" ? "Workspace" : mode === "admin" ? "Admin" : "My Journey",
-      items:
-        mode === "healer"
-          ? [
-              { label: "Dashboard", href: "#" },
-              { label: "Bookings", href: "#" },
-              { label: "Availability", href: "#" },
-            ]
-          : mode === "admin"
-            ? [
-                { label: "Overview", href: "#" },
-                { label: "Users", href: "#" },
-                { label: "Content", href: "#" },
-              ]
-            : [
-                { label: "My Journey", href: "#" },
-                { label: "Bookings", href: "#" },
-                { label: "Programs", href: "#" },
-                { label: "Courses", href: "#" },
-              ],
-    },
-    {
-      title: mode === "guest" ? "Explore" : "Account",
-      items:
-        mode === "guest"
-          ? [
-              { label: "Programs", href: "#" },
-              { label: "Community", href: "#" },
-              { label: "Support", href: "#" },
-            ]
-          : [
-              { label: "Orders", href: "#" },
-              { label: "Membership", href: "#" },
-              { label: "Community", href: "#" },
-            ],
-    },
-    {
-      title: mode === "guest" ? "Help" : "Preferences",
-      items:
-        mode === "guest"
-          ? [
-              { label: "Sign In", href: "#" },
-              { label: "Create Account", href: "#" },
-            ]
-          : [
-              { label: "Settings", href: "#" },
-              { label: "Help", href: "#" },
-            ],
-    },
+  const defaults: NonNullable<UserMenuProps['sections']> = mode === 'guest' ? [
+    { title: 'Get started', items: [{ label: 'Sign in', href: '/auth/signin' }, { label: 'Create account', href: '/register' }] },
+    { title: 'Explore', items: [{ label: 'Services', href: '/services' }, { label: 'Store', href: '/store' }, { label: 'Blog', href: '/blog' }] },
+  ] : [
+    ...(mode === 'admin' ? [{ title: 'Admin', items: [{ label: 'Admin dashboard', href: '/admin' }, { label: 'Community moderation', href: '/admin/community' }, { label: 'Manage articles', href: '/admin/blog' }, { label: 'Payments', href: '/admin/payments' }, { label: 'Analytics', href: '/admin/analytics' }] }] : mode === 'healer' ? [{ title: 'Healer workspace', items: [{ label: 'Healer dashboard', href: '/healer' }, { label: 'Healer bookings', href: '/healer/bookings' }, { label: 'Availability', href: '/healer/availability' }, { label: 'Healer profile', href: '/healer/profile' }] }] : []),
+    { title: 'My account', items: [{ label: 'Dashboard', href: '/dashboard' }, { label: 'My bookings', href: '/dashboard/bookings' }, { label: 'Orders', href: '/dashboard/orders' }, { label: 'Membership', href: '/dashboard/membership' }, { label: 'Notifications', href: '/dashboard/notifications' }, { label: 'My discussions', href: '/community/mine' }, { label: 'Settings', href: '/dashboard/settings' }] },
   ];
-
-  const resolvedSections: NonNullable<UserMenuProps["sections"]> = sections.length > 0 ? sections : defaultSections;
-
-  return (
-    <Card className={cn("w-[min(100vw-2rem,22rem)] border-border/60 bg-card p-0 shadow-lg", className)} role="menu" aria-label="User menu">
-      <CardHeader className="border-b border-border/60 p-4 sm:p-5">
-        <div className="flex items-center gap-3">
-          <Avatar className="size-11">
-            <AvatarFallback>{avatarFallback}</AvatarFallback>
-          </Avatar>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="truncate text-sm font-semibold text-foreground">{name}</p>
-              {membershipBadge ? <Badge variant="outline">{membershipBadge}</Badge> : null}
-            </div>
-            {email ? <p className="truncate text-sm text-muted-foreground">{email}</p> : null}
-          </div>
-        </div>
-      </CardHeader>
-
-      <CardContent className="space-y-4 p-4 sm:p-5">
-        {loading ? (
-          loadingState ?? <div className="text-sm text-muted-foreground">Loading account menu…</div>
-        ) : empty ? (
-          emptyState ?? <div className="text-sm text-muted-foreground">No account options available.</div>
-        ) : (
-          <div className="space-y-4">
-            {resolvedSections.map((section, index) => (
-              <NavSection key={`${section.title ?? index}`} title={section.title} description={section.description} spacing="compact">
-                <ul className="flex flex-col gap-1">
-                  {section.items.map((item) => (
-                    <NavItem
-                      key={item.href ?? item.label}
-                      label={item.label}
-                      href={item.href}
-                      active={item.active}
-                      disabled={item.disabled}
-                      badge={item.badge}
-                      external={item.external}
-                      showDropdownIndicator={item.showDropdownIndicator}
-                      className={item.className}
-                      linkClassName={item.linkClassName}
-                    >
-                      {item.children}
-                    </NavItem>
-                  ))}
-                </ul>
-              </NavSection>
-            ))}
-          </div>
-        )}
-
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full justify-center"
-          onClick={() => onOpenChange?.(false)}
-        >
-          {logoutLabel}
-        </Button>
-      </CardContent>
-    </Card>
-  );
+  return <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent id={id} className={cn("max-h-[85vh] max-w-sm overflow-y-auto border-0 p-0", className)} aria-label="Your account"
+      onCloseAutoFocus={event => { if (onCloseFocus) { event.preventDefault(); onCloseFocus(); } }}>
+      <DialogHeader className="sr-only"><DialogTitle>Your account</DialogTitle><DialogDescription>Account information, navigation, and session actions.</DialogDescription></DialogHeader>
+      <Card className="gap-0 border-0 shadow-none">
+        <CardHeader className="border-b p-5"><div className="flex items-center gap-3"><Avatar className="size-11">{!loading && image && <AvatarImage src={image} alt="" />}<AvatarFallback>{loading ? '…' : avatarFallback}</AvatarFallback></Avatar><div className="min-w-0"><p className="truncate font-semibold">{loading ? 'Loading account…' : name}</p>{!loading && email && <p className="truncate text-sm text-muted-foreground">{email}</p>}{!loading && membershipBadge && <Badge variant="outline" className="mt-1">{membershipBadge}</Badge>}</div></div></CardHeader>
+        <CardContent className="space-y-4 p-5">
+          {loading ? loadingState ?? <p role="status" className="text-sm">Loading account menu…</p> : empty ? emptyState ?? <p>No account options available.</p> : <nav aria-label="Account shortcuts" className="space-y-4">{(sections.length ? sections : defaults).map((section, index) => <NavSection key={section.title || index} title={section.title} description={section.description}><ul>{section.items.map(item => <NavItem key={item.href || item.label} {...item} onClick={() => onOpenChange?.(false)}>{item.children}</NavItem>)}</ul></NavSection>)}</nav>}
+          {logoutError && <p role="alert" className="text-sm text-destructive">{logoutError}</p>}
+          {!loading && mode !== 'guest' && onLogout && <Button type="button" variant="outline" className="w-full" disabled={logoutPending} onClick={onLogout}>{logoutPending ? 'Signing out…' : logoutLabel}</Button>}
+        </CardContent>
+      </Card>
+    </DialogContent>
+  </Dialog>;
 }
-
 export default UserMenu;

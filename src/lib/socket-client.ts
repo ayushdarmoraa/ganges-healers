@@ -3,17 +3,19 @@
 import { io, type Socket } from 'socket.io-client'
 
 let socket: Socket | null = null
+let ownerId: string | null = null
 
 /**
  * Lazily connect to the Socket.IO server.
- * Joins the user-specific room so they receive targeted notifications.
- * Returns null if the connection cannot be established (e.g. no custom server).
+ * The server derives the room from its verified session cookie, not this local owner hint.
  */
 export function getSocket(userId: string): Socket {
+  if (ownerId !== userId) disconnectSocket()
   if (!socket) {
+    ownerId = userId
     socket = io({
       path: '/api/socketio',
-      auth: { userId },
+      withCredentials: true,
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 5,
       reconnectionDelay: 3000,
@@ -27,4 +29,5 @@ export function disconnectSocket() {
     socket.disconnect()
     socket = null
   }
+  ownerId = null
 }

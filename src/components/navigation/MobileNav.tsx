@@ -43,6 +43,8 @@ export interface MobileNavProps {
   signInLabel?: ReactNode;
   /** Placeholder label for the profile action. */
   profileLabel?: ReactNode;
+  /** Session-aware account links/actions supplied by the application header. */
+  footerContent?: ReactNode;
   /** Accessible label for the mobile navigation sheet. */
   ariaLabel?: string;
   /** Additional classes for the sheet content. */
@@ -53,8 +55,8 @@ export interface MobileNavProps {
  * Mobile-only navigation sheet for Navigation V2.
  *
  * This component renders a calm, full-height navigation experience using the
- * shared Sheet primitive. It is intentionally presentational and leaves future
- * search, notifications, and account behaviors to later integration work.
+ * shared Sheet primitive. Its parent supplies session-aware footer actions;
+ * destination links close the sheet without duplicating authentication logic.
  */
 export function MobileNav({
   open = false,
@@ -68,6 +70,7 @@ export function MobileNav({
   ctaProps,
   signInLabel = "Sign In",
   profileLabel = "Profile",
+  footerContent,
   ariaLabel = "Mobile navigation",
   className,
 }: MobileNavProps) {
@@ -75,9 +78,10 @@ export function MobileNav({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="left"
-        className={cn("flex h-full w-[85vw] flex-col justify-between gap-0 border-r bg-background p-0 sm:max-w-sm", className)}
+        className={cn("flex h-full w-[85vw] flex-col justify-between gap-0 overflow-y-auto border-r bg-background p-0 sm:max-w-sm", className)}
         aria-label={ariaLabel}
       >
+        <SheetHeader className="sr-only"><SheetTitle>{ariaLabel}</SheetTitle><SheetDescription>Browse Ganges Healers and your member notifications.</SheetDescription></SheetHeader>
         <div className="flex flex-col gap-6 p-6">
           <div className="flex items-center justify-between gap-3">
             {headerContent ?? <Logo title="Ganges Healers" href="/" size="md" {...logoProps} />}
@@ -89,6 +93,7 @@ export function MobileNav({
                 {primaryItems.map((item) => (
                   <NavItem
                     key={item.href ?? item.label}
+                    onClick={() => onOpenChange?.(false)}
                     label={item.label}
                     href={item.href}
                     icon={item.icon}
@@ -111,6 +116,7 @@ export function MobileNav({
                 {secondaryItems.map((item) => (
                   <NavItem
                     key={item.href ?? item.label}
+                    onClick={() => onOpenChange?.(false)}
                     label={item.label}
                     href={item.href}
                     icon={item.icon}
@@ -137,7 +143,7 @@ export function MobileNav({
         </div>
 
         <div className="border-t border-border/60 p-6">
-          <div className="flex flex-col gap-2">
+          {footerContent ?? <div className="flex flex-col gap-2">
             <button
               type="button"
               className="rounded-md px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-accent/70 hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -150,7 +156,7 @@ export function MobileNav({
             >
               {profileLabel}
             </button>
-          </div>
+          </div>}
         </div>
       </SheetContent>
     </Sheet>
