@@ -28,6 +28,13 @@ const statusLabels: Record<string, { label: string; variant: "default" | "second
   cancelled: { label: "Cancelled", variant: "destructive" },
 }
 
+const orderStages = [
+  { status: "pending_payment", label: "Payment pending" },
+  { status: "paid", label: "Paid" },
+  { status: "shipped", label: "Shipped" },
+  { status: "delivered", label: "Delivered" },
+] as const
+
 function formatPaise(value: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(value / 100)
 }
@@ -61,6 +68,7 @@ export default async function OrderDetailsPage({ params }: { params: Promise<{ i
   const addressResult = shippingAddressSchema.safeParse(order.shippingAddress)
   const address = addressResult.success ? addressResult.data : null
   const status = statusLabels[order.status] ?? { label: order.status, variant: "outline" as const }
+  const currentStage = orderStages.findIndex(stage => stage.status === order.status)
 
   return (
     <div className="container mx-auto max-w-3xl space-y-6 p-6">
@@ -77,6 +85,37 @@ export default async function OrderDetailsPage({ params }: { params: Promise<{ i
         </div>
         <Badge variant={status.variant}>{status.label}</Badge>
       </div>
+
+      <Card className="space-y-4 p-5">
+        <h2 className="text-lg font-semibold">Order progress</h2>
+        {order.status === "cancelled" ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            This order has been cancelled. No further delivery progress is expected.
+          </p>
+        ) : currentStage >= 0 ? (
+          <ol aria-label="Order progress" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {orderStages.map((stage, index) => (
+              <li key={stage.status} aria-current={index === currentStage ? "step" : undefined}>
+                <div
+                  className={`rounded-md border px-3 py-3 text-sm ${
+                    index <= currentStage ? "border-primary bg-primary/5" : "border-border text-muted-foreground"
+                  }`}
+                >
+                  <p className="font-medium">{stage.label}</p>
+                  <p className="mt-1 text-xs">
+                    {index < currentStage ? "Completed" : index === currentStage ? "Current status" : "Upcoming"}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="text-sm text-muted-foreground">Progress steps are unavailable for this status.</p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          These steps reflect the current order status, not courier tracking or estimated delivery dates.
+        </p>
+      </Card>
 
       <Card className="space-y-4 p-5">
         <h2 className="text-lg font-semibold">Items</h2>
