@@ -8,13 +8,33 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Admin Payments Dashboard', () => {
   test('shows KPIs, charts and filters react', async ({ page }) => {
-    // Allow extra time – underlying analytics queries intentionally slow-ish in test env
-    test.setTimeout(120000);
+    // Cold client compilation and analytics queries have separate bounded budgets.
+    test.setTimeout(180000);
+    const clientErrors: string[] = [];
+    const failedScripts: string[] = [];
+    page.on('pageerror', error => { if (clientErrors.length < 5) clientErrors.push(error.message.slice(0, 300)); });
+    page.on('requestfailed', request => {
+      if (request.resourceType() === 'script' && failedScripts.length < 10) failedScripts.push(new URL(request.url()).pathname);
+    });
+    const navigationStarted = Date.now();
     await page.goto('/admin/payments');
+    const navigationMs = Date.now() - navigationStarted;
 
     // The dashboard is a lazy client chunk; cold dev compilation can take time.
     const root = page.locator('[data-test="payments-analytics-root"]');
-    await expect(root).toBeVisible({ timeout: 30000 });
+    const mountStarted = Date.now();
+    try {
+      await expect(root).toBeVisible({ timeout: 60000 });
+    } catch (error) {
+      console.error('[e2e][payments][mount-failed]', {
+        pathname: new URL(page.url()).pathname,
+        loadingFallback: await page.getByText('Loading metrics...', { exact: true }).first().isVisible().catch(() => null),
+        clientErrors,
+        failedScripts,
+      });
+      throw error;
+    }
+    console.log('[e2e][payments][mounted]', { navigationMs, clientMountMs: Date.now() - mountStarted });
 
     const kpiRow = page.locator('[data-test="kpi-row"]');
     await expect(kpiRow).toBeVisible();
