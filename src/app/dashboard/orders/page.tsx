@@ -17,12 +17,30 @@ const statusLabels: Record<string, { label: string; variant: "default" | "second
   cancelled: { label: "Cancelled", variant: "destructive" },
 }
 
-export default async function OrdersPage() {
+const orderFilters = [
+  { value: "all", label: "All orders" },
+  { value: "pending_payment", label: "Pending payment" },
+  { value: "paid", label: "Paid" },
+  { value: "shipped", label: "Shipped" },
+  { value: "delivered", label: "Delivered" },
+  { value: "cancelled", label: "Cancelled" },
+] as const
+
+export default async function OrdersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string }>
+}) {
+  const { status: requestedStatus } = await searchParams
+  const selectedStatus = orderFilters.find(filter => filter.value === requestedStatus)?.value ?? "all"
   const session = await auth()
   if (!session?.user) redirect("/auth/signin")
 
   const orders = await prisma.order.findMany({
-    where: { userId: session.user.id },
+    where: {
+      userId: session.user.id,
+      ...(selectedStatus === "all" ? {} : { status: selectedStatus }),
+    },
     orderBy: { createdAt: "desc" },
     take: 50,
     select: {
@@ -45,11 +63,30 @@ export default async function OrdersPage() {
     <div className="container mx-auto p-6 max-w-3xl">
       <h1 className="text-2xl font-semibold">My Orders</h1>
 
+      <nav aria-label="Filter orders by status" className="mt-5 flex flex-wrap gap-2">
+        {orderFilters.map(filter => (
+          <Button key={filter.value} asChild size="sm" variant={selectedStatus === filter.value ? "default" : "outline"}>
+            <Link
+              href={filter.value === "all" ? "/dashboard/orders" : `/dashboard/orders?status=${filter.value}`}
+              aria-current={selectedStatus === filter.value ? "page" : undefined}
+            >
+              {filter.label}
+            </Link>
+          </Button>
+        ))}
+      </nav>
+
       {orders.length === 0 ? (
         <div className="mt-8 text-center">
-          <p className="text-muted-foreground">You haven&apos;t placed any orders yet.</p>
-          <Button asChild className="mt-4">
-            <Link href="/store">Browse Store</Link>
+          <p className="text-muted-foreground">
+            {selectedStatus === "all"
+              ? "You haven't placed any orders yet."
+              : "No orders match this status."}
+          </p>
+          <Button asChild className="mt-4" variant="outline">
+            <Link href={selectedStatus === "all" ? "/store" : "/dashboard/orders"}>
+              {selectedStatus === "all" ? "Browse Store" : "Show all orders"}
+            </Link>
           </Button>
         </div>
       ) : (
