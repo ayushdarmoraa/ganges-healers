@@ -161,7 +161,7 @@ async function main() {
     const settings = runTestDatabaseCommand('prepare')
     const requireFromProject = createRequire(path.join(settings.rootDir, 'package.json'))
     const nextCli = requireFromProject.resolve('next/dist/bin/next')
-    const result = spawnSync(process.execPath, [nextCli, 'dev', '-p', '3010'], {
+    const result = spawnSync(process.execPath, [nextCli, 'dev', '--turbopack', '-p', '3010'], {
       cwd: settings.rootDir,
       env: { ...settings.environment, NODE_ENV: 'development', TEST_MODE: '1' },
       stdio: 'inherit',

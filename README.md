@@ -128,7 +128,10 @@ Each database command first checks `current_database()` in a separate process.
 Missing, ambiguous, production, or misrouted settings fail closed without logging
 connection strings. CI may use an isolated loopback database named
 `ganges_healers_test` without a private environment file. `pnpm dev:test` performs
-the same checks before preparing data and starting the E2E server on port 3010.
+the same checks before preparing data and starting the E2E server on port 3010
+with Turbopack, matching the application's development and production build
+commands. CI retains browser failure screenshots, video, and error context for
+three days.
 
 ## Available Scripts
 
