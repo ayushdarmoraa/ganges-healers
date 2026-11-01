@@ -17,6 +17,17 @@ const statusLabels: Record<string, { label: string; variant: "default" | "second
   cancelled: { label: "Cancelled", variant: "destructive" },
 }
 
+const PAGE_SIZE = 50
+const MAX_PAGE = 1000
+
+function orderPageHref(status: string, page: number): string {
+  const query = new URLSearchParams()
+  if (status !== "all") query.set("status", status)
+  if (page > 1) query.set("page", String(page))
+  const suffix = query.toString()
+  return `/dashboard/orders${suffix ? `?${suffix}` : ""}`
+}
+
 const orderFilters = [
   { value: "all", label: "All orders" },
   { value: "pending_payment", label: "Pending payment" },
@@ -29,10 +40,12 @@ const orderFilters = [
 export default async function OrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>
+  searchParams: Promise<{ status?: string; page?: string }>
 }) {
-  const { status: requestedStatus } = await searchParams
+  const { status: requestedStatus, page: requestedPage } = await searchParams
   const selectedStatus = orderFilters.find(filter => filter.value === requestedStatus)?.value ?? "all"
+  const parsedPage = /^\d+$/.test(requestedPage ?? "") ? Number(requestedPage) : 1
+  const selectedPage = Math.min(Math.max(parsedPage, 1), MAX_PAGE)
   const session = await auth()
   if (!session?.user) redirect("/auth/signin")
 
@@ -41,8 +54,9 @@ export default async function OrdersPage({
       userId: session.user.id,
       ...(selectedStatus === "all" ? {} : { status: selectedStatus }),
     },
-    orderBy: { createdAt: "desc" },
-    take: 50,
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    skip: (selectedPage - 1) * PAGE_SIZE,
+    take: PAGE_SIZE + 1,
     select: {
       id: true,
       status: true,
@@ -58,6 +72,9 @@ export default async function OrdersPage({
       },
     },
   })
+
+  const hasNextPage = orders.length > PAGE_SIZE
+  const visibleOrders = orders.slice(0, PAGE_SIZE)
 
   return (
     <div className="container mx-auto p-6 max-w-3xl">
@@ -76,22 +93,26 @@ export default async function OrdersPage({
         ))}
       </nav>
 
-      {orders.length === 0 ? (
+      {visibleOrders.length === 0 ? (
         <div className="mt-8 text-center">
           <p className="text-muted-foreground">
-            {selectedStatus === "all"
-              ? "You haven't placed any orders yet."
-              : "No orders match this status."}
+            {selectedPage > 1
+              ? "No orders found on this page."
+              : selectedStatus === "all"
+                ? "You haven't placed any orders yet."
+                : "No orders match this status."}
           </p>
           <Button asChild className="mt-4" variant="outline">
-            <Link href={selectedStatus === "all" ? "/store" : "/dashboard/orders"}>
-              {selectedStatus === "all" ? "Browse Store" : "Show all orders"}
+            <Link href={selectedPage > 1
+              ? orderPageHref(selectedStatus, selectedPage - 1)
+              : selectedStatus === "all" ? "/store" : "/dashboard/orders"}>
+              {selectedPage > 1 ? "Previous page" : selectedStatus === "all" ? "Browse Store" : "Show all orders"}
             </Link>
           </Button>
         </div>
       ) : (
         <div className="mt-6 space-y-4">
-          {orders.map((order) => {
+          {visibleOrders.map((order) => {
             const s = statusLabels[order.status] || { label: order.status, variant: "outline" as const }
             return (
               <Card key={order.id} className="p-4">
@@ -147,6 +168,19 @@ export default async function OrdersPage({
               </Card>
             )
           })}
+          <nav aria-label="Order history pages" className="flex items-center justify-between gap-3 pt-3">
+            {selectedPage > 1 ? (
+              <Button asChild variant="outline" size="sm">
+                <Link href={orderPageHref(selectedStatus, selectedPage - 1)}>Previous page</Link>
+              </Button>
+            ) : <span />}
+            <span className="text-sm text-muted-foreground">Page {selectedPage}</span>
+            {hasNextPage ? (
+              <Button asChild variant="outline" size="sm">
+                <Link href={orderPageHref(selectedStatus, selectedPage + 1)}>Next page</Link>
+              </Button>
+            ) : <span />}
+          </nav>
         </div>
       )}
     </div>
