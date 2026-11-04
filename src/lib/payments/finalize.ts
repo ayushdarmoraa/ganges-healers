@@ -4,8 +4,12 @@ import { activateCourseEnrollment } from './activateCourseEnrollment'
 import { activateStoreOrder } from './activateStoreOrder'
 import { PaymentResourceError, lockPaymentResource, paymentResourceKey, resolvePaymentResource } from './resource'
 
+type FinalizeInput = { orderId: string; paymentId: string; userId: string } & (
+  { signature: string; captured?: never } | { signature?: never; captured: { amountPaise: number; currency: string } }
+)
+
 /** Commit verified payment and purchase fulfillment together; safe for callback retries. */
-export async function finalizePayment(input: { orderId: string; paymentId: string; signature: string; userId: string }) {
+export async function finalizePayment(input: FinalizeInput) {
   return prisma.$transaction(async tx => {
     let payment = await tx.payment.findFirst({ where: { gatewayOrderId: input.orderId } })
     if (!payment) throw new PaymentResourceError('Payment not found', 404)
@@ -21,6 +25,9 @@ export async function finalizePayment(input: { orderId: string; paymentId: strin
       || !Number.isSafeInteger(payment.amountPaise) || payment.amountPaise <= 0) {
       throw new PaymentResourceError('Invalid payment configuration', 400)
     }
+    if (input.captured && (input.captured.amountPaise !== payment.amountPaise || input.captured.currency !== payment.currency)) {
+      throw new PaymentResourceError('Captured amount or currency does not match payment', 400)
+    }
     if (payment.statusEnum === 'REFUNDED' || payment.status === 'refunded') throw new PaymentResourceError('Payment has been refunded', 409)
     const idempotent = payment.statusEnum === 'SUCCESS' || payment.status === 'success'
     if (idempotent && payment.gatewayPaymentId !== input.paymentId) throw new PaymentResourceError('Payment identifier mismatch', 409)
@@ -33,7 +40,7 @@ export async function finalizePayment(input: { orderId: string; paymentId: strin
     }
     const updated = idempotent ? payment : await tx.payment.update({
       where: { id: payment.id },
-      data: { gatewayPaymentId: input.paymentId, gatewaySignature: input.signature, statusEnum: 'SUCCESS', status: 'success', type: resource.type, metadata: resource.metadata },
+      data: { gatewayPaymentId: input.paymentId, ...(input.signature !== undefined ? { gatewaySignature: input.signature } : {}), statusEnum: 'SUCCESS', status: 'success', type: resource.type, metadata: resource.metadata },
     })
     const args = { paymentId: input.paymentId, orderId: input.orderId, payment: updated, client: tx }
     const activation = await activateProgramEnrollment(args)

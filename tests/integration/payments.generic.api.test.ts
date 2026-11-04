@@ -103,7 +103,7 @@ describe('Generic Payments Flow', () => {
 
   test('webhook captured + failed + refund', async () => {
     expect(paymentRowId).toBeTruthy()
-    const capturedPayload = { event: 'payment.captured', payload: { payment: { entity: { id: 'pay_simulated_123', order_id: orderId, amount: 1000, currency: 'INR' } } } }
+    const capturedPayload = { event: 'payment.captured', payload: { payment: { entity: { id: 'pay_simulated_123', order_id: orderId, amount: 1000, currency: 'INR', status: 'captured' } } } }
     const rawCaptured = JSON.stringify(capturedPayload)
     const sigCaptured = crypto.createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET || '').update(rawCaptured).digest('hex')
     const reqCap = new NextRequest(new Request('http://localhost/api/payments/webhook', { method: 'POST', headers: { 'content-type': 'application/json', 'x-razorpay-signature': sigCaptured }, body: rawCaptured }) as any)
