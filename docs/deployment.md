@@ -50,6 +50,14 @@ Copy `.env.example` and fill in all values. At minimum you need:
 
 Set these in Vercel under **Project → Settings → Environment Variables**.
 
+### Google sign-in (optional)
+
+Set both `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET` to enable Google. The legacy pair `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` is also supported. Configure the exact `/api/auth/callback/google` URL for the deployment's stable hostname in the Google OAuth client. Secrets stay on the server. The sign-in screen discovers enabled providers from Auth.js and offers Google only when configured. Google identities must have a verified email; password verification and account-linking protections remain enabled.
+
+### Preview payments
+
+Preview uses the separate Preview database and authentication secret. Its Razorpay variables must be test-mode credentials: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, and `NEXT_PUBLIC_RAZORPAY_KEY_ID`. Existing project test credentials were added to Preview on November 4, 2026. Deploy again after environment changes, and configure a test-mode webhook for the Preview hostname before gateway callback verification. A configured key is not proof that a checkout or callback succeeded.
+
 See `.env.example` for the full list including optional variables.
 
 ---
@@ -151,20 +159,19 @@ For avatar uploads and invoice PDF storage:
 
 ## 9. Cron Jobs
 
-The app includes a daily booking reminder cron configured in `vercel.json`:
+The deployment configuration supports the current Hobby plan's daily scheduling limit:
 
-```json
-{
-  "crons": [
-    {
-      "path": "/api/cron/booking-reminders",
-      "schedule": "0 9 * * *"
-    }
-  ]
-}
-```
+| Endpoint | Schedule (UTC) |
+| --- | --- |
+| `/api/cron/booking-reminders` | Daily, 09:00 hour |
+| `/api/cron/quiz-followup` | Daily, 06:00 hour |
+| `/api/cron/abandoned-cart` | Daily, 12:00 hour |
+| `/api/cron/aggregate-funnel` | Daily, 00:00 hour |
+| `/api/cron/cleanup-events` | Sunday, 03:00 hour |
 
-The endpoint is protected by `CRON_SECRET`. Vercel Cron automatically sends this header.
+Hobby execution can occur anywhere within the scheduled hour. Quiz/cart age thresholds determine eligibility; messages are sent at a later batch run, so they are not guaranteed at the one-hour or 24-hour threshold. Each endpoint currently processes at most 50 eligible records per run; monitor backlog and provider failures. A scheduler supporting more frequent invocation is needed before promising hourly delivery. See [Vercel scheduling limits](https://vercel.com/docs/cron-jobs/usage-and-pricing).
+
+All endpoints require `CRON_SECRET`; Vercel sends it as a Bearer authorization header. Preview deployments do not execute Vercel's production cron jobs. Keep Preview notification/email providers separate from live customer delivery.
 
 ---
 

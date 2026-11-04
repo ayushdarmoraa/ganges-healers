@@ -4,10 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Crown, Check } from "lucide-react"
 import Link from "next/link"
+import { CANONICAL_SLUGS } from "@/lib/memberships/slug"
 
 export default async function VIPMembershipSection() {
   const plans = await prisma.membershipPlan.findMany({
-    where: { isActive: true },
+    where: { isActive: true, slug: { in: [...CANONICAL_SLUGS] } },
     orderBy: { pricePaise: "asc" },
     select: {
       id: true,
@@ -33,11 +34,19 @@ export default async function VIPMembershipSection() {
         Unlock premium audio, exclusive discounts, and priority bookings
         with a VIP membership.
       </p>
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
+      <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
         {plans.map((plan) => {
-          const benefitList: string[] = Array.isArray(plan.benefits)
-            ? (plan.benefits as string[])
+          const benefits = plan.benefits
+          const benefitList: string[] = Array.isArray(benefits)
+            ? benefits.filter((value): value is string => typeof value === 'string')
             : []
+          if (benefits && typeof benefits === 'object' && !Array.isArray(benefits)) {
+            const freeSessions = Number(benefits.freeSessions)
+            const discount = Number(benefits.discountPct)
+            if (Number.isSafeInteger(freeSessions) && freeSessions > 0) benefitList.push(`${freeSessions} free sessions`)
+            if (benefits.priorityBooking === true) benefitList.push('Priority booking')
+            if (Number.isFinite(discount) && discount > 0 && discount <= 100) benefitList.push(`${discount}% discount`)
+          }
           return (
             <Card
               key={plan.id}

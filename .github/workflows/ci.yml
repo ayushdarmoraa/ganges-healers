@@ -66,9 +66,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:ui
 
+  operations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify isolated database rehearsal guards
+        run: python3 -m unittest discover -s tests/operations -p 'test_*.py'
+
   build:
     runs-on: ubuntu-latest
-    needs: [unit, integration, ui]
+    needs: [unit, integration, ui, operations]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

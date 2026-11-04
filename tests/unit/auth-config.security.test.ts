@@ -7,11 +7,16 @@ jest.mock('next-auth/providers/credentials', () => ({
   default: jest.fn((configuration: unknown) => configuration),
 }))
 jest.mock('@auth/prisma-adapter', () => ({ PrismaAdapter: jest.fn() }))
+jest.mock('next-auth/providers/google', () => ({
+  __esModule: true,
+  default: jest.fn((configuration: Record<string, unknown>) => ({ id: 'google', ...configuration })),
+}))
 jest.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: jest.fn(), create: jest.fn() } } }))
 jest.mock('bcryptjs', () => ({ __esModule: true, default: { compare: jest.fn() } }))
 
 interface AuthConfiguration {
   secret?: string
+  callbacks: { signIn: (input: { account?: { provider: string }; profile?: { email_verified?: boolean } }) => Promise<boolean> }
   providers: Array<{
     id: string
     authorize: (credentials: Record<string, string>) => Promise<Record<string, unknown> | null>
@@ -40,6 +45,8 @@ describe('production-safe authentication configuration', () => {
     jest.replaceProperty(process, 'env', { ...process.env, NODE_ENV: 'test' })
     delete process.env.GOOGLE_CLIENT_ID
     delete process.env.GOOGLE_CLIENT_SECRET
+    delete process.env.AUTH_GOOGLE_ID
+    delete process.env.AUTH_GOOGLE_SECRET
     delete process.env.TEST_MODE
     delete process.env.NEXT_PUBLIC_TEST_MODE
     jest.clearAllMocks()
@@ -58,6 +65,28 @@ describe('production-safe authentication configuration', () => {
     await expect(configuration.providers[0].authorize({ email: 'test@example.com', password: 'demo123' })).resolves.toBeNull()
     expect(compare).toHaveBeenCalledWith('demo123', 'stored-hash')
     expect(user.create).not.toHaveBeenCalled()
+  })
+
+  test.each([
+    ['AUTH_GOOGLE_ID', 'AUTH_GOOGLE_SECRET'],
+    ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'],
+  ])('enables Google only with a configured %s/%s pair', (id, secret) => {
+    process.env[id] = 'configured-client'
+    process.env[secret] = 'configured-secret'
+    expect(loadConfiguration().configuration.providers.map(provider => provider.id)).toEqual(['credentials', 'google'])
+  })
+
+  test('does not enable Google for incomplete credentials', () => {
+    process.env.AUTH_GOOGLE_ID = 'configured-client'
+    expect(loadConfiguration().configuration.providers.map(provider => provider.id)).toEqual(['credentials'])
+  })
+
+  test('requires Google to verify the email before accepting its identity', async () => {
+    const { configuration } = loadConfiguration()
+    await expect(configuration.callbacks.signIn({ account: { provider: 'google' }, profile: { email_verified: true } })).resolves.toBe(true)
+    await expect(configuration.callbacks.signIn({ account: { provider: 'google' }, profile: { email_verified: false } })).resolves.toBe(false)
+    await expect(configuration.callbacks.signIn({ account: { provider: 'google' } })).resolves.toBe(false)
+    await expect(configuration.callbacks.signIn({ account: { provider: 'credentials' } })).resolves.toBe(true)
   })
 
   test('preserves successful login with a verified database password', async () => {

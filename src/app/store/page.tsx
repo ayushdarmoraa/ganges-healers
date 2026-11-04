@@ -156,19 +156,19 @@ export default async function StorePage({ searchParams }: { searchParams?: Promi
         </section>
       ) : null}
 
-      {/* Sacred Experiences — Testimonials */}
+      {/* Practical guidance until customer review data is available. */}
       <section className="mt-8">
-        <h2 className="text-lg font-semibold mb-3 text-center">Sacred Experiences</h2>
+        <h2 className="text-lg font-semibold mb-3 text-center">Choose Tools for Your Practice</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[
-            { quote: 'These crystals transformed my meditation practice. The energy is palpable from the moment you hold them.', name: 'Priya S.', city: 'Mumbai' },
-            { quote: 'The energy from the singing bowl is incredible. I feel a deep sense of calm every time I use it.', name: 'Rahul K.', city: 'Bangalore' },
-            { quote: 'The consecration ritual made the product feel truly sacred. You can tell it was prepared with intention.', name: 'Meera D.', city: 'Delhi' },
-          ].map((t) => (
-            <blockquote key={t.name} className="border rounded-lg p-4 bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800 space-y-2">
-              <p className="text-sm italic leading-relaxed">&ldquo;{t.quote}&rdquo;</p>
-              <footer className="text-xs text-muted-foreground">&mdash; {t.name}, {t.city}</footer>
-            </blockquote>
+            { title: 'Start with your intention', description: 'Think about how a tool will fit into your meditation, reflection, or everyday routine.' },
+            { title: 'Read the product details', description: 'Check the materials, care instructions, size, and included items before choosing.' },
+            { title: 'Build a consistent practice', description: 'Choose something you can use comfortably and regularly as part of your personal practice.' },
+          ].map((item) => (
+            <article key={item.title} className="border rounded-lg p-4 bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800 space-y-2">
+              <h3 className="text-sm font-medium">{item.title}</h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">{item.description}</p>
+            </article>
           ))}
         </div>
       </section>
