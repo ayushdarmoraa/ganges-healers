@@ -46,14 +46,14 @@ export async function POST(
 
     // Only advance the saved position. Concurrent or delayed requests cannot move it backwards.
     const changed = await prisma.courseEnrollment.updateMany({
-      where: { id: enrollment.id, progress: { lt: newProgress }, status: { in: ['active', 'completed'] } },
+      where: { id: enrollment.id, userId: session.user.id, courseId: course.id, progress: { lt: newProgress }, status: { in: ['active', 'completed'] } },
       data: {
         progress: newProgress,
         ...(isCompleted ? { status: 'completed' } : {}),
       },
     })
     const updated = await prisma.courseEnrollment.findUnique({ where: { id: enrollment.id } })
-    if (!updated || !['active', 'completed'].includes(updated.status)) {
+    if (!updated || updated.userId !== session.user.id || updated.courseId !== course.id || !['active', 'completed'].includes(updated.status)) {
       return NextResponse.json({ error: 'Enrollment no longer active' }, { status: 409 })
     }
 
