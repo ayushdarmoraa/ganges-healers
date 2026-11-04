@@ -41,6 +41,9 @@ Implementation present means routes/components exist. It does not establish ever
 - Configure the two previously unsupported cron expressions for daily execution on the existing Hobby plan. Reminder thresholds are eligibility checks, not promised delivery times; see `docs/deployment.md` for schedules and backlog limits.
 - Existing Razorpay test credentials were added to Preview. Real gateway checkout and callback validation remain required.
 - The preceding code at `8152886` passed all CI stages: 360 unit, 179 integration, 190 UI and 26 browser checks. One legacy integration placeholder and the now-replaced auth browser scenario were skipped. The follow-up PR records current results.
+- Follow-up CI at `0f1cea9` passed 368 unit, 179 integration, 198 UI and 27 browser checks, including real form signup and sign-out. Only the legacy integration placeholder remains skipped.
+- The preserved-data Preview exposed duplicate legacy membership cards and fabricated fallback statistics/customer quotations. Homepage plans now use canonical slugs and configured benefits; statistics use actual counts, including zero; the store shows product-selection guidance.
+- An isolated copy of the older live database was verified table-by-table, upgraded additively to the application schema and reconciled to all 22 migrations. The release branch's protected Preview uses this copy. See `docs/database-rehearsal.md` for verified scope and the fresh-snapshot/write-maintenance procedure still required for production.
 
 ## Database ownership and rollout
 
