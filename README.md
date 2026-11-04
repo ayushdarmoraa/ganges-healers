@@ -1,5 +1,19 @@
 # Ganges Healers - Healthcare Management System
 
+### Continue the current development branch
+
+The combined course-progress and customer-order work is on `feat/store-order-details`.
+To update an existing Windows/Git Bash checkout, first commit or stash your own local edits, then run:
+
+```bash
+git fetch origin
+git switch feat/store-order-details
+git pull --ff-only origin feat/store-order-details
+pnpm install --frozen-lockfile
+```
+
+Customer order history is at `/dashboard/orders`; details, progress, and saved shipping information are available through **View details**. Filters reset pagination, and unavailable orders and temporary errors offer recovery. Course progress counts reached lessons using the existing stored position and completes only after the final lesson. See `docs/contracts.md` for boundaries and `PROJECT_STATUS.md` for rollout status.
+
 A modern healthcare management system built with Next.js 14, TypeScript, and a comprehensive tech stack for managing medical services, appointments, and patient records.
 
 > Project roadmap: See docs/IMPLEMENTATION_PLAN.md for the 24-week implementation plan and sprint breakdown.

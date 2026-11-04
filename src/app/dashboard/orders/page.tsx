@@ -17,14 +17,47 @@ const statusLabels: Record<string, { label: string; variant: "default" | "second
   cancelled: { label: "Cancelled", variant: "destructive" },
 }
 
-export default async function OrdersPage() {
+const PAGE_SIZE = 50
+const MAX_PAGE = 1000
+
+function orderPageHref(status: string, page: number): string {
+  const query = new URLSearchParams()
+  if (status !== "all") query.set("status", status)
+  if (page > 1) query.set("page", String(page))
+  const suffix = query.toString()
+  return `/dashboard/orders${suffix ? `?${suffix}` : ""}`
+}
+
+const orderFilters = [
+  { value: "all", label: "All orders" },
+  { value: "pending_payment", label: "Pending payment" },
+  { value: "paid", label: "Paid" },
+  { value: "shipped", label: "Shipped" },
+  { value: "delivered", label: "Delivered" },
+  { value: "cancelled", label: "Cancelled" },
+] as const
+
+export default async function OrdersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string | string[]; page?: string | string[] }>
+}) {
   const session = await auth()
-  if (!session?.user) redirect("/auth/signin")
+  if (!session?.user?.id) redirect("/auth/signin")
+
+  const { status: requestedStatus, page: requestedPage } = await searchParams
+  const selectedStatus = orderFilters.find(filter => filter.value === requestedStatus)?.value ?? "all"
+  const parsedPage = typeof requestedPage === "string" && /^\d+$/.test(requestedPage) ? Number(requestedPage) : 1
+  const selectedPage = Math.min(Math.max(parsedPage, 1), MAX_PAGE)
 
   const orders = await prisma.order.findMany({
-    where: { userId: session.user.id },
-    orderBy: { createdAt: "desc" },
-    take: 50,
+    where: {
+      userId: session.user.id,
+      ...(selectedStatus === "all" ? {} : { status: selectedStatus }),
+    },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    skip: (selectedPage - 1) * PAGE_SIZE,
+    take: PAGE_SIZE + 1,
     select: {
       id: true,
       status: true,
@@ -41,20 +74,46 @@ export default async function OrdersPage() {
     },
   })
 
+  const hasNextPage = selectedPage < MAX_PAGE && orders.length > PAGE_SIZE
+  const visibleOrders = orders.slice(0, PAGE_SIZE)
+
   return (
     <div className="container mx-auto p-6 max-w-3xl">
       <h1 className="text-2xl font-semibold">My Orders</h1>
 
-      {orders.length === 0 ? (
+      <nav aria-label="Filter orders by status" className="mt-5 flex flex-wrap gap-2">
+        {orderFilters.map(filter => (
+          <Button key={filter.value} asChild size="sm" variant={selectedStatus === filter.value ? "default" : "outline"}>
+            <Link
+              href={filter.value === "all" ? "/dashboard/orders" : `/dashboard/orders?status=${filter.value}`}
+              aria-current={selectedStatus === filter.value ? "page" : undefined}
+            >
+              {filter.label}
+            </Link>
+          </Button>
+        ))}
+      </nav>
+
+      {visibleOrders.length === 0 ? (
         <div className="mt-8 text-center">
-          <p className="text-muted-foreground">You haven&apos;t placed any orders yet.</p>
-          <Button asChild className="mt-4">
-            <Link href="/store">Browse Store</Link>
+          <p className="text-muted-foreground">
+            {selectedPage > 1
+              ? "No orders found on this page."
+              : selectedStatus === "all"
+                ? "You haven't placed any orders yet."
+                : "No orders match this status."}
+          </p>
+          <Button asChild className="mt-4" variant="outline">
+            <Link href={selectedPage > 1
+              ? orderPageHref(selectedStatus, selectedPage - 1)
+              : selectedStatus === "all" ? "/store" : "/dashboard/orders"}>
+              {selectedPage > 1 ? "Previous page" : selectedStatus === "all" ? "Browse Store" : "Show all orders"}
+            </Link>
           </Button>
         </div>
       ) : (
         <div className="mt-6 space-y-4">
-          {orders.map((order) => {
+          {visibleOrders.map((order) => {
             const s = statusLabels[order.status] || { label: order.status, variant: "outline" as const }
             return (
               <Card key={order.id} className="p-4">
@@ -88,7 +147,7 @@ export default async function OrdersPage() {
                       )}
                       <div className="flex-1 min-w-0">
                         <Link
-                          href={`/store/${item.product.slug}`}
+                          href={`/store/${encodeURIComponent(item.product.slug)}`}
                           className="text-sm hover:underline truncate block"
                         >
                           {item.product.title}
@@ -101,12 +160,28 @@ export default async function OrdersPage() {
                   ))}
                 </div>
 
-                <div className="mt-3 text-xs text-muted-foreground">
-                  Order ID: {order.id}
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <span className="break-all text-xs text-muted-foreground">Order ID: {order.id}</span>
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/dashboard/orders/${encodeURIComponent(order.id)}`}>View details</Link>
+                  </Button>
                 </div>
               </Card>
             )
           })}
+          <nav aria-label="Order history pages" className="flex items-center justify-between gap-3 pt-3">
+            {selectedPage > 1 ? (
+              <Button asChild variant="outline" size="sm">
+                <Link href={orderPageHref(selectedStatus, selectedPage - 1)}>Previous page</Link>
+              </Button>
+            ) : <span />}
+            <span className="text-sm text-muted-foreground">Page {selectedPage}</span>
+            {hasNextPage ? (
+              <Button asChild variant="outline" size="sm">
+                <Link href={orderPageHref(selectedStatus, selectedPage + 1)}>Next page</Link>
+              </Button>
+            ) : <span />}
+          </nav>
         </div>
       )}
     </div>

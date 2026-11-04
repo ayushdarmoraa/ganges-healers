@@ -1,5 +1,14 @@
 # Ganges Healers — Contracts & Invariants (Living Doc)
 
+## Customer Order History
+
+- `/dashboard/orders` requires a session with a nonempty user ID before any database query. Queries always include that owner ID.
+- Status filters accept only the five existing order statuses. Unknown or repeated status values fall back to all orders. Missing, malformed, or repeated page values use page 1; numeric values are bounded to pages 1–1000.
+- Pages contain at most 50 orders, ordered by creation time and ID descending. The extra queried record is a next-page sentinel; page 1000 never offers a link to page 1001.
+- `/dashboard/orders/[id]` includes both order and owner IDs in the query. Missing and unowned orders share the same unavailable screen. Existing JSON API contracts remain unchanged, including the order API's 403 for an unowned order.
+- `OrderItem.pricePaise` is the stored line total (quantity is already included), not a unit price. The details page displays this snapshot without multiplying quantity again.
+- Loading, retry, and unavailable screens recover through the existing order routes. Progress describes the saved order status; it does not promise courier tracking or delivery dates.
+
 This living document pins the repo’s public API contracts, HTTP headers, logging keys, database invariants, and environment variable behaviors. Changes to any item below require an explicit Patch Plan, updated tests, and reviewer approval per `docs/GUARDRAILS.md`.
 
 ## Scope
@@ -273,6 +282,26 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 - Deploy the additive enrollment price migration before this application version;
   legacy rows keep a nullable quote until their next create-order request.
 - If gateway env missing: order creation returns `500 { error: 'Payment gateway unavailable' }` without affecting other routes.
+
+---
+
+## Course Progress
+
+- `POST /api/courses/[slug]/progress` requires an active or completed enrollment
+  owned by the session user. The body is `{ lessonOrder: number }`, referring to
+  an existing nonnegative lesson order for that course. An invalid or nonexistent
+  order returns 400; an enrollment that ceases to be active during the update
+  returns 409. Concurrent and repeated requests cannot decrease saved progress.
+- The existing `progress` field remains one greater than the furthest acknowledged
+  lesson order, or zero before any update. The endpoint marks a course completed
+  only when progress is greater than every lesson's order. Lesson orders may start
+  at zero or one and need not be consecutive.
+- `GET /api/courses/enrollments/me` retains `progress` and adds `completedLessons`,
+  the count of lesson orders below the stored progress. The enrolled-courses page
+  uses that count rather than treating the stored position as a count.
+- This high-water-mark model treats earlier lesson orders as reached and does not
+  record individual lesson completion or prevent skipping. Existing progress and
+  premature historical `completed` statuses are not rewritten by this change.
 
 ---
 

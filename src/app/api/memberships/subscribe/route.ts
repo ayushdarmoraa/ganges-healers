@@ -1,18 +1,13 @@
 import { NextResponse } from 'next/server'
-import Razorpay from 'razorpay'
 import { prisma } from '@/lib/prisma'
 import { canonicalizePlanSlug } from '@/lib/memberships/slug'
+import { getRazorpayClient } from '@/lib/razorpay'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 // Use shared canonicalization helper
-
-const rz = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID!,
-  key_secret: process.env.RAZORPAY_KEY_SECRET!,
-})
 
 function classifyKey(id?: string | null) {
   if (!id) return 'unknown'
@@ -58,6 +53,9 @@ export async function POST(req: Request) {
         dry: true,
       })
     }
+
+    const rz = await getRazorpayClient()
+    if (!rz) throw new Error('Razorpay client not configured')
 
     // Optional diagnostic: verify plan is accessible to current key before creating subscription
     if (diag) {

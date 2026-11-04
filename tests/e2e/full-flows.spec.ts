@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test'
+import { PrismaClient } from '@prisma/client'
+import { loadTestDatabaseEnvironment, verifyTestDatabaseConnection } from '../../scripts/test-database'
 
 /**
  * Full E2E test suite covering all major user flows.
@@ -12,13 +14,13 @@ import { test, expect } from '@playwright/test'
 /** Programmatic login — sets session cookies and returns userId */
 async function login(
   page: import('@playwright/test').Page,
-  opts: { role?: string; vip?: boolean; credits?: number } = {}
+  opts: { role?: string; vip?: boolean; credits?: number; email?: string } = {}
 ) {
   const role = opts.role ?? 'USER'
   const vip = opts.vip ? '1' : '0'
   const credits = opts.credits ?? 2
   const res = await page.goto(
-    `/api/test/login?role=${role}&vip=${vip}&credits=${credits}`
+    `/api/test/login?role=${role}&vip=${vip}&credits=${credits}${opts.email ? `&email=${encodeURIComponent(opts.email)}` : ''}`
   )
   let userId: string | null = null
   try {
@@ -289,41 +291,49 @@ test.describe('Audio track playback', () => {
 // ─── 9. Course Lesson Completion ──────────────────────────────────
 
 test.describe('Course lesson completion', () => {
-  test('track progress on enrolled course', async ({ page }) => {
-    const userId = await login(page, { vip: true })
+  test('track progress on a test-enrolled course', async ({ page }) => {
+    test.setTimeout(90000)
+    const email = `course-progress-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`
+    const userId = await login(page, { email })
+    expect(userId).toBeTruthy()
 
-    // Get courses
-    const coursesRes = await page.request.get('/api/courses')
-    if (!coursesRes.ok()) { test.skip(); return }
-    const courses = await coursesRes.json()
-    if (!Array.isArray(courses) || courses.length === 0) { test.skip(); return }
-
-    const course = courses[0]
-
-    // Enroll via API (if enrollment endpoint exists)
-    const enrollRes = await page.request.post(`/api/courses/${course.slug}/enroll`, {
-      headers: userId ? { 'x-test-user-id': userId } : {},
-    })
-
-    if (enrollRes.ok() || enrollRes.status() === 409) {
-      // Track lesson progress
-      const progressRes = await page.request.post(
-        `/api/courses/${course.slug}/progress`,
-        {
-          data: { lessonOrder: 1 },
-          headers: userId ? { 'x-test-user-id': userId } : {},
-        }
-      )
-      if (progressRes.ok()) {
-        const progressBody = await progressRes.json()
-        expect(progressBody.progress !== undefined || progressBody.data).toBeTruthy()
-      }
+    // Grant an isolated test enrollment. This test does not exercise paid checkout.
+    const settings = loadTestDatabaseEnvironment()
+    await verifyTestDatabaseConnection(settings)
+    const db = new PrismaClient({ datasources: { db: { url: settings.environment.DATABASE_URL } } })
+    try {
+      const course = await db.course.findUniqueOrThrow({ where: { slug: 'intro-to-reiki' } })
+      await db.courseEnrollment.create({ data: { userId: userId!, courseId: course.id, status: 'active' } })
+    } finally {
+      await db.$disconnect()
     }
 
-    // Navigate to course page
-    await page.goto(`/courses/${course.slug}`)
-    await page.waitForLoadState('networkidle')
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 15000 })
+    const courseResponse = await page.request.get('/api/courses/intro-to-reiki')
+    expect(courseResponse.ok()).toBeTruthy()
+    const course = await courseResponse.json()
+    expect(course.lessons.map((lesson: { order: number }) => lesson.order)).toEqual([1, 2, 3, 4, 5])
+
+    await page.goto(`/courses/${course.slug}/lesson/${course.lessons[0].id}`)
+    const progressResponse = page.waitForResponse(response =>
+      response.url().endsWith(`/api/courses/${course.slug}/progress`) && response.request().method() === 'POST'
+    )
+    await page.getByRole('button', { name: 'Mark Complete & Continue' }).click()
+    const firstProgress = await progressResponse
+    expect(firstProgress.ok()).toBeTruthy()
+    expect(await firstProgress.json()).toEqual({ progress: 2, status: 'active' })
+    await expect(page).toHaveURL(new RegExp(`/lesson/${course.lessons[1].id}$`), { timeout: 30000 })
+
+    await page.goto('/courses/enrolled')
+    await expect(page.getByRole('link', { name: /Introduction to Reiki/i })).toContainText('1/5 lessons · 20%')
+
+    for (const lesson of course.lessons.slice(1)) {
+      const response = await page.request.post(`/api/courses/${course.slug}/progress`, { data: { lessonOrder: lesson.order } })
+      expect(response.ok()).toBeTruthy()
+      expect(await response.json()).toEqual({ progress: lesson.order + 1, status: lesson.order === 5 ? 'completed' : 'active' })
+    }
+    await page.reload()
+    await expect(page.getByRole('link', { name: /Introduction to Reiki/i })).toContainText('5/5 lessons · 100%')
+    await expect(page.getByText('✓ Completed')).toBeVisible()
   })
 })
 

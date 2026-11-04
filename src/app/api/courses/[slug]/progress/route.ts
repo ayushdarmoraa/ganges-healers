@@ -8,7 +8,8 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const ProgressSchema = z.object({
-  lessonOrder: z.number().int().min(0),
+  // The stored progress is one greater than the lesson order, in a PostgreSQL Int.
+  lessonOrder: z.number().int().min(0).max(2147483646),
 })
 
 export async function POST(
@@ -26,7 +27,7 @@ export async function POST(
 
     const course = await prisma.course.findFirst({
       where: { OR: [{ id: slug }, { slug }], isActive: true },
-      include: { _count: { select: { lessons: true } } },
+      include: { lessons: { select: { order: true } } },
     })
     if (!course) return NextResponse.json({ error: 'Course not found' }, { status: 404 })
 
@@ -35,19 +36,30 @@ export async function POST(
     })
     if (!enrollment) return NextResponse.json({ error: 'Not enrolled' }, { status: 403 })
 
-    // Progress = number of completed lessons (1-indexed from lesson order)
-    const newProgress = Math.max(enrollment.progress, parsed.data.lessonOrder + 1)
-    const isCompleted = newProgress >= course._count.lessons
+    if (!course.lessons.some(lesson => lesson.order === parsed.data.lessonOrder)) {
+      return NextResponse.json({ error: 'Invalid lesson order' }, { status: 400 })
+    }
 
-    const updated = await prisma.courseEnrollment.update({
-      where: { id: enrollment.id },
+    // Retain the existing representation: progress is greater than a completed lesson's order.
+    const newProgress = Math.max(enrollment.progress, parsed.data.lessonOrder + 1)
+    const isCompleted = course.lessons.every(lesson => newProgress > lesson.order)
+
+    // Only advance the saved position. Concurrent or delayed requests cannot move it backwards.
+    const changed = await prisma.courseEnrollment.updateMany({
+      where: { id: enrollment.id, userId: session.user.id, courseId: course.id, progress: { lt: newProgress }, status: { in: ['active', 'completed'] } },
       data: {
         progress: newProgress,
         ...(isCompleted ? { status: 'completed' } : {}),
       },
     })
+    const updated = await prisma.courseEnrollment.findUnique({ where: { id: enrollment.id } })
+    if (!updated || updated.userId !== session.user.id || updated.courseId !== course.id || !['active', 'completed'].includes(updated.status)) {
+      return NextResponse.json({ error: 'Enrollment no longer active' }, { status: 409 })
+    }
 
-    logActivity({ userId: session.user.id, action: isCompleted ? 'course_completed' : 'lesson_completed', entityType: 'course', entityId: course.id, metadata: { progress: updated.progress, lessonOrder: parsed.data.lessonOrder } })
+    if (changed.count > 0) {
+      logActivity({ userId: session.user.id, action: isCompleted && enrollment.status !== 'completed' ? 'course_completed' : 'lesson_completed', entityType: 'course', entityId: course.id, metadata: { progress: updated.progress, lessonOrder: parsed.data.lessonOrder } })
+    }
     return NextResponse.json({ progress: updated.progress, status: updated.status })
   } catch (err) {
     console.error('[courses][progress][error]', err)
