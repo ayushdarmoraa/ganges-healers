@@ -40,14 +40,15 @@ const orderFilters = [
 export default async function OrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; page?: string }>
+  searchParams: Promise<{ status?: string | string[]; page?: string | string[] }>
 }) {
+  const session = await auth()
+  if (!session?.user?.id) redirect("/auth/signin")
+
   const { status: requestedStatus, page: requestedPage } = await searchParams
   const selectedStatus = orderFilters.find(filter => filter.value === requestedStatus)?.value ?? "all"
-  const parsedPage = /^\d+$/.test(requestedPage ?? "") ? Number(requestedPage) : 1
+  const parsedPage = typeof requestedPage === "string" && /^\d+$/.test(requestedPage) ? Number(requestedPage) : 1
   const selectedPage = Math.min(Math.max(parsedPage, 1), MAX_PAGE)
-  const session = await auth()
-  if (!session?.user) redirect("/auth/signin")
 
   const orders = await prisma.order.findMany({
     where: {
@@ -73,7 +74,7 @@ export default async function OrdersPage({
     },
   })
 
-  const hasNextPage = orders.length > PAGE_SIZE
+  const hasNextPage = selectedPage < MAX_PAGE && orders.length > PAGE_SIZE
   const visibleOrders = orders.slice(0, PAGE_SIZE)
 
   return (
@@ -146,7 +147,7 @@ export default async function OrdersPage({
                       )}
                       <div className="flex-1 min-w-0">
                         <Link
-                          href={`/store/${item.product.slug}`}
+                          href={`/store/${encodeURIComponent(item.product.slug)}`}
                           className="text-sm hover:underline truncate block"
                         >
                           {item.product.title}

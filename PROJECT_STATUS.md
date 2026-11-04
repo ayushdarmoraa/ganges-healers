@@ -1,115 +1,54 @@
+# Ganges Healers — Implementation and Rollout Status
 
-# Ganges Healers - Project Analysis Report
-Generated: 2025-09-26T10:13:38.931Z
+Reviewed November 3, 2026 against the implementation plan, repository branches, open pull requests, Neon ownership/migration records, and Vercel metadata. This replaces the September 2025 inventory, which described features that have since been implemented.
 
-## Project Structure Overview
-- **TypeScript Files:** 47
-- **JavaScript Files:** 0
-- **React Components:** 19
-- **API Routes:** 11
-- **Pages:** 7
-- **Test Files:** 8
-- **Library Files:** 7
+## Current development line
 
-## Database Models Status
-- ✅ **User Model** (Authentication & VIP management)
-- ✅ **Healer Model** (Practitioner profiles)
-- ✅ **Service Model** (Service catalog)
-- ✅ **Booking Model** (Appointment system)
-- ✅ **Payment Model** (Transaction tracking)
-- ❌ **Program Model** (Multi-session courses)
-- ❌ **VIP Membership Model** (Premium subscriptions)
-- ❌ **Community/Forum Model** (User discussions)
-- ❌ **Course Model** (Educational content)
-- ❌ **Product Model** (E-commerce store)
+Continue on `feat/store-order-details`. It includes the community, publishing, notification, and navigation work from PR #5, customer-order screens, and course-progress corrections originally developed in PR #4. The application remains a Next.js App Router project; the plan's example microservice layout is not the current repository layout.
 
-**Database Status:** ✅ 2 migrations applied
+| Plan area | Implementation present | Remaining validation or release work |
+| --- | --- | --- |
+| Foundation | Prisma migrations, CI, guarded test databases, health route, structured logs, Vercel configuration | Reconcile production schema/history and deploy the reviewed combined line |
+| Accounts and profiles | Registration/sign-in, sessions, role guards, account settings, healer profile/availability | Real-provider and deployed authorization checks; an existing registration browser case is skipped |
+| Marketplace and bookings | Discovery, availability, creation, rescheduling, cancellation, credit confirmation | Combined-line concurrency, refund, and customer/healer flow tests |
+| Payments and memberships | Server-priced orders, verification/webhooks, enrollment fulfillment, invoices, subscriptions | Gateway test-mode checkout and callback delivery; mocked refunds do not establish live execution |
+| Programs and courses | Catalogs, enrollment and lesson delivery; corrected counts, final-lesson completion, monotonic progress | CI integration/browser checks; paid enrollment is separate from isolated progress fixtures |
+| Community and content | Topics/tags, drafts, administration, moderation/report review, blog publishing/withdrawal | Combined-line CI and role review before rollout |
+| Notifications and navigation | Inbox/read state, bells, polling/socket paths, search, account menus, cart | Combined-line CI and deployed responsive/authentication checks |
+| Store | Catalog/checkout, owned order details, status filters, bounded paging, saved line totals, recovery screens | Order browser coverage and separate gateway checkout testing |
+| Administration and analytics | Admin workspaces, payment reports, funnel/events, experiments, products | Provider configuration, access controls, data consistency, monitoring |
 
-## API Routes Status
-- ✅ **Authentication** (/api/auth/*)
-- ✅ **Services CRUD** (/api/services/*)
-- ✅ **Bookings System** (/api/bookings/*)
-- ✅ **Payments Integration** (/api/payments/*)
-- ❌ **User Management** (/api/users/*)
-- ❌ **Programs** (/api/programs/*)
-- ❌ **Community** (/api/community/*)
-- ✅ **Availability System** (/api/availability)
+Implementation present means routes/components exist. It does not establish every production journey or completion of the whole website.
 
-## Frontend Pages Status
-- ✅ **Home Page** (Landing page)
-- ✅ **Services Page** (Service catalog)
-- ✅ **Service Detail Page** (Individual service)
-- ❌ **Programs Page** (Course catalog)
-- ✅ **User Dashboard** (Booking management)
-- ❌ **Booking Flow** (Appointment booking)
-- ✅ **Authentication Pages** (Login/signup)
-- ✅ **Registration Page** (User signup)
-- ❌ **User Profile** (Account management)
-- ❌ **VIP Membership** (Premium features)
-- ❌ **Community Platform** (Forums/discussions)
-- ❌ **E-commerce Store** (Product catalog)
-- ✅ **Admin Panel** (Management interface)
+## This batch
 
-## Components Status
-- ✅ **Booking Modal** (Appointment booking UI)
-- ✅ **Services Grid** (Service display)
-- ✅ **Healer Card** (Practitioner display)
-- ✅ **Navigation Bar** (Site navigation)
-- ✅ **Protected Routes** (Auth guard)
-- ✅ **UI Component Library** (shadcn/ui)
+- Integrated existing course progress/ownership fixes, portable Windows loader URLs, and Playwright artifact exclusion.
+- Require a nonempty session user ID before querying order history. Detail queries retain order and owner IDs.
+- Preserve filters, stable ordering, 50-record pages, JSON APIs, and stored line totals. Stop at page 1000 and normalize malformed/repeated parameters.
+- Add loading, retry, and unavailable route screens with existing UI primitives. No dependency or schema migration is introduced.
+- Add UI coverage for ownership, pagination, totals, cancellation and recovery, and a database-backed browser scenario with isolated customers and fixtures.
+- Local checks: 353 unit tests, 190 UI tests, TypeScript, focused ESLint, diff checks, and browser-test discovery passed. Local database/build checks were limited by network access to Neon and Google Fonts. The pull request checks are authoritative for current CI integration/build/browser results.
 
-## Technology Stack Status
-- ✅ **NextAuth.js** (Authentication system)
-- ✅ **Prisma ORM** (Database management)
-- ✅ **Razorpay Integration** (Payment processing)
-- ✅ **Email Service** (Notifications)
-- ✅ **Tailwind CSS** (Styling framework)
-- ✅ **TypeScript** (Type safety)
-- ✅ **shadcn/ui** (Component library)
-- ✅ **date-fns** (Date manipulation)
-- ✅ **Axios** (HTTP client)
+## Database and deployment prerequisites
 
-## Testing Infrastructure
-- ✅ **Jest** (Unit testing)
-- ✅ **Playwright** (E2E testing)
-- **Total Test Files:** 8
+Production and preview Neon projects now belong to `gangeshealers@gmail.com` in Ganges. Production retains four branches and its approved six-hour recovery window; preview retains its separate branch.
 
-## Implementation Progress Summary
+A read-only production migration-history check found no successful entries for these development-line migrations:
 
-### ✅ **Completed Features (MVP Ready)**
-- Core booking system with availability checking
-- User authentication and session management
-- Payment processing (Razorpay + VIP credits)
-- Service catalog with healer profiles
-- Basic admin functionality
-- Comprehensive test coverage
+- `20260322000000_restore_missing_baseline_models`
+- `20260325120000_scale_readiness`
+- `20261029000000_enrollment_price_snapshots`
+- `20261031000000_restore_missing_columns_indexes`
 
-### 🚧 **Partially Implemented**
-- VIP membership (basic implementation, missing subscription management)
-- Email notifications (infrastructure missing)
-- Admin panel (basic page exists, functionality limited)
+Missing entries do not prove every corresponding schema object is absent. Compare the live schema, rehearse additive SQL on an isolated copy, and reconcile history before a reviewed deployment migration. Do not reset production or blindly mark migrations applied.
 
-### ❌ **Missing Core Features**
-- Programs/Courses system
-- Community platform (forums/discussions)
-- E-commerce store
-- Advanced user profile management
-- Subscription management system
-- Email notification service
+Vercel's production deployment predates this combined feature work. Feature branches and passing tests do not establish a production rollout. Verify payment, email, upload, cron, and optional worker configuration at deployment; keep test shortcuts disabled in Preview and Production.
 
-### 📊 **Overall Progress**
-- **Database Layer:** ~60% complete
-- **API Layer:** ~50% complete  
-- **Frontend Layer:** ~45% complete
-- **Feature Completeness:** ~40% complete
+## Release sequence
 
----
+1. Finish combined-branch CI and address failures without weakening flow assertions.
+2. Review stacked pull requests and reconcile database prerequisites on an isolated copy.
+3. Validate a Vercel Preview with its dedicated database, customer/healer/admin roles, enrollments, and payment test-mode flows.
+4. Roll out reviewed application/migrations with rollback or roll-forward steps, then check production health, authorization, callbacks, logs, and customer journeys.
 
-**Next Priority Actions:**
-1. Implement Programs/Courses system
-2. Build Community platform foundation
-3. Complete VIP membership subscription flow
-4. Add email notification system
-5. Enhance admin management features
-
-Generated on 2025-09-26T10:13:38.931Z
+See `docs/GUARDRAILS.md`, `docs/contracts.md`, and `docs/deployment.md`. Git Bash update commands for the Windows checkout are in `README.md`.
