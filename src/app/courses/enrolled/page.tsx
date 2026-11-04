@@ -12,6 +12,7 @@ interface Enrollment {
   id: string
   status: string
   progress: number
+  completedLessons: number
   course: {
     id: string
     slug: string
@@ -56,7 +57,8 @@ export default function EnrolledCoursesPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {enrollments.map((e) => {
             const totalLessons = e.course._count.lessons
-            const pct = totalLessons > 0 ? Math.round((e.progress / totalLessons) * 100) : 0
+            const completedLessons = e.completedLessons
+            const pct = totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0
             return (
               <Link
                 key={e.id}
@@ -71,8 +73,8 @@ export default function EnrolledCoursesPage() {
                   <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} />
                 </div>
                 <div className="text-sm text-muted-foreground mt-1">
-                  {e.progress}/{totalLessons} lessons · {pct}%
-                  {e.status === 'completed' && <span className="ml-2 text-green-600 font-medium">✓ Completed</span>}
+                  {completedLessons}/{totalLessons} lessons · {pct}%
+                  {e.status === 'completed' && totalLessons > 0 && completedLessons === totalLessons && <span className="ml-2 text-green-600 font-medium">✓ Completed</span>}
                 </div>
               </Link>
             )
