@@ -31,16 +31,18 @@ Implementation present means routes/components exist. It does not establish ever
 
 ## Database and deployment prerequisites
 
-Production and preview Neon projects now belong to `gangeshealers@gmail.com` in Ganges. Production retains four branches and its approved six-hour recovery window; preview retains its separate branch.
+The `ganges-healers` and `ganges-healers-preview` Neon projects now belong to `gangeshealers@gmail.com` in Ganges. The production-named project retains four branches and its approved six-hour recovery window; preview retains its separate branch.
 
-A read-only production migration-history check found no successful entries for these development-line migrations:
+A read-only migration-history check on the transferred `ganges-healers` project found no successful entries for these development-line migrations:
 
 - `20260322000000_restore_missing_baseline_models`
 - `20260325120000_scale_readiness`
 - `20261029000000_enrollment_price_snapshots`
 - `20261031000000_restore_missing_columns_indexes`
 
-Missing entries do not prove every corresponding schema object is absent. Compare the live schema, rehearse additive SQL on an isolated copy, and reconcile history before a reviewed deployment migration. Do not reset production or blindly mark migrations applied.
+Missing entries do not prove every corresponding schema object is absent. Compare the intended target schema, rehearse additive SQL on an isolated copy, and reconcile history before a reviewed deployment migration. Do not reset production or blindly mark migrations applied.
+
+The current Vercel Production `DATABASE_URL` and `DIRECT_URL` point to a different endpoint from the transferred `ganges-healers` default production branch. They match the older Vercel Marketplace Neon store. Therefore the two completed project transfers do not establish migration of the database used by the existing live deployment. Identify and compare that database before any data cutover or production URL change. Preview variables match the dedicated transferred preview project, whose expected enrollment, analytics, and product columns were checked read-only.
 
 Vercel's production deployment predates this combined feature work. Feature branches and passing tests do not establish a production rollout. Verify payment, email, upload, cron, and optional worker configuration at deployment; keep test shortcuts disabled in Preview and Production.
 

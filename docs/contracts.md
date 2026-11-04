@@ -3,7 +3,7 @@
 ## Customer Order History
 
 - `/dashboard/orders` requires a session with a nonempty user ID before any database query. Queries always include that owner ID.
-- Status filters accept only the five existing order statuses. Unknown or repeated parameters use the first unfiltered page; malformed page values use page 1, and numeric values are bounded to pages 1–1000.
+- Status filters accept only the five existing order statuses. Unknown or repeated status values fall back to all orders. Missing, malformed, or repeated page values use page 1; numeric values are bounded to pages 1–1000.
 - Pages contain at most 50 orders, ordered by creation time and ID descending. The extra queried record is a next-page sentinel; page 1000 never offers a link to page 1001.
 - `/dashboard/orders/[id]` includes both order and owner IDs in the query. Missing and unowned orders share the same unavailable screen. Existing JSON API contracts remain unchanged, including the order API's 403 for an unowned order.
 - `OrderItem.pricePaise` is the stored line total (quantity is already included), not a unit price. The details page displays this snapshot without multiplying quantity again.
