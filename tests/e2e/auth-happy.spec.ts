@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 import { PrismaClient } from '@prisma/client'
 import { loadTestDatabaseEnvironment, verifyTestDatabaseConnection } from '../../scripts/test-database'
 
-test('register without a phone, sign in with the stored password, and sign out', async ({ page }) => {
+test('register without a phone, sign in with the stored password, and sign out', async ({ page, baseURL }) => {
   test.setTimeout(120_000)
   const settings = loadTestDatabaseEnvironment()
   await verifyTestDatabaseConnection(settings)
@@ -42,7 +42,7 @@ test('register without a phone, sign in with the stored password, and sign out',
 
     await page.getByRole('button', { name: 'Open user menu', exact: true }).click()
     await page.getByRole('button', { name: 'Sign out', exact: true }).click()
-    await expect(page).toHaveURL(/\/auth\/signin$/, { timeout: 30_000 })
+    await expect(page).toHaveURL(new URL('/', baseURL).href, { timeout: 30_000 })
     expect(await (await page.request.get('/api/auth/session')).json()).toBeNull()
     await page.goto('/dashboard')
     await expect(page).toHaveURL(/\/auth\/signin$/)
