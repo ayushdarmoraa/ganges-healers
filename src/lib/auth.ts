@@ -1,8 +1,9 @@
 // src/lib/auth.ts
-import NextAuth from "next-auth"
+import NextAuth, { type NextAuthConfig } from "next-auth"
 import { PrismaAdapter } from "@auth/prisma-adapter"
 import { prisma } from "@/lib/prisma"
 import CredentialsProvider from "next-auth/providers/credentials"
+import GoogleProvider from "next-auth/providers/google"
 import bcrypt from "bcryptjs"
 
 import { assertProductionTestModeDisabled } from '@/lib/test-mode'
@@ -13,7 +14,7 @@ if (process.env.NODE_ENV === 'production' && !authSecret) {
   throw new Error('AUTH_SECRET or NEXTAUTH_SECRET is required for production authentication.')
 }
 
-const providers = []
+const providers: NextAuthConfig['providers'] = []
 
 // Primary credentials provider (DB-backed) – keep for real users
 providers.push(
@@ -44,6 +45,12 @@ providers.push(
   })
 )
 
+const googleClientId = (process.env.AUTH_GOOGLE_ID || process.env.GOOGLE_CLIENT_ID)?.trim()
+const googleClientSecret = (process.env.AUTH_GOOGLE_SECRET || process.env.GOOGLE_CLIENT_SECRET)?.trim()
+if (googleClientId && googleClientSecret) {
+  providers.push(GoogleProvider({ clientId: googleClientId, clientSecret: googleClientSecret }))
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
   // Require a configured secret; never substitute a public fallback.
@@ -53,6 +60,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   providers,
   callbacks: {
+    async signIn({ account, profile }) {
+      return account?.provider !== 'google' || profile?.email_verified === true
+    },
     async jwt({ token, user, trigger }) {
       if (user) {
         const u = user as { id: string; role?: string; vip?: boolean; freeSessionCredits?: number }

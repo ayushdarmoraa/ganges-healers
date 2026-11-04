@@ -1,7 +1,7 @@
 "use client"
 
-import { signIn } from "next-auth/react"
-import { useState } from "react"
+import { getProviders, signIn } from "next-auth/react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -13,7 +13,16 @@ import { toast } from "sonner"
 
 export default function SignInPage() {
   const [isLoading, setIsLoading] = useState(false)
+  const [googleEnabled, setGoogleEnabled] = useState(false)
   const router = useRouter()
+
+  useEffect(() => {
+    let active = true
+    getProviders().then(providers => {
+      if (active) setGoogleEnabled(Boolean(providers?.google))
+    }).catch(() => { /* Credentials remain available when provider discovery fails. */ })
+    return () => { active = false }
+  }, [])
 
   const handleCredentialsSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -44,10 +53,14 @@ export default function SignInPage() {
   }
 
   const handleGoogleSignIn = async () => {
+    if (!googleEnabled || isLoading) return
+    setIsLoading(true)
     try {
       await signIn("google", { callbackUrl: "/dashboard" })
     } catch {
       toast.error("Something went wrong")
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -56,14 +69,14 @@ export default function SignInPage() {
       <Card>
         <CardHeader className="text-center">
           <CardTitle>Welcome to Ganges Healers</CardTitle>
-          <CardDescription>Sign in to access your healthcare dashboard</CardDescription>
+          <CardDescription>Sign in to manage your healing journey</CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="credentials" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            {googleEnabled && <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="credentials">Email</TabsTrigger>
               <TabsTrigger value="oauth">Google</TabsTrigger>
-            </TabsList>
+            </TabsList>}
 
             <TabsContent value="credentials">
               <form onSubmit={handleCredentialsSignIn} className="space-y-4">
@@ -95,14 +108,14 @@ export default function SignInPage() {
               </form>
             </TabsContent>
 
-            <TabsContent value="oauth">
-              <Button onClick={handleGoogleSignIn} variant="outline" className="w-full">
+            {googleEnabled && <TabsContent value="oauth">
+              <Button onClick={handleGoogleSignIn} variant="outline" className="w-full" disabled={isLoading}>
                 Continue with Google
               </Button>
               <p className="text-sm text-muted-foreground text-center mt-4">
                 Sign in with your Google account
               </p>
-            </TabsContent>
+            </TabsContent>}
           </Tabs>
           
           <div className="text-center mt-6">

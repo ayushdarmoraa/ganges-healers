@@ -1,28 +1,56 @@
-import { test, expect } from '@playwright/test';
+import crypto from 'node:crypto'
+import { test, expect } from '@playwright/test'
+import { PrismaClient } from '@prisma/client'
+import { loadTestDatabaseEnvironment, verifyTestDatabaseConnection } from '../../scripts/test-database'
 
-// Happy path: user registration -> sign in -> dashboard access
-// Assumes credentials auth is enabled and register/signin pages available.
+test('register without a phone, sign in with the stored password, and sign out', async ({ page }) => {
+  test.setTimeout(120_000)
+  const settings = loadTestDatabaseEnvironment()
+  await verifyTestDatabaseConnection(settings)
+  const db = new PrismaClient({ datasources: { db: { url: settings.environment.DATABASE_URL } } })
+  const email = `signup-${crypto.randomUUID()}@example.test`
+  const password = `Test-${crypto.randomUUID()}!`
+  try {
+    await page.goto('/register')
+    await page.getByLabel('Full Name', { exact: true }).fill('Signup Verification')
+    await page.getByLabel('Email', { exact: true }).fill(email)
+    await page.getByLabel('Password', { exact: true }).fill(password)
+    await page.getByLabel('Confirm Password', { exact: true }).fill(password)
+    await page.getByRole('button', { name: 'Create Account', exact: true }).click()
+    await expect(page).toHaveURL(/\/auth\/signin$/, { timeout: 30_000 })
 
-// NOTE: Temporarily skipped due to intermittent NextAuth credential CSRF timing in combined suite.
-// UI auth flows are indirectly exercised via other tests (redirect checks, protected admin area in TEST_MODE, booking modal actions).
-// TODO: Re-enable with a stable programmatic session helper or dedicated /test/login endpoint.
-test.skip('register → sign in → dashboard visible', async ({ page, request }) => {
-  test.setTimeout(60000);
-  const email = `e2e_${Date.now()}@ex.com`;
-  const password = 'TestPass!234';
+    const registered = await db.user.findUniqueOrThrow({ where: { email } })
+    expect(registered.phone).toBeNull()
+    expect(registered.role).toBe('USER')
+    expect(registered.password).not.toBe(password)
+    expect(registered.password).toMatch(/^\$2/)
 
-  // Programmatic registration via API to avoid flakey client timing
-  const registerResp = await request.post('/api/auth/register', {
-    data: { name: 'E2E User', email, password, phone: null }
-  });
-  expect(registerResp.ok()).toBeTruthy();
+    await page.getByLabel('Email', { exact: true }).fill(email)
+    await page.getByLabel('Password', { exact: true }).fill(`${password}-incorrect`)
+    await page.getByRole('button', { name: 'Sign In', exact: true }).click()
+    await expect(page.getByText('Invalid credentials', { exact: true })).toBeVisible({ timeout: 30_000 })
+    expect(await (await page.request.get('/api/auth/session')).json()).toBeNull()
 
-  // Programmatic credentials sign-in (avoids UI timing flake) using in-page fetch to persist cookies
-  await page.goto('/api/auth/csrf'); // warm up
-  await page.context().request.post('/api/auth/callback/credentials', {
-    form: { email, password, csrfToken: 'ignored_in_test', json: 'true' }
-  });
-  await page.goto('/dashboard');
-  await page.waitForURL(/dashboard/i, { timeout: 20000 });
-  await expect(page.getByText(/booking|upcoming|appointments/i).first()).toBeVisible();
-});
+    await page.getByLabel('Password', { exact: true }).fill(password)
+    await page.getByRole('button', { name: 'Sign In', exact: true }).click()
+    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 30_000 })
+    await expect(page.getByRole('heading', { name: 'My Bookings', exact: true })).toBeVisible()
+    const session = await (await page.request.get('/api/auth/session')).json()
+    expect(session.user.id).toBe(registered.id)
+    expect(session.user.role).toBe('USER')
+    expect((await page.context().cookies()).some(cookie => cookie.name === 'test-admin')).toBe(false)
+
+    await page.getByRole('button', { name: 'Open user menu', exact: true }).click()
+    await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+    await expect(page).toHaveURL(/\/auth\/signin$/, { timeout: 30_000 })
+    expect(await (await page.request.get('/api/auth/session')).json()).toBeNull()
+    await page.goto('/dashboard')
+    await expect(page).toHaveURL(/\/auth\/signin$/)
+  } finally {
+    try {
+      await db.user.deleteMany({ where: { email } })
+    } finally {
+      await db.$disconnect()
+    }
+  }
+})
