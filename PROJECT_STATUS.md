@@ -1,6 +1,6 @@
 # Ganges Healers — Implementation and Rollout Status
 
-Reviewed November 3, 2026 against the implementation plan, repository branches, open pull requests, Neon ownership/migration records, and Vercel metadata. This replaces the September 2025 inventory, which described features that have since been implemented.
+Reviewed November 4, 2026 against the implementation plan, repository branches, open pull requests, Neon ownership/migration records, and Vercel metadata. This replaces the September 2025 inventory, which described features that have since been implemented.
 
 ## Current development line
 
@@ -28,6 +28,8 @@ Implementation present means routes/components exist. It does not establish ever
 - Add loading, retry, and unavailable route screens with existing UI primitives. No dependency or schema migration is introduced.
 - Add UI coverage for ownership, pagination, totals, cancellation and recovery, and a database-backed browser scenario with isolated customers and fixtures.
 - Local checks: 353 unit tests, 190 UI tests, TypeScript, focused ESLint, diff checks, and browser-test discovery passed. Local database/build checks were limited by network access to Neon and Google Fonts. The pull request checks are authoritative for current CI integration/build/browser results.
+- Combined-branch CI at `6c11c7b` passed: 353 unit, 179 integration, 190 UI, 26 browser tests, and the production build. One existing integration test and one existing browser test remain skipped. The order browser scenario waits for the filtered results before selecting its exact fixture.
+- A subsequent Vercel Preview exposed an import-time Razorpay failure in membership subscriptions when payment credentials are absent. Reuse the shared lazy client after plan validation and dry-run handling; preserve success/error contracts. Seven focused unit checks cover import safety, missing credentials, dry runs, subscription creation, diagnostics, and plan validation. See PR #6 for the follow-up CI result.
 
 ## Database and deployment prerequisites
 
@@ -45,6 +47,8 @@ Missing entries do not prove every corresponding schema object is absent. Compar
 The current Vercel Production `DATABASE_URL` and `DIRECT_URL` point to a different endpoint from the transferred `ganges-healers` default production branch. They match the older Vercel Marketplace Neon store. Therefore the two completed project transfers do not establish migration of the database used by the existing live deployment. Identify and compare that database before any data cutover or production URL change. Preview variables match the dedicated transferred preview project, whose expected enrollment, analytics, and product columns were checked read-only.
 
 Vercel's production deployment predates this combined feature work. Feature branches and passing tests do not establish a production rollout. Verify payment, email, upload, cron, and optional worker configuration at deployment; keep test shortcuts disabled in Preview and Production.
+
+The Vercel Git connection was repaired from the old `pahadi-labs` owner to `ayushdarmoraa/ganges-healers`. The current Hobby plan rejects the feature branch's hourly and six-hourly cron schedules. A separate `codex/preview-store-course-5035361` branch disables scheduled jobs solely for Preview; the feature branch retains all five schedules. Choose a supported production scheduling arrangement before rollout. Preview currently has database and authentication variables but no Razorpay credentials, so deployed payment-provider validation is still pending.
 
 ## Release sequence
 
