@@ -4,12 +4,12 @@ Reviewed November 4, 2026 against the implementation plan, repository branches, 
 
 ## Current development line
 
-Continue on `feat/store-order-details`. It includes the community, publishing, notification, and navigation work from PR #5, customer-order screens, and course-progress corrections originally developed in PR #4. The application remains a Next.js App Router project; the plan's example microservice layout is not the current repository layout.
+Continue on `codex/release-auth-readiness`, based on `feat/store-order-details` at `8152886`. It includes the community, publishing, notification, and navigation work from PR #5, customer-order screens, and course-progress corrections originally developed in PR #4. The application remains a Next.js App Router project; the plan's example microservice layout is not the current repository layout.
 
 | Plan area | Implementation present | Remaining validation or release work |
 | --- | --- | --- |
 | Foundation | Prisma migrations, CI, guarded test databases, health route, structured logs, Vercel configuration | Reconcile production schema/history and deploy the reviewed combined line |
-| Accounts and profiles | Registration/sign-in, sessions, role guards, account settings, healer profile/availability | Real-provider and deployed authorization checks; an existing registration browser case is skipped |
+| Accounts and profiles | Registration/sign-in, sessions, role guards, account settings, healer profile/availability; optional phone handling and configured Google provider discovery | Real signup/sign-in/sign-out browser test replaces the skipped case; await new branch CI. Google needs OAuth credentials and callback configuration |
 | Marketplace and bookings | Discovery, availability, creation, rescheduling, cancellation, credit confirmation | Combined-line concurrency, refund, and customer/healer flow tests |
 | Payments and memberships | Server-priced orders, verification/webhooks, enrollment fulfillment, invoices, subscriptions | Gateway test-mode checkout and callback delivery; mocked refunds do not establish live execution |
 | Programs and courses | Catalogs, enrollment and lesson delivery; corrected counts, final-lesson completion, monotonic progress | CI integration/browser checks; paid enrollment is separate from isolated progress fixtures |
@@ -31,7 +31,18 @@ Implementation present means routes/components exist. It does not establish ever
 - Combined-branch CI at `6c11c7b` passed: 353 unit, 179 integration, 190 UI, 26 browser tests, and the production build. One existing integration test and one existing browser test remain skipped. The order browser scenario waits for the filtered results before selecting its exact fixture.
 - A subsequent Vercel Preview exposed an import-time Razorpay failure in membership subscriptions when payment credentials are absent. Reuse the shared lazy client after plan validation and dry-run handling; preserve success/error contracts. Seven focused unit checks cover import safety, missing credentials, dry runs, subscription creation, diagnostics, and plan validation. See PR #6 for the follow-up CI result.
 
-## Database and deployment prerequisites
+## Release readiness follow-up
+
+- Fix registration when the optional phone is blank; entered short phone numbers and mismatched passwords remain invalid.
+- The real browser scenario registers through the form, checks the saved password hash, rejects a wrong password, verifies the signed-in user's identity, and signs out. It uses no test-login endpoint or forged CSRF token and removes its isolated test user.
+- Require a nonempty user ID before any customer dashboard reads, matching the order-history guard.
+- Register Google only when a complete credential pair exists; require verified Google email. The sign-in UI discovers active providers and does not offer an unavailable Google flow.
+- Add auth-form and dashboard authorization checks without adding dependencies or migrations.
+- Configure the two previously unsupported cron expressions for daily execution on the existing Hobby plan. Reminder thresholds are eligibility checks, not promised delivery times; see `docs/deployment.md` for schedules and backlog limits.
+- Existing Razorpay test credentials were added to Preview. Real gateway checkout and callback validation remain required.
+- The preceding code at `8152886` passed all CI stages: 360 unit, 179 integration, 190 UI and 26 browser checks. One legacy integration placeholder and the now-replaced auth browser scenario were skipped. The follow-up PR records current results.
+
+## Database ownership and rollout
 
 The `ganges-healers` and `ganges-healers-preview` Neon projects now belong to `gangeshealers@gmail.com` in Ganges. The production-named project retains four branches and its approved six-hour recovery window; preview retains its separate branch.
 
@@ -48,7 +59,7 @@ The current Vercel Production `DATABASE_URL` and `DIRECT_URL` point to a differe
 
 Vercel's production deployment predates this combined feature work. Feature branches and passing tests do not establish a production rollout. Verify payment, email, upload, cron, and optional worker configuration at deployment; keep test shortcuts disabled in Preview and Production.
 
-The Vercel Git connection was repaired from the old `pahadi-labs` owner to `ayushdarmoraa/ganges-healers`. The current Hobby plan rejects the feature branch's hourly and six-hourly cron schedules. A separate `codex/preview-store-course-5035361` branch disables scheduled jobs solely for Preview; the feature branch retains all five schedules. Choose a supported production scheduling arrangement before rollout. Preview currently has database and authentication variables but no Razorpay credentials, so deployed payment-provider validation is still pending.
+The Vercel Git connection was repaired from the old `pahadi-labs` owner to `ayushdarmoraa/ganges-healers`. The release-readiness branch changes the unsupported hourly and six-hourly cron expressions to daily schedules supported by the current Hobby plan. All five endpoints remain configured; precise hourly messaging requires a different scheduler. Preview uses its dedicated database, authentication secret, and Razorpay test credentials. The earlier `codex/preview-store-course-5035361` branch is a separate snapshot of `8152886` with cron execution disabled in its configuration. Deploy the new branch and verify it before rollout.
 
 ## Release sequence
 
