@@ -9,7 +9,7 @@ const fetchMock = jest.fn()
 const membership = { id: 'owned', status: 'pending', plan: { title: 'VIP Monthly', pricePaise: 19900, interval: 'MONTHLY' } }
 beforeEach(() => {
   jest.clearAllMocks()
-  jest.mocked(useSession).mockReturnValue({ data: null, status: 'unauthenticated', update })
+  jest.mocked(useSession).mockReturnValue({ data: { user: { id: 'customer', role: 'USER', vip: false, freeSessionCredits: 0 }, expires: '2027-01-01' }, status: 'authenticated', update })
   global.fetch = fetchMock
 })
 afterEach(() => jest.useRealTimers())
@@ -31,4 +31,14 @@ test('pending checkout remains recoverable, polls for paid access, and refreshes
   expect(update).toHaveBeenCalledTimes(2)
   await act(async () => { await jest.advanceTimersByTimeAsync(12000) })
   expect(reads).toBe(2)
+})
+
+test('signed-out visitors sign in with a membership return link before checkout', async () => {
+  jest.mocked(useSession).mockReturnValue({ data: null, status: 'unauthenticated', update })
+  fetchMock.mockImplementation(async (url: string) => ({ ok: url === '/api/memberships/plans', json: async () => ({ plans: [{ slug: 'vip-monthly', ...membership.plan, benefits: { freeSessions: 2 } }] }) }))
+  render(<MembershipPage />)
+  const link = await screen.findByRole('link', { name: 'Sign in to subscribe' })
+  expect(link).toHaveAttribute('href', '/auth/signin?callbackUrl=%2Fdashboard%2Fmembership')
+  expect(screen.queryByRole('button', { name: /^Subscribe$/ })).not.toBeInTheDocument()
+  expect(fetchMock.mock.calls.every(([url]) => url !== '/api/memberships/subscribe')).toBe(true)
 })
