@@ -14,6 +14,7 @@ jest.mock('@/lib/auth', () => ({
 
 jest.mock('@/lib/razorpay', () => ({
   getRazorpayClient: async () => ({
+    plans: { fetch: async () => { const p = await prisma.membershipPlan.findUniqueOrThrow({ where: { slug: 'vip-monthly' } }); return { period: 'monthly', interval: 1, item: { amount: p.pricePaise, currency: 'INR' } } } },
     subscriptions: { create: async (args: any) => ({ id: 'sub_cycle_' + Date.now(), short_url: 'https://rzp.io/i/testsub', ...args }) }
   })
 }))
@@ -77,8 +78,9 @@ describe('Membership Plans & Me + Webhook', () => {
     expect(body.credits.total).toBe(0)
   })
 
-  test('webhook subscription lifecycle (no-op state changes)', async () => {
-    // Subscribe (route returns Razorpay subscription id; no DB side-effects expected)
+  test('disabled webhook effects preserve the owned pending checkout', async () => {
+    process.env.PAYMENT_EVENTS_ENABLED = 'false'
+    // Checkout persists the owner before returning the hosted URL.
     const subReq = makeNextRequest('http://localhost/api/memberships/subscribe', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ planSlug: 'vip-monthly' }) })
     const subRes = await (Subscribe as any).POST(subReq)
     expect(subRes.status).toBeLessThan(300)
@@ -88,7 +90,7 @@ describe('Membership Plans & Me + Webhook', () => {
 
     // No membership row is created yet in current runtime
     const before = await prisma.vIPMembership.findUnique({ where: { subscriptionId } })
-    expect(before).toBeNull()
+    expect(before).toMatchObject({ userId: user.id, status: 'pending' })
 
     // Simulate subscription.activated webhook — handler verifies signature and returns 200; no DB updates
     process.env.RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET || 'test_webhook'
@@ -100,7 +102,7 @@ describe('Membership Plans & Me + Webhook', () => {
     expect(res1.status).toBeLessThan(300)
 
     const afterActivate = await prisma.vIPMembership.findUnique({ where: { subscriptionId } })
-    expect(afterActivate).toBeNull()
+    expect(afterActivate).toMatchObject({ userId: user.id, status: 'pending' })
 
     // Replay activation (idempotent)
     const rawReplay = JSON.stringify(activatedPayload)

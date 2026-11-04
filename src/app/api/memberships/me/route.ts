@@ -18,19 +18,14 @@ export async function GET() {
       include: { plan: true }
     })
 
-    let creditsTotal = 0
-    if (membership) {
-      const credits = await prisma.sessionCredit.aggregate({
-        where: { userId, membershipId: membership.id },
-        _sum: { credits: true }
-      })
-      creditsTotal = credits._sum.credits || 0
-    }
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { freeSessionCredits: true } })
+    const creditsTotal = user?.freeSessionCredits ?? 0
 
     return NextResponse.json({
       membership: membership ? {
         id: membership.id,
         status: membership.status,
+        isExpired: membership.status === 'active' && !!membership.endDate && membership.endDate <= new Date(),
         startDate: membership.startDate,
         nextBillingAt: membership.nextBillingAt,
         endDate: membership.endDate,

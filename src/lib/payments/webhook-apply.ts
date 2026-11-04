@@ -1,6 +1,5 @@
 // src/lib/payments/webhook-apply.ts
-import * as PrismaNS from '@/lib/prisma'
-import type { PrismaClient, MembershipStatus } from '@prisma/client'
+import { applyMembershipEvent } from '@/lib/memberships/webhook'
 import { createAndStoreInvoicePdf } from '@/lib/invoices'
 
 type RazorpayEvent = {
@@ -17,40 +16,23 @@ type ApplyResult = { applied: boolean; action?: string; reason?: string }
 
 /**
  * Minimal, idempotent side-effects for Razorpay webhooks.
- * - subscription.activated: try to mark existing VIPMembership ACTIVE by subscriptionId (no create if missing)
+ * - Bound subscription events: transactional ownership, captured payment, and credit fulfillment.
  * - payment.captured: trigger invoice generation via resilient generator (idempotent)
  *
  * Never throws; returns { applied, action?, reason? }.
  */
 export async function applyWebhookSideEffects(evt: unknown): Promise<ApplyResult> {
   try {
-    // Support tests mocking default export; prefer named prisma when present
-    const prisma: PrismaClient = (PrismaNS as { prisma?: PrismaClient; default?: PrismaClient }).prisma
-      ?? (PrismaNS as { prisma?: PrismaClient; default?: PrismaClient }).default!
     const e = evt as RazorpayEvent
     const type = e?.event
     if (!type) return { applied: false, reason: 'no-event-type' }
 
-    if (type === 'subscription.activated') {
-      const subId =
-        e?.payload?.subscription?.entity?.id ??
-        e?.payload?.subscription?.id ??
-        e?.subscription_id ?? undefined
-
-      if (!subId) return { applied: false, action: 'subscription.activate', reason: 'no-subscription-id' }
-
-      // Idempotent: only update if membership exists. Do not create rows here.
-      try {
-        const ACTIVE_STATUS: MembershipStatus = 'active'
-        await prisma.vIPMembership.update({
-          where: { subscriptionId: subId },
-          data: { status: ACTIVE_STATUS },
-        })
-        return { applied: true, action: 'subscription.activate' }
-      } catch {
-        // Not found -> skip silently (legacy / out-of-band creation)
-        return { applied: false, action: 'subscription.activate', reason: 'membership-not-found' }
+    const membershipResult = await applyMembershipEvent(evt)
+    if (membershipResult) {
+      if (membershipResult.applied && 'gatewayPaymentId' in membershipResult && membershipResult.gatewayPaymentId) {
+        await createAndStoreInvoicePdf(membershipResult.gatewayPaymentId, { force: false })
       }
+      return membershipResult
     }
 
     if (type === 'payment.captured') {

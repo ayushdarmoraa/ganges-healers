@@ -1,35 +1,27 @@
-describe('applyWebhookSideEffects uses Prisma enum for ACTIVE', () => {
-  it('updates with VIPMembershipStatus.ACTIVE', async () => {
-    jest.resetModules()
+import { applyWebhookSideEffects } from '@/lib/payments/webhook-apply'
+import { applyMembershipEvent } from '@/lib/memberships/webhook'
+import { createAndStoreInvoicePdf } from '@/lib/invoices'
 
-    // Arrange: mock prisma update and capture the payload
-    const update = jest.fn().mockResolvedValue({ id: 'mem_1' })
-    jest.mock('@/lib/prisma', () => ({
-      __esModule: true,
-      default: { vIPMembership: { update } },
-    }))
+jest.mock('@/lib/memberships/webhook', () => ({ applyMembershipEvent: jest.fn() }))
+jest.mock('@/lib/invoices', () => ({ createAndStoreInvoicePdf: jest.fn() }))
+const apply = jest.mocked(applyMembershipEvent)
+beforeEach(() => jest.clearAllMocks())
 
-    // Important: import AFTER mocking prisma so TS types still compile,
-    // but the runtime call goes to our mock.
-    const { MembershipStatus } = await import('@prisma/client')
-    const { applyWebhookSideEffects } = await import('@/lib/payments/webhook-apply')
+test('delegates verified subscription events to the ownership-aware membership handler', async () => {
+  apply.mockResolvedValue({ applied: true, action: 'subscription.update' })
+  const event = { event: 'subscription.activated' }
+  await expect(applyWebhookSideEffects(event)).resolves.toEqual({ applied: true, action: 'subscription.update' })
+  expect(apply).toHaveBeenCalledWith(event)
+  expect(createAndStoreInvoicePdf).not.toHaveBeenCalled()
+})
 
-    const event = {
-      event: 'subscription.activated',
-      payload: { subscription: { entity: { id: 'sub_abc' } } },
-    }
+test('invoices a fulfilled membership charge after commit', async () => {
+  apply.mockResolvedValue({ applied: true, action: 'subscription.charge', gatewayPaymentId: 'pay_member' })
+  await applyWebhookSideEffects({ event: 'subscription.charged' })
+  expect(createAndStoreInvoicePdf).toHaveBeenCalledWith('pay_member', { force: false })
+})
 
-    // Act
-    const res = await applyWebhookSideEffects(event)
-
-    // Assert
-    expect(res).toEqual({ applied: true, action: 'subscription.activate' })
-    expect(update).toHaveBeenCalledTimes(1)
-    expect(update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { subscriptionId: 'sub_abc' },
-        data: { status: MembershipStatus.active },
-      })
-    )
-  })
+test('reports failures so the webhook route can request a provider retry', async () => {
+  apply.mockRejectedValue(new Error('database temporarily unavailable'))
+  await expect(applyWebhookSideEffects({ event: 'subscription.charged' })).resolves.toEqual({ applied: false, reason: 'apply-error' })
 })
