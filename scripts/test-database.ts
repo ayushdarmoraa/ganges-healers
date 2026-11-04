@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { spawnSync } from 'node:child_process'
+import { pathToFileURL } from 'node:url'
 import { parse } from 'dotenv'
 
 const TEST_DATABASE_NAME = 'ganges_healers_test'
@@ -138,7 +139,7 @@ function runChecked(settings: TestDatabaseSettings, args: string[], label: strin
 export function runTestDatabaseCommand(action: 'reset' | 'seed' | 'prepare') {
   const settings = loadTestDatabaseEnvironment()
   const requireFromProject = createRequire(path.join(settings.rootDir, 'package.json'))
-  const loader = requireFromProject.resolve('tsx')
+  const loader = pathToFileURL(requireFromProject.resolve('tsx')).href
   runChecked(settings, ['--import', loader, __filename, 'identity'], 'identity check')
 
   if (action === 'reset' || action === 'prepare') {
