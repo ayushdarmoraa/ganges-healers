@@ -102,8 +102,9 @@ Security headers (X-Frame-Options, X-Content-Type-Options, etc.) are configured 
 2. Set `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` in environment
 3. Configure webhooks in the Razorpay dashboard:
    - **URL:** `https://your-domain.com/api/payments/webhook`
-   - **Events:** `payment.captured`, `subscription.activated`, `subscription.charged`, `subscription.cancelled`, `refund.processed`
+   - **Events:** `payment.captured`, `subscription.activated`, `subscription.charged`, `subscription.paused`, `subscription.resumed`, `subscription.pending`, `subscription.halted`, `subscription.cancelled`, `subscription.completed`, `refund.processed`
    - **Secret:** Use the same value as `RAZORPAY_WEBHOOK_SECRET`
+   - **Application:** Enable `PAYMENT_EVENTS_ENABLED=true` only for the environment whose callback has been verified. See `docs/membership-fulfillment.md` for quote binding, single-cycle billing, reconciliation, and retry contracts.
 4. Create subscription plans in the Razorpay dashboard matching the `MembershipPlan` slugs (`vip-monthly`, `vip-yearly`)
 
 ---
