@@ -69,7 +69,7 @@ export async function listHealers(params?: { serviceSlug?: string; q?: string; l
   })
 
   // Fetch all services once to map specializations → services
-  const allServices = await prisma.service.findMany({ select: { slug: true, name: true } })
+  const allServices = await prisma.service.findMany({ where: { isActive: true }, select: { slug: true, name: true } })
 
   const items: HealerListItem[] = healers.map((h) => {
     const name = h.user?.name || 'Healer'
@@ -100,7 +100,7 @@ export async function listHealers(params?: { serviceSlug?: string; q?: string; l
 export async function getHealerBySlug(slug: string): Promise<HealerDetail | null> {
   // slug is healer.id for now
   const h = await prisma.healer.findUnique({
-    where: { id: slug },
+    where: { id: slug, isActive: true },
     select: {
       id: true,
       bio: true,
@@ -113,7 +113,7 @@ export async function getHealerBySlug(slug: string): Promise<HealerDetail | null
   })
   if (!h) return null
 
-  const allServices = await prisma.service.findMany({ select: { slug: true, name: true } })
+  const allServices = await prisma.service.findMany({ where: { isActive: true }, select: { slug: true, name: true } })
   const services = (h.specializations || []).flatMap((spec) =>
     allServices
       .filter((s) => s.name.toLowerCase().includes(spec.toLowerCase()))
