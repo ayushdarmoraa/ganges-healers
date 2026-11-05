@@ -1,7 +1,7 @@
 "use client"
 
 import Link from 'next/link'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
@@ -13,6 +13,9 @@ interface MembershipResp { membership: { id: string; status: string; isExpired?:
 
 export default function MembershipPage() {
   const { update, status } = useSession()
+  // NextAuth replaces update() when session/loading changes. Keep the fetch callback stable.
+  const updateSession = useRef(update)
+  useEffect(() => { updateSession.current = update }, [update])
   const [plans, setPlans] = useState<Plan[]>([])
   const [loadingPlans, setLoadingPlans] = useState(false)
   const [membership, setMembership] = useState<MembershipResp['membership'] | null>(null)
@@ -31,11 +34,11 @@ export default function MembershipPage() {
         const data: MembershipResp = await res.json()
         setMembership(data.membership)
         setCredits(data.credits.total)
-        await update()
+        await updateSession.current()
         return data.membership?.status
       }
     } catch { /* noop */ }
-  }, [update])
+  }, [])
 
   const fetchPlans = useCallback(async () => {
     setLoadingPlans(true)

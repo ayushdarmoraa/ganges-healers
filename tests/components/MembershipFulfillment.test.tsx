@@ -42,3 +42,21 @@ test('signed-out visitors sign in with a membership return link before checkout'
   expect(screen.queryByRole('button', { name: /^Subscribe$/ })).not.toBeInTheDocument()
   expect(fetchMock.mock.calls.every(([url]) => url !== '/api/memberships/subscribe')).toBe(true)
 })
+
+test('a changing NextAuth update callback cannot restart membership and plan loading', async () => {
+  jest.mocked(useSession).mockImplementation(() => ({
+    data: { user: { id: 'customer', role: 'USER', vip: false, freeSessionCredits: 0 }, expires: '2027-01-01' },
+    status: 'authenticated', update: async () => update(),
+  }))
+  fetchMock.mockImplementation(async (url: string) => ({ ok: true, json: async () => {
+    if (url === '/api/memberships/me') return { membership: { ...membership, status: 'active' }, credits: { total: 2 } }
+    if (url === '/api/memberships/plans') return { plans: [] }
+    return { invoices: [] }
+  } }))
+  const { rerender } = render(<MembershipPage />)
+  expect(await screen.findByText('Credits: 2')).toBeVisible()
+  await act(async () => { rerender(<MembershipPage />) })
+  expect(update).toHaveBeenCalledTimes(1)
+  expect(fetchMock.mock.calls.filter(([url]) => url === '/api/memberships/me')).toHaveLength(1)
+  expect(fetchMock.mock.calls.filter(([url]) => url === '/api/memberships/plans')).toHaveLength(1)
+})
