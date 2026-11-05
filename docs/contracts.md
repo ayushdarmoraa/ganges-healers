@@ -678,7 +678,9 @@ version; socket authorization performs the same existing periodic recheck.
 Disabling never restores an older session. The UI displays recovery codes only
 for their owner, requires acknowledgement before signing out, and keeps them
 available after a sign-out failure. It requires explicit server success before
-announcing any security change. Secrets and codes are not written to logs.
+announcing any security change. Secrets and codes are not written to logs. Settings and navigation share a
+confirmed sign-out helper, then navigate to their validated local path. They do
+not follow a configured-host redirect returned by the authentication service.
 
 Apply additive migration `20261105210000_authenticator_security` before deploying
 this code. Existing users default to security version zero and have no enabled

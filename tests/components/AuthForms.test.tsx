@@ -12,8 +12,8 @@ jest.mock('next-auth/react', () => ({ getProviders: jest.fn(), signIn: jest.fn()
 jest.mock('@/components/dashboard/AvatarUpload', () => ({ __esModule: true, default: () => null }))
 jest.mock('sonner', () => ({ toast: { success: jest.fn(), error: jest.fn() } }))
 
-const router = { push: jest.fn() }
-const auth = jest.requireMock<{ getProviders: jest.Mock; signIn: jest.Mock }>('next-auth/react')
+const router = { push: jest.fn(), refresh: jest.fn() }
+const auth = jest.requireMock<{ getProviders: jest.Mock; signIn: jest.Mock; signOut: jest.Mock }>('next-auth/react')
 const toast = jest.requireMock<{ toast: { success: jest.Mock; error: jest.Mock } }>('sonner').toast
 
 beforeEach(() => {
@@ -22,6 +22,7 @@ beforeEach(() => {
   jest.requireMock<{ useSearchParams: jest.Mock }>('next/navigation').useSearchParams.mockReturnValue(new URLSearchParams())
   auth.getProviders.mockResolvedValue({ credentials: { id: 'credentials' } })
   auth.signIn.mockResolvedValue({ error: null, ok: true })
+  auth.signOut.mockResolvedValue({ url: 'http://different-auth-host.example/auth/signin' })
 })
 afterEach(() => jest.restoreAllMocks())
 
@@ -293,11 +294,12 @@ async function submitSettingsPassword(user: ReturnType<typeof userEvent.setup>) 
 }
 
 test('a confirmed settings password change signs out the revoked current session', async () => {
-  jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ success: true })))
+  jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ success: true }))).mockResolvedValueOnce(new Response('null'))
   const user = userEvent.setup()
   render(<SettingsClient user={settingsUser} />)
   await submitSettingsPassword(user)
-  await waitFor(() => expect(jest.requireMock<{ signOut: jest.Mock }>('next-auth/react').signOut).toHaveBeenCalledWith({ callbackUrl: '/auth/signin' }))
+  await waitFor(() => expect(jest.requireMock<{ signOut: jest.Mock }>('next-auth/react').signOut).toHaveBeenCalledWith({ redirect: false, redirectTo: '/auth/signin' }))
+  await waitFor(() => expect(router.push).toHaveBeenCalledWith('/auth/signin'))
 })
 
 test('unconfirmed settings password changes preserve the draft and do not sign out', async () => {
