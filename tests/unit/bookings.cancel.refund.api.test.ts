@@ -19,6 +19,7 @@ type TestPayment = {
   statusEnum: string | null
   amountPaise: number
   gatewayPaymentId: string | null
+  currency: string
 }
 
 type TestRefund = {
@@ -41,6 +42,7 @@ type MockPrisma = {
   $transaction: <T>(work: (tx: MockPrisma) => Promise<T>) => Promise<T>
   $executeRaw: (...args: unknown[]) => Promise<number>
   booking: {
+    findUnique: (args: { where: { id: string } }) => Promise<TestBooking | null>
     findFirst: (args: {
       where: { id: string; userId: string }
       include?: { payment?: unknown }
@@ -51,9 +53,14 @@ type MockPrisma = {
     }) => Promise<{ count: number }>
   }
   refund: {
+    findUniqueOrThrow: (args: { where: { id: string } }) => Promise<TestRefund>
     findMany: (args: { where: { paymentId: string } }) => Promise<TestRefund[]>
     create: (args: { data: Omit<TestRefund, 'id' | 'createdAt' | 'gatewayRefundId'> }) => Promise<TestRefund>
     update: (args: { where: { id: string }; data: Partial<TestRefund> }) => Promise<TestRefund>
+  }
+  payment: {
+    findUniqueOrThrow: (args: { where: { id: string } }) => Promise<TestPayment>
+    update: (args: { where: { id: string }; data: Partial<TestPayment> }) => Promise<TestPayment>
   }
 }
 
@@ -91,6 +98,7 @@ const mockPrisma: MockPrisma = {
   },
   $executeRaw: async () => 1,
   booking: {
+    findUnique: async ({ where }) => mockDb.bookings.find(row => row.id === where.id) ?? null,
     findFirst: async ({ where, include }: Parameters<MockPrisma['booking']['findFirst']>[0]) => {
       const booking = mockDb.bookings.find(row => row.id === where.id && row.userId === where.userId)
       if (!booking) return null
@@ -107,6 +115,11 @@ const mockPrisma: MockPrisma = {
     },
   },
   refund: {
+    findUniqueOrThrow: async ({ where }) => {
+      const refund = mockDb.refunds.find(row => row.id === where.id)
+      if (!refund) throw new Error('Refund not found')
+      return refund
+    },
     findMany: async ({ where }: Parameters<MockPrisma['refund']['findMany']>[0]) =>
       mockDb.refunds.filter(row => row.paymentId === where.paymentId).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()),
     create: async ({ data }: Parameters<MockPrisma['refund']['create']>[0]) => {
@@ -124,6 +137,19 @@ const mockPrisma: MockPrisma = {
       if (!refund) throw new Error('Refund not found')
       Object.assign(refund, data)
       return refund
+    },
+  },
+  payment: {
+    findUniqueOrThrow: async ({ where }) => {
+      const payment = mockDb.payments.find(row => row.id === where.id)
+      if (!payment) throw new Error('Payment not found')
+      return payment
+    },
+    update: async ({ where, data }) => {
+      const payment = mockDb.payments.find(row => row.id === where.id)
+      if (!payment) throw new Error('Payment not found')
+      Object.assign(payment, data)
+      return payment
     },
   },
 }
@@ -165,6 +191,7 @@ function seedBooking(options: {
       statusEnum: 'SUCCESS',
       amountPaise: booking.pricePaise,
       gatewayPaymentId: `pay_${booking.id}`,
+      currency: 'INR',
       ...options.payment,
     })
   }
@@ -205,11 +232,11 @@ beforeEach(() => {
     status: 'SUCCESS',
     raw: {},
   })
-  mockFetchRefundStatus.mockReset().mockResolvedValue({
-    gatewayRefundId: 'rfnd_test',
+  mockFetchRefundStatus.mockReset().mockImplementation(async refundId => ({
+    gatewayRefundId: refundId,
     status: 'SUCCESS',
     raw: {},
-  })
+  }))
 })
 
 describe('booking cancellation and Razorpay refunds', () => {
