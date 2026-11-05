@@ -107,11 +107,13 @@ export default function HealerCard({ healer, serviceId, serviceName }: HealerCar
             )}
           </div>
           <div className="flex items-center gap-2 mt-1">
+            {healer.reviewCount > 0 ? <>
             <StarRating rating={healer.rating ?? 0} />
             <span className="text-sm text-muted-foreground">
               {(healer.rating ?? 0).toFixed(1)}
               {healer.reviewCount > 0 && ` (${healer.reviewCount})`}
             </span>
+            </> : <span className="text-sm text-muted-foreground">No reviews yet</span>}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
             {healer.experienceYears} years experience
@@ -154,7 +156,7 @@ export default function HealerCard({ healer, serviceId, serviceName }: HealerCar
           id: healer.id,
           user: { name },
           experienceYears: healer.experienceYears,
-          rating: healer.rating ?? 5,
+          rating: healer.reviewCount > 0 ? healer.rating ?? 0 : 0,
         }}
         serviceId={serviceId}
         serviceName={serviceName}
