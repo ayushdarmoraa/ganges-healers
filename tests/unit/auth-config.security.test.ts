@@ -16,7 +16,7 @@ jest.mock('bcryptjs', () => ({ __esModule: true, default: { compare: jest.fn() }
 
 interface AuthConfiguration {
   secret?: string
-  callbacks: { jwt: (input: { token: Record<string, unknown>; trigger: string; session?: unknown }) => Promise<Record<string, unknown>>; signIn: (input: { account?: { provider: string }; profile?: { email_verified?: boolean } }) => Promise<boolean> }
+  callbacks: { jwt: (input: { token: Record<string, unknown>; trigger: string; session?: unknown }) => Promise<Record<string, unknown> | null>; signIn: (input: { account?: { provider: string }; profile?: { email_verified?: boolean } }) => Promise<boolean> }
   providers: Array<{
     id: string
     authorize: (credentials: Record<string, string>) => Promise<Record<string, unknown> | null>
@@ -102,6 +102,49 @@ describe('production-safe authentication configuration', () => {
     user.findUnique.mockResolvedValue({ name: 'Customer', image: null, vip: false, freeSessionCredits: 2, memberships: [] })
     const token = await configuration.callbacks.jwt({ token: { id: 'owner', vip: true, freeSessionCredits: 999 }, trigger: 'update', session: { vip: true, freeSessionCredits: 999 } })
     expect(token).toMatchObject({ id: 'owner', vip: false, freeSessionCredits: 2 })
+  })
+
+  test.each([
+    ['ADMIN', 'USER'],
+    ['HEALER', 'USER'],
+    ['USER', 'ADMIN'],
+  ])('refreshes a cached %s role to the current database %s role on an ordinary session read', async (cachedRole, currentRole) => {
+    const { configuration, user } = loadConfiguration()
+    user.findUnique.mockResolvedValue({ name: 'Account', image: null, role: currentRole, vip: false, freeSessionCredits: 0, memberships: [] })
+    const token = await configuration.callbacks.jwt({ token: { id: 'account', role: cachedRole }, trigger: '' })
+    expect(token).toMatchObject({ id: 'account', role: currentRole })
+    expect(user.findUnique).toHaveBeenCalledTimes(1)
+    expect(user.findUnique).toHaveBeenCalledWith({
+      where: { id: 'account' },
+      select: expect.objectContaining({ role: true }),
+    })
+  })
+
+  test('ignores client-supplied administrator privileges during session updates', async () => {
+    const { configuration, user } = loadConfiguration()
+    user.findUnique.mockResolvedValue({ name: 'Customer', image: null, role: 'USER', vip: false, freeSessionCredits: 0, memberships: [] })
+    await expect(configuration.callbacks.jwt({
+      token: { id: 'customer', role: 'USER' }, trigger: 'update',
+      session: { role: 'ADMIN', user: { role: 'ADMIN' } },
+    })).resolves.toMatchObject({ role: 'USER' })
+  })
+
+  test('invalidates a deleted account instead of retaining its cached administrator session', async () => {
+    const { configuration, user } = loadConfiguration()
+    user.findUnique.mockResolvedValue(null)
+    await expect(configuration.callbacks.jwt({ token: { id: 'deleted', role: 'ADMIN', vip: true }, trigger: '' })).resolves.toBeNull()
+  })
+
+  test.each([undefined, '', 0])('rejects a session without a valid account ID (%s) before querying users', async id => {
+    const { configuration, user } = loadConfiguration()
+    await expect(configuration.callbacks.jwt({ token: { id, role: 'ADMIN' }, trigger: '' })).resolves.toBeNull()
+    expect(user.findUnique).not.toHaveBeenCalled()
+  })
+
+  test('does not retain cached privileges when account verification fails', async () => {
+    const { configuration, user } = loadConfiguration()
+    user.findUnique.mockRejectedValue(new Error('Account lookup unavailable'))
+    await expect(configuration.callbacks.jwt({ token: { id: 'account', role: 'ADMIN' }, trigger: '' })).rejects.toThrow('Account lookup unavailable')
   })
 
   test('requires a configured production secret rather than a public fallback', () => {
