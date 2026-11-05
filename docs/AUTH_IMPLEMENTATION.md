@@ -132,3 +132,20 @@ GOOGLE_CLIENT_SECRET="your-google-client-secret"
 - **Auth not working**: Verify `AUTH_SECRET` is set in `.env`
 - **Database issues**: Run `npm run prisma:migrate` and `npm run seed`
 - **Google OAuth issues**: Verify client ID/secret and redirect URIs in Google Console
+# Password recovery
+
+The sign-in screen links to `/auth/reset-password` and preserves a safe local
+booking callback. Recovery uses the existing Resend service and
+`VerificationToken` table; it requires `RESEND_API_KEY`, a verified sender for
+`noreply@gangeshealers.com`, and a trusted application origin (`AUTH_URL`,
+`NEXTAUTH_URL`, `NEXT_PUBLIC_SITE_URL`, or automatic `VERCEL_URL`). Missing
+configuration is shown as temporarily unavailable; email delivery has not been
+verified in the new Ganges workspace.
+
+Links expire after 15 minutes, are single-use, and invalidate other recovery
+links and prior sessions. Accounts with Google only continue using Google.
+The rollout requires existing users to sign in once because old JWT cookies do
+not contain a credential version. Browser/API sessions revalidate on their next
+read; custom-server notification sockets revalidate within 30 seconds. Existing
+password-change responses remain compatible and cannot overwrite a concurrently
+changed credential. See `docs/contracts.md` for endpoint and error contracts.

@@ -3,6 +3,7 @@ import { createServer } from 'node:http'
 import { Server } from 'socket.io'
 import { io as connect, type Socket } from 'socket.io-client'
 import { registerNotificationSockets } from '../../src/lib/notifications/socket-auth'
+import { passwordVersion } from '../../src/lib/auth/password-version'
 
 // Native ESM runs the real Auth.js crypto and Socket.IO transport, without a database.
 async function main() {
@@ -10,7 +11,8 @@ async function main() {
   const secret = process.env.AUTH_SECRET!
   const http = createServer()
   const io = new Server(http, { path: '/api/socketio', serveClient: false })
-  registerNotificationSockets(io, 'http://localhost:3000')
+  const versions = new Map([['alice', passwordVersion(null)], ['bob', passwordVersion(null)]])
+  registerNotificationSockets(io, 'http://localhost:3000', async (userId, version) => versions.get(userId) === version && typeof version === 'string')
   const clients: Socket[] = []
   await new Promise<void>(resolve => http.listen(0, '127.0.0.1', resolve))
   const address = http.address()
@@ -33,8 +35,8 @@ async function main() {
   try {
     const base = 'authjs.session-token'
     const secure = '__Secure-authjs.session-token'
-    const aliceToken = await encode({ token: { id: 'alice', sub: 'alice' }, secret, salt: base, maxAge: 6 })
-    const bobToken = await encode({ token: { id: 'bob', sub: 'bob' }, secret, salt: secure, maxAge: 60 })
+    const aliceToken = await encode({ token: { id: 'alice', sub: 'alice', passwordVersion: passwordVersion(null) }, secret, salt: base, maxAge: 6 })
+    const bobToken = await encode({ token: { id: 'bob', sub: 'bob', passwordVersion: passwordVersion(null) }, secret, salt: secure, maxAge: 60 })
     const alice = client(`${base}.0=${aliceToken.slice(0, 50)}; ${base}.1=${aliceToken.slice(50)}`)
     const bob = client(`${secure}=${bobToken}`, 'http://localhost:3000', 'alice')
     await accepted(alice); await accepted(bob)
@@ -51,6 +53,10 @@ async function main() {
     await rejected(client(`${base}=${await encode({ token: { id: 'alice' }, secret: 'different-synthetic-secret', salt: base, maxAge: 60 })}`))
     await rejected(client(`${base}=${await encode({ token: { id: 'alice' }, secret, salt: base, maxAge: -60 })}`))
     await rejected(client(`${secure}=${bobToken}`, 'https://foreign.example'))
+    versions.set('bob', passwordVersion('reset-credential'))
+    await rejected(client(`${secure}=${bobToken}`))
+    const deleted = await encode({ token: { id: 'deleted', passwordVersion: passwordVersion(null) }, secret, salt: base, maxAge: 60 })
+    await rejected(client(`${base}=${deleted}`))
     assert.equal(await expiry, 'io server disconnect')
     assert.equal(io.sockets.adapter.rooms.has('user:alice'), false)
     assert.equal(bob.connected, true)

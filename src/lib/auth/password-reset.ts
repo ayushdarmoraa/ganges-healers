@@ -1,0 +1,86 @@
+import { createHash, randomBytes } from 'node:crypto'
+import { Prisma } from '@prisma/client'
+import bcrypt from 'bcryptjs'
+import { prisma } from '@/lib/prisma'
+import { emailService } from '@/lib/email/email.service'
+import { safeCallbackUrl } from './callback-url'
+import { passwordVersion } from './password-version'
+
+const TOKEN_LIFETIME_MS = 15 * 60_000
+const REQUEST_INTERVAL_MS = 5 * 60_000
+const digest = (value: string) => createHash('sha256').update(value).digest('hex')
+export const RESET_MESSAGE = 'If an account with a password uses that email, you will receive a reset link. Check your inbox and spam folder.'
+
+export class PasswordResetError extends Error {}
+
+/** Recovery destinations come only from server configuration, never an incoming Host header. */
+export function passwordResetBaseUrl(environment: NodeJS.ProcessEnv = process.env): string | null {
+  const configured = environment.AUTH_URL || environment.NEXTAUTH_URL || environment.NEXT_PUBLIC_SITE_URL ||
+    (environment.VERCEL_URL ? `https://${environment.VERCEL_URL}` : undefined)
+  if (!configured) return null
+  try {
+    const url = new URL(configured)
+    const localDevelopment = environment.NODE_ENV !== 'production' && ['localhost', '127.0.0.1'].includes(url.hostname)
+    if (url.username || url.password || url.search || url.hash || (url.protocol !== 'https:' && !(localDevelopment && url.protocol === 'http:'))) return null
+    return url.origin
+  } catch { return null }
+}
+
+/** Run after the generic HTTP response so account lookup and mail timing cannot enumerate users. */
+export async function requestPasswordReset(email: string, baseUrl: string, callbackUrl: unknown) {
+  const user = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: 'insensitive' } },
+    select: { id: true, email: true, password: true },
+  })
+  if (!user?.password) return
+  const now = new Date()
+  const rateToken = digest(`password-reset-rate:${user.id}`)
+  const rateIdentifier = `password-reset-rate:${user.id}`
+  await prisma.verificationToken.deleteMany({ where: { token: rateToken, identifier: rateIdentifier, expires: { lte: now } } })
+  try {
+    // The unique token makes this throttle shared across serverless instances and concurrent requests.
+    await prisma.verificationToken.create({ data: { token: rateToken, identifier: rateIdentifier, expires: new Date(now.getTime() + REQUEST_INTERVAL_MS) } })
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') return
+    throw error
+  }
+  const prefix = `password-reset:${user.id}:`
+  await prisma.verificationToken.deleteMany({ where: { identifier: { startsWith: prefix }, expires: { lte: now } } })
+  const token = randomBytes(32).toString('hex')
+  const tokenHash = digest(token)
+  const identifier = `${prefix}${passwordVersion(user.password)}`
+  await prisma.verificationToken.create({ data: { token: tokenHash, identifier, expires: new Date(now.getTime() + TOKEN_LIFETIME_MS) } })
+  const link = new URL('/auth/reset-password', baseUrl)
+  const destination = safeCallbackUrl(callbackUrl)
+  if (destination !== '/dashboard') link.searchParams.set('callbackUrl', destination)
+  // A fragment is not sent in HTTP requests or Referer headers. The page clears it immediately.
+  link.hash = new URLSearchParams({ token }).toString()
+  const result = await emailService.sendPasswordReset({ to: user.email, link: link.href })
+  if (!result.success) {
+    await prisma.verificationToken.deleteMany({ where: { token: tokenHash, identifier } })
+    console.error('[auth][password-reset][delivery-failed]')
+  }
+}
+
+/** Consume the recovery token and update the credential atomically; concurrent replays cannot win. */
+export async function confirmPasswordReset(token: string, newPassword: string) {
+  const tokenHash = digest(token)
+  const record = await prisma.verificationToken.findUnique({ where: { token: tokenHash } })
+  const now = new Date()
+  const parts = record?.identifier.split(':')
+  if (!record || record.expires <= now || parts?.length !== 3 || parts[0] !== 'password-reset') throw new PasswordResetError('This reset link is invalid or has expired. Request a new link.')
+  const userId = parts[1]
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, password: true } })
+  if (!user?.password || parts[2] !== passwordVersion(user.password)) throw new PasswordResetError('This reset link is invalid or has expired. Request a new link.')
+  const hashed = await bcrypt.hash(newPassword, 12)
+  await prisma.$transaction(async tx => {
+    // Lock the account before token rows, so different concurrent links cannot deadlock each other.
+    const changed = await tx.user.updateMany({ where: { id: userId, password: user.password }, data: { password: hashed } })
+    if (changed.count !== 1) throw new PasswordResetError('This reset link is invalid or has expired. Request a new link.')
+    const consumed = await tx.verificationToken.deleteMany({ where: { token: tokenHash, identifier: record.identifier, expires: { gt: new Date() } } })
+    if (consumed.count !== 1) throw new PasswordResetError('This reset link is invalid or has expired. Request a new link.')
+    await tx.verificationToken.deleteMany({ where: { identifier: { startsWith: `password-reset:${userId}:` } } })
+    await tx.session.deleteMany({ where: { userId } })
+  })
+  console.info('[auth][password-reset][completed]')
+}

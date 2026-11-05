@@ -110,6 +110,7 @@ function SignInContent() {
                     disabled={isLoading}
                   />
                 </div>
+                <Link href={authPathWithCallback('/auth/reset-password', callbackUrl)} className="block text-sm underline">Forgot your password?</Link>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? "Signing in..." : "Sign In"}
                 </Button>

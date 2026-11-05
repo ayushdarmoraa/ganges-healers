@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { RegisterForm } from '@/components/auth/register-form'
 import SignInPage from '@/app/auth/signin/page'
 import RegisterPage from '@/app/register/page'
+import PasswordResetForm from '@/components/auth/password-reset-form'
 
 jest.mock('next/navigation', () => ({ useRouter: jest.fn(), useSearchParams: jest.fn() }))
 jest.mock('next-auth/react', () => ({ getProviders: jest.fn(), signIn: jest.fn() }))
@@ -126,6 +127,9 @@ test('credentials return to the chosen healer and registration link carries the 
   const register = new URL(screen.getByRole('link', { name: 'Create one' }).getAttribute('href')!, 'https://example.test')
   expect(register.pathname).toBe('/register')
   expect(register.searchParams.get('callbackUrl')).toBe(selectedBooking)
+  const recovery = new URL(screen.getByRole('link', { name: 'Forgot your password?' }).getAttribute('href')!, 'https://example.test')
+  expect(recovery.pathname).toBe('/auth/reset-password')
+  expect(recovery.searchParams.get('callbackUrl')).toBe(selectedBooking)
   await submitSignIn(user)
   await waitFor(() => expect(router.push).toHaveBeenCalledWith(selectedBooking))
 })
@@ -172,4 +176,63 @@ test('the registration page preserves the callback on its existing-account link'
   render(await RegisterPage({ searchParams: Promise.resolve({ callbackUrl: selectedBooking }) }))
   const destination = new URL(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')!, 'https://example.test')
   expect(destination.searchParams.get('callbackUrl')).toBe(selectedBooking)
+})
+
+afterEach(() => { window.history.replaceState(null, '', '/') })
+
+test('recovery requests preserve the selected booking and show only the generic account response', async () => {
+  withCallback(selectedBooking)
+  const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ message: 'If an account uses that email, you will receive a reset link.' }), { status: 200 }))
+  const user = userEvent.setup()
+  render(<PasswordResetForm />)
+  await user.type(await screen.findByLabelText('Email'), 'customer@example.test')
+  await user.click(screen.getByRole('button', { name: 'Send reset link' }))
+  expect(await screen.findByRole('status')).toHaveTextContent('If an account')
+  expect(JSON.parse(fetch.mock.calls[0][1]!.body as string)).toEqual({ email: 'customer@example.test', callbackUrl: selectedBooking })
+})
+
+test('an unconfigured delivery provider displays the actual unavailable error', async () => {
+  jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ error: 'Password recovery is temporarily unavailable.' }), { status: 503 }))
+  const user = userEvent.setup()
+  render(<PasswordResetForm />)
+  await user.type(await screen.findByLabelText('Email'), 'customer@example.test')
+  await user.click(screen.getByRole('button', { name: 'Send reset link' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('temporarily unavailable')
+  expect(screen.queryByText(/you will receive/)).not.toBeInTheDocument()
+})
+
+test('a recovery fragment is removed from the address and submitted only to the confirmation API', async () => {
+  const token = 'a'.repeat(64)
+  window.history.replaceState(null, '', `/auth/reset-password#token=${token}`)
+  withCallback(selectedBooking)
+  const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ success: true }), { status: 200 }))
+  const user = userEvent.setup()
+  render(<PasswordResetForm />)
+  expect(window.location.hash).toBe('')
+  await user.type(await screen.findByLabelText('New password', { exact: true }), 'Replacement123!')
+  await user.type(screen.getByLabelText('Confirm new password'), 'Replacement123!')
+  await user.click(screen.getByRole('button', { name: 'Update password' }))
+  expect(await screen.findByText('Password updated')).toBeVisible()
+  expect(fetch).toHaveBeenCalledWith('/api/auth/password-reset/confirm', expect.objectContaining({ body: JSON.stringify({ token, newPassword: 'Replacement123!' }) }))
+  expect(new URL(screen.getByRole('link', { name: 'Sign in with your new password' }).getAttribute('href')!, 'https://example.test').searchParams.get('callbackUrl')).toBe(selectedBooking)
+})
+
+test('mismatched passwords never send a confirmation request', async () => {
+  window.history.replaceState(null, '', `/auth/reset-password#token=${'b'.repeat(64)}`)
+  const fetch = jest.spyOn(globalThis, 'fetch')
+  const user = userEvent.setup()
+  render(<PasswordResetForm />)
+  await user.type(await screen.findByLabelText('New password', { exact: true }), 'Replacement123!')
+  await user.type(screen.getByLabelText('Confirm new password'), 'Different123!')
+  await user.click(screen.getByRole('button', { name: 'Update password' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Passwords do not match')
+  expect(fetch).not.toHaveBeenCalled()
+})
+
+test('a malformed recovery fragment can request a fresh link without retaining the token', async () => {
+  window.history.replaceState(null, '', '/auth/reset-password#token=invalid')
+  render(<PasswordResetForm />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('invalid')
+  expect(screen.getByLabelText('Email')).toBeVisible()
+  expect(window.location.hash).toBe('')
 })

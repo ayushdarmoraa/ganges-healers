@@ -8,6 +8,7 @@ import bcrypt from "bcryptjs"
 
 import { membershipAccess } from '@/lib/memberships/access'
 import { assertProductionTestModeDisabled } from '@/lib/test-mode'
+import { passwordVersion } from '@/lib/auth/password-version'
 
 assertProductionTestModeDisabled()
 const authSecret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET
@@ -41,6 +42,7 @@ providers.push(
         role: user.role,
         vip: user.vip,
         freeSessionCredits: user.freeSessionCredits,
+        passwordVersion: passwordVersion(user.password),
       }
     }
   })
@@ -77,9 +79,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (typeof token.id !== 'string' || !token.id) return null
       const fresh = await prisma.user.findUnique({
         where: { id: token.id },
-        select: { name: true, image: true, role: true, vip: true, freeSessionCredits: true, memberships: { select: { status: true, endDate: true } } },
+        select: { name: true, image: true, password: true, role: true, vip: true, freeSessionCredits: true, memberships: { select: { status: true, endDate: true } } },
       })
       if (!fresh) return null
+      const version = passwordVersion(fresh.password)
+      if (user) {
+        // A reset between password verification and token issuance must not issue a surviving session.
+        const verifiedVersion = (user as { passwordVersion?: string }).passwordVersion
+        if (verifiedVersion !== undefined && verifiedVersion !== version) return null
+        token.passwordVersion = version
+      }
+      else if (token.passwordVersion !== version) return null
       if (trigger === 'update') {
         token.name = fresh.name
         token.picture = fresh.image

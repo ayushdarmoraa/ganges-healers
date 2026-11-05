@@ -49,10 +49,11 @@ export async function POST(req: Request) {
     }
 
     const hashed = await bcrypt.hash(newPassword, 12)
-    await prisma.user.update({
-      where: { id: session.user.id },
+    const changed = await prisma.user.updateMany({
+      where: { id: session.user.id, password: user.password },
       data: { password: hashed },
     })
+    if (changed.count !== 1) return NextResponse.json({ error: "Current password is incorrect" }, { status: 400 })
 
     console.log("[users][me][password][changed]", { userId: session.user.id })
 

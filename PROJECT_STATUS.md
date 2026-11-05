@@ -117,6 +117,14 @@ GitHub ownership is now `gangeshealers/ganges-healers`, and the new Ganges-owned
 
 ## Release sequence
 
+Current release validation: `06048cb` passed all six CI jobs in run
+`42075979526`, including the real desktop/mobile sign-out checks. Its Vercel
+Preview is ready. The password-recovery follow-up adds the missing request/reset
+screens and API flow, hashed expiring links, transactional replay protection and
+credential-bound session revocation. Local validation passed 511 unit tests,
+237 UI tests, TypeScript, focused lint and E2E discovery. Its new real-database
+and browser cases await CI; configured email delivery remains unverified.
+
 1. Finish combined-branch CI and address failures without weakening flow assertions.
 2. Review stacked pull requests and reconcile database prerequisites on an isolated copy.
 3. Validate a Vercel Preview with its dedicated database, customer/healer/admin roles, enrollments, and payment test-mode flows.
