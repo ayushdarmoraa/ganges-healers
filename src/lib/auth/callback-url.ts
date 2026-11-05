@@ -19,7 +19,7 @@ export function safeCallbackUrl(value: unknown): string {
 }
 
 /** Preserve the ordinary auth links when no explicit journey needs restoring. */
-export function authPathWithCallback(path: '/auth/signin' | '/register', value: unknown) {
+export function authPathWithCallback(path: '/auth/signin' | '/register' | '/auth/forgot-password', value: unknown) {
   const callbackUrl = safeCallbackUrl(value)
   return callbackUrl === DEFAULT_CALLBACK ? path : `${path}?${new URLSearchParams({ callbackUrl })}`
 }

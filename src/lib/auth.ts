@@ -77,9 +77,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (typeof token.id !== 'string' || !token.id) return null
       const fresh = await prisma.user.findUnique({
         where: { id: token.id },
-        select: { name: true, image: true, role: true, vip: true, freeSessionCredits: true, memberships: { select: { status: true, endDate: true } } },
+        select: { name: true, image: true, role: true, passwordChangedAt: true, vip: true, freeSessionCredits: true, memberships: { select: { status: true, endDate: true } } },
       })
       if (!fresh) return null
+      const passwordVersion = fresh.passwordChangedAt?.getTime() ?? null
+      // New logins can issue a current session. Existing sessions cannot survive a password change.
+      // The null default also revokes cookies issued before this feature once a password changes.
+      if (!user && (token.passwordVersion ?? null) !== passwordVersion) return null
+      token.passwordVersion = passwordVersion
       if (trigger === 'update') {
         token.name = fresh.name
         token.picture = fresh.image

@@ -77,6 +77,7 @@ test('sign-in hides Google when it is not returned by the configured providers',
   await waitFor(() => expect(auth.getProviders).toHaveBeenCalled())
   expect(screen.queryByRole('tab', { name: 'Google' })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Sign In' })).toBeVisible()
+  expect(screen.getByRole('link', { name: 'Forgot your password?' })).toHaveAttribute('href', '/auth/forgot-password')
 })
 
 test('sign-in offers a configured Google provider', async () => {

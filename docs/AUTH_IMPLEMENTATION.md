@@ -123,7 +123,7 @@ GOOGLE_CLIENT_SECRET="your-google-client-secret"
 2. **Add Google OAuth credentials** if needed
 3. **Customize user roles** and permissions as needed
 4. **Add email verification** for enhanced security
-5. **Implement password reset** functionality
+5. **Verify password recovery delivery** using [the recovery guide](password-recovery.md); the request/reset forms, single-use links and password-session revocation are implemented.
 6. **Add rate limiting** for auth endpoints
 
 ## 🐛 Troubleshooting

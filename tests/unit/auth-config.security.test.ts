@@ -16,7 +16,7 @@ jest.mock('bcryptjs', () => ({ __esModule: true, default: { compare: jest.fn() }
 
 interface AuthConfiguration {
   secret?: string
-  callbacks: { jwt: (input: { token: Record<string, unknown>; trigger: string; session?: unknown }) => Promise<Record<string, unknown> | null>; signIn: (input: { account?: { provider: string }; profile?: { email_verified?: boolean } }) => Promise<boolean> }
+  callbacks: { jwt: (input: { token: Record<string, unknown>; trigger: string; session?: unknown; user?: { id: string; role?: string } }) => Promise<Record<string, unknown> | null>; signIn: (input: { account?: { provider: string }; profile?: { email_verified?: boolean } }) => Promise<boolean> }
   providers: Array<{
     id: string
     authorize: (credentials: Record<string, string>) => Promise<Record<string, unknown> | null>
@@ -145,6 +145,31 @@ describe('production-safe authentication configuration', () => {
     const { configuration, user } = loadConfiguration()
     user.findUnique.mockRejectedValue(new Error('Account lookup unavailable'))
     await expect(configuration.callbacks.jwt({ token: { id: 'account', role: 'ADMIN' }, trigger: '' })).rejects.toThrow('Account lookup unavailable')
+  })
+
+  test.each([undefined, null, 1])('revokes an older or legacy session after the password changes (%s)', async passwordVersion => {
+    const { configuration, user } = loadConfiguration()
+    user.findUnique.mockResolvedValue({ role: 'USER', vip: false, freeSessionCredits: 0, memberships: [], passwordChangedAt: new Date(2000) })
+    await expect(configuration.callbacks.jwt({ token: { id: 'account', passwordVersion }, trigger: '' })).resolves.toBeNull()
+  })
+
+  test('preserves a session issued after the most recent password change', async () => {
+    const { configuration, user } = loadConfiguration()
+    user.findUnique.mockResolvedValue({ role: 'USER', vip: false, freeSessionCredits: 0, memberships: [], passwordChangedAt: new Date(2000) })
+    await expect(configuration.callbacks.jwt({ token: { id: 'account', passwordVersion: 2000 }, trigger: '' })).resolves.toMatchObject({ id: 'account', passwordVersion: 2000 })
+  })
+
+  test('a verified new sign-in receives the database password version', async () => {
+    const { configuration, user } = loadConfiguration()
+    user.findUnique.mockResolvedValue({ role: 'USER', vip: false, freeSessionCredits: 0, memberships: [], passwordChangedAt: new Date(2000) })
+    await expect(configuration.callbacks.jwt({ token: {}, user: { id: 'account' }, trigger: 'signIn' })).resolves.toMatchObject({ id: 'account', passwordVersion: 2000 })
+    expect(user.findUnique).toHaveBeenCalledTimes(1)
+  })
+
+  test('client session updates cannot bypass password-session revocation', async () => {
+    const { configuration, user } = loadConfiguration()
+    user.findUnique.mockResolvedValue({ role: 'USER', vip: false, freeSessionCredits: 0, memberships: [], passwordChangedAt: new Date(2000) })
+    await expect(configuration.callbacks.jwt({ token: { id: 'account', passwordVersion: null }, session: { passwordVersion: 2000 }, trigger: 'update' })).resolves.toBeNull()
   })
 
   test('requires a configured production secret rather than a public fallback', () => {

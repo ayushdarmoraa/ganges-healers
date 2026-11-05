@@ -98,6 +98,14 @@ Implementation present means routes/components exist. It does not establish ever
 
 ## Database ownership and rollout
 
+### Password recovery follow-up
+
+- Add request/reset forms and API routes using the existing email service and verification-token table. Links expire after 15 minutes, are single-use, bind the current email identity, and cannot redirect outside the application. Generic asynchronous request responses do not reveal whether an account exists.
+- Store token digests only, place the raw token in an email URL fragment, clear it from the browser address after opening, and exclude recovery pages from advertising scripts and referrers. Delivery failures remove only their own token reservation.
+- Serialize issuance, redemption and settings password changes with the shared transaction lock helper. Add one nullable `User.passwordChangedAt` column; an updated password invalidates old and legacy JWT sessions through the existing account lookup.
+- Unit, UI, real-database concurrency and browser reset/sign-in/session-revocation coverage is included. Validation results are recorded in the follow-up PR. The browser delivery fixture and mocked Resend calls do not establish real email delivery. No live data or Vercel settings were changed.
+- Apply the additive migration on a verified database target before using this application version. See [password recovery](docs/password-recovery.md). Provider configuration, production reconciliation and rollout remain outstanding.
+
 The `ganges-healers` and `ganges-healers-preview` Neon projects now belong to `gangeshealers@gmail.com` in Ganges. The production-named project retains four branches and its approved six-hour recovery window; preview retains its separate branch.
 
 A read-only migration-history check on the transferred `ganges-healers` project found no successful entries for these development-line migrations:

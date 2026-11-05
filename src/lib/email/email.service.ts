@@ -19,6 +19,24 @@ export const emailService = {
     return !disabled
   },
 
+  async sendPasswordReset(data: { to: string; resetUrl: string }) {
+    if (disabled || !resend) return { success: false, disabled: true }
+    try {
+      const result = await resend.emails.send({
+        from: 'Ganges Healers <noreply@gangeshealers.com>',
+        to: data.to,
+        subject: 'Reset your Ganges Healers password',
+        text: `Use this link to choose a new password:\n\n${data.resetUrl}\n\nThis link expires in 15 minutes and can be used once. If you did not request it, you can ignore this email.`,
+      })
+      if (result.error || !result.data?.id) return { success: false }
+      return { success: true, id: result.data.id }
+    } catch {
+      // Provider errors may contain the recipient or reset URL; do not log them.
+      console.error('[Email:sendPasswordReset] delivery failed')
+      return { success: false }
+    }
+  },
+
   async sendBookingConfirmation(data: {
     to: string
     userName: string

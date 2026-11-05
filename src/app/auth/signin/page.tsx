@@ -114,6 +114,9 @@ function SignInContent() {
                   {isLoading ? "Signing in..." : "Sign In"}
                 </Button>
               </form>
+              <p className="mt-4 text-center text-sm">
+                <Link href={authPathWithCallback('/auth/forgot-password', callbackUrl)} className="text-primary hover:underline">Forgot your password?</Link>
+              </p>
             </TabsContent>
 
             {googleEnabled && <TabsContent value="oauth">

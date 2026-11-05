@@ -14,6 +14,7 @@ model User {
   image              String?
   phone              String?             @unique
   password           String?
+  passwordChangedAt  DateTime?
   role               Role                @default(USER)
   vip                Boolean             @default(false)
   freeSessionCredits Int                 @default(0)

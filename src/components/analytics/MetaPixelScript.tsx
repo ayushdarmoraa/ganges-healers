@@ -1,14 +1,15 @@
 'use client'
 
 import Script from 'next/script'
-
-const PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID
+import { usePathname } from 'next/navigation'
 
 /**
  * Renders the Meta Pixel base code. Renders nothing when the env var is absent.
  */
 export default function MetaPixelScript() {
-  if (!PIXEL_ID) return null
+  const PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID
+  const pathname = usePathname()
+  if (!PIXEL_ID || !pathname || pathname === '/auth/forgot-password' || pathname === '/auth/reset-password') return null
 
   return (
     <>
