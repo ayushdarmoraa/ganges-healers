@@ -8,6 +8,7 @@ import { BookingError, lockOwnedBooking } from '@/lib/bookings/transactions'
 import { RescheduleBody } from '../types'
 import { computeRefund } from '@/lib/bookings/refund-policy'
 import { fetchRefundStatus, hasRazorpayRefundCredentials, refundPayment } from '@/lib/payments/razorpay-refunds'
+import { recordRefundOutcome as updateRefundOutcome } from '@/lib/payments/refunds'
 
 const CANCELLABLE_BOOKING_STATUSES = ['PENDING', 'SCHEDULED', 'CONFIRMED', 'RESCHEDULED'] as const
 const REFUND_IN_FLIGHT_STATUSES = new Set(['PENDING', 'UNKNOWN'])
@@ -86,17 +87,6 @@ function isDefinitiveGatewayRejection(error: unknown) {
   return statusCode >= 400 && statusCode < 500 && ![408, 409, 429].includes(statusCode)
 }
 
-async function updateRefundOutcome(
-  refundId: string,
-  gatewayRefundId: string | null,
-  status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'UNKNOWN',
-) {
-  await prisma.refund.update({
-    where: { id: refundId },
-    data: { gatewayRefundId, status },
-  })
-}
-
 async function finishCancellationRefund(prepared: {
   refund: CancellationRefund
   refundId?: string
@@ -154,7 +144,8 @@ async function finishCancellationRefund(prepared: {
       return { ...prepared.refund, status: 'UNKNOWN', message: cancellationRefundMessage('UNKNOWN') }
     }
     try {
-      await updateRefundOutcome(prepared.refundId, result.gatewayRefundId, result.status)
+      const stored = await updateRefundOutcome(prepared.refundId, result.gatewayRefundId, result.status)
+      result.status = stored.status
     } catch (persistError) {
       console.error('[refunds][error]', {
         bookingId: prepared.bookingId,
@@ -186,7 +177,8 @@ async function finishCancellationRefund(prepared: {
     if (!prepared.gatewayRefundId) throw new Error('Stored refund has no gateway identifier')
     const result = await fetchRefundStatus(prepared.gatewayRefundId, prepared.gatewayPaymentId)
     if (!result.gatewayRefundId) throw new Error('Gateway returned no refund identifier')
-    await updateRefundOutcome(prepared.refundId, result.gatewayRefundId, result.status)
+    const stored = await updateRefundOutcome(prepared.refundId, result.gatewayRefundId, result.status)
+    result.status = stored.status
     return {
       ...prepared.refund,
       status: result.status,
