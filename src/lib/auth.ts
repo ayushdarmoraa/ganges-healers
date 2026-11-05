@@ -8,7 +8,8 @@ import bcrypt from "bcryptjs"
 
 import { membershipAccess } from '@/lib/memberships/access'
 import { assertProductionTestModeDisabled } from '@/lib/test-mode'
-import { passwordVersion } from '@/lib/auth/password-version'
+import { sessionCredentialVersion } from '@/lib/auth/password-version'
+import { verifyTwoFactorLogin } from '@/lib/auth/two-factor'
 
 assertProductionTestModeDisabled()
 const authSecret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET
@@ -25,16 +26,22 @@ providers.push(
     name: 'Credentials',
     credentials: {
       email: { label: 'Email', type: 'email' },
-      password: { label: 'Password', type: 'password' }
+      password: { label: 'Password', type: 'password' },
+      twoFactorCode: { label: 'Authenticator or recovery code', type: 'text' }
     },
       async authorize(credentials) {
       const email = typeof credentials?.email === 'string' ? credentials.email : undefined
       const password = typeof credentials?.password === 'string' ? credentials.password : undefined
       if (!email || !password) return null
-      const user = await prisma.user.findUnique({ where: { email } })
+      const user = await prisma.user.findUnique({ where: { email }, include: { twoFactorCredential: { select: { enabled: true } } } })
       if (!user || !user.password) return null
       const passwordsMatch = await bcrypt.compare(password, user.password)
       if (!passwordsMatch) return null
+      if (user.twoFactorCredential?.enabled) {
+        const code = typeof credentials?.twoFactorCode === 'string' ? credentials.twoFactorCode.trim() : ''
+        if (!code || code.length > 128) return null
+        try { if (!await verifyTwoFactorLogin({ userId: user.id, passwordHash: user.password, securityVersion: user.securityVersion, code })) return null } catch { return null }
+      }
       return {
         id: user.id,
         email: user.email!,
@@ -42,7 +49,7 @@ providers.push(
         role: user.role,
         vip: user.vip,
         freeSessionCredits: user.freeSessionCredits,
-        passwordVersion: passwordVersion(user.password),
+        passwordVersion: sessionCredentialVersion(user.password, user.securityVersion),
       }
     }
   })
@@ -63,10 +70,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   providers,
   callbacks: {
-    async signIn({ account, profile }) {
-      return account?.provider !== 'google' || profile?.email_verified === true
+    async signIn({ account, profile, user }) {
+      if (!account || account.provider === 'credentials') return true
+      if (account.provider === 'google' && profile?.email_verified !== true || !user?.id) return false
+      const existing = await prisma.user.findUnique({ where: { id: user.id }, select: { twoFactorCredential: { select: { enabled: true } } } })
+      // A linked OAuth provider must not bypass the locally enabled factor.
+      return !existing?.twoFactorCredential?.enabled
     },
-    async jwt({ token, user, trigger }) {
+    async jwt({ token, user, trigger, account }) {
       if (user) {
         const u = user as { id: string; role?: string; vip?: boolean; freeSessionCredits?: number }
         token.id = u.id
@@ -79,13 +90,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (typeof token.id !== 'string' || !token.id) return null
       const fresh = await prisma.user.findUnique({
         where: { id: token.id },
-        select: { name: true, image: true, password: true, role: true, vip: true, freeSessionCredits: true, memberships: { select: { status: true, endDate: true } } },
+        select: { name: true, image: true, password: true, securityVersion: true, role: true, vip: true, freeSessionCredits: true, memberships: { select: { status: true, endDate: true } }, twoFactorCredential: { select: { enabled: true } } },
       })
       if (!fresh) return null
-      const version = passwordVersion(fresh.password)
+      const version = sessionCredentialVersion(fresh.password, fresh.securityVersion)
       if (user) {
         // A reset between password verification and token issuance must not issue a surviving session.
         const verifiedVersion = (user as { passwordVersion?: string }).passwordVersion
+        if (fresh.twoFactorCredential?.enabled && (account?.provider !== 'credentials' || verifiedVersion !== version)) return null
         if (verifiedVersion !== undefined && verifiedVersion !== version) return null
         token.passwordVersion = version
       }

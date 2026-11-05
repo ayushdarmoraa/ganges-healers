@@ -21,7 +21,7 @@ beforeEach(() => {
   jest.requireMock<{ useRouter: jest.Mock }>('next/navigation').useRouter.mockReturnValue(router)
   jest.requireMock<{ useSearchParams: jest.Mock }>('next/navigation').useSearchParams.mockReturnValue(new URLSearchParams())
   auth.getProviders.mockResolvedValue({ credentials: { id: 'credentials' } })
-  auth.signIn.mockResolvedValue({ error: null })
+  auth.signIn.mockResolvedValue({ error: null, ok: true })
 })
 afterEach(() => jest.restoreAllMocks())
 
@@ -109,7 +109,29 @@ test('verified credentials navigate to the customer dashboard', async () => {
   await user.type(screen.getByLabelText('Password'), 'correct-password')
   await user.click(screen.getByRole('button', { name: 'Sign In' }))
   await waitFor(() => expect(router.push).toHaveBeenCalledWith('/dashboard'))
-  expect(auth.signIn).toHaveBeenCalledWith('credentials', { email: 'customer@example.test', password: 'correct-password', redirect: false })
+  expect(auth.signIn).toHaveBeenCalledWith('credentials', { email: 'customer@example.test', password: 'correct-password', twoFactorCode: '', redirect: false })
+})
+
+test('sign-in submits the authenticator or recovery code with the password', async () => {
+  const user = userEvent.setup()
+  render(<SignInPage />)
+  await user.type(screen.getByLabelText('Email'), 'customer@example.test')
+  await user.type(screen.getByLabelText('Password'), 'correct-password')
+  await user.type(screen.getByLabelText('Authenticator or recovery code (if enabled)'), '123456')
+  await user.click(screen.getByRole('button', { name: 'Sign In' }))
+  await waitFor(() => expect(auth.signIn).toHaveBeenCalledWith('credentials', { email: 'customer@example.test', password: 'correct-password', twoFactorCode: '123456', redirect: false }))
+})
+
+test('an unconfirmed authentication result cannot announce success', async () => {
+  auth.signIn.mockResolvedValue({ error: null })
+  const user = userEvent.setup()
+  render(<SignInPage />)
+  await user.type(screen.getByLabelText('Email'), 'customer@example.test')
+  await user.type(screen.getByLabelText('Password'), 'correct-password')
+  await user.click(screen.getByRole('button', { name: 'Sign In' }))
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Invalid credentials'))
+  expect(toast.success).not.toHaveBeenCalled()
+  expect(router.push).not.toHaveBeenCalled()
 })
 
 const selectedBooking = '/services/reiki-healing?openBooking=1&healerId=h_selected&programSlug=foundation'

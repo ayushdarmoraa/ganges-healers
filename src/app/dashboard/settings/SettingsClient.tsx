@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 import AvatarUpload from "@/components/dashboard/AvatarUpload"
+import TwoFactorSettings from "@/components/auth/TwoFactorSettings"
 
 // --- Schemas ---
 
@@ -46,7 +47,7 @@ interface Props {
 }
 
 export default function SettingsClient({ user }: Props) {
-  const { update: updateSession } = useSession()
+  const { update: updateSession, data: session, status } = useSession()
 
   return (
     <div className="container mx-auto p-6 max-w-2xl space-y-8">
@@ -55,6 +56,7 @@ export default function SettingsClient({ user }: Props) {
       <ProfileSection user={user} onSessionRefresh={updateSession} />
 
       <PasswordSection passwordExists={user.passwordExists} />
+      <TwoFactorSettings userId={session?.user?.id ?? ""} sessionLoading={status === "loading"} />
 
       <Card>
         <CardHeader>

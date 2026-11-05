@@ -14,11 +14,12 @@ jest.mock('next-auth/providers/google', () => ({
   default: jest.fn((configuration: Record<string, unknown>) => ({ id: 'google', ...configuration })),
 }))
 jest.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: jest.fn(), create: jest.fn() } } }))
+jest.mock('@/lib/auth/two-factor', () => ({ verifyTwoFactorLogin: jest.fn() }))
 jest.mock('bcryptjs', () => ({ __esModule: true, default: { compare: jest.fn() } }))
 
 interface AuthConfiguration {
   secret?: string
-  callbacks: { jwt: (input: { token: Record<string, unknown>; trigger: string; session?: unknown; user?: Record<string, unknown> }) => Promise<Record<string, unknown> | null>; signIn: (input: { account?: { provider: string }; profile?: { email_verified?: boolean } }) => Promise<boolean> }
+  callbacks: { jwt: (input: { token: Record<string, unknown>; trigger: string; session?: unknown; user?: Record<string, unknown>; account?: { provider: string } }) => Promise<Record<string, unknown> | null>; signIn: (input: { account?: { provider: string }; profile?: { email_verified?: boolean }; user?: { id: string } }) => Promise<boolean> }
   providers: Array<{
     id: string
     authorize: (credentials: Record<string, string>) => Promise<Record<string, unknown> | null>
@@ -29,6 +30,7 @@ function loadConfiguration(): {
   configuration: AuthConfiguration
   user: { findUnique: jest.Mock; create: jest.Mock }
   compare: jest.Mock
+  verify: jest.Mock
 } {
   let result: ReturnType<typeof loadConfiguration> | undefined
   jest.isolateModules(() => {
@@ -36,7 +38,7 @@ function loadConfiguration(): {
     const nextAuth = jest.requireMock<{ default: jest.Mock }>('next-auth').default
     const prisma = jest.requireMock<{ prisma: { user: { findUnique: jest.Mock; create: jest.Mock } } }>('@/lib/prisma').prisma
     const bcrypt = jest.requireMock<{ default: { compare: jest.Mock } }>('bcryptjs').default
-    result = { configuration: nextAuth.mock.calls[0][0], user: prisma.user, compare: bcrypt.compare }
+    result = { configuration: nextAuth.mock.calls[0][0], user: prisma.user, compare: bcrypt.compare, verify: jest.requireMock<{ verifyTwoFactorLogin: jest.Mock }>('@/lib/auth/two-factor').verifyTwoFactorLogin }
   })
   if (!result) throw new Error('Auth configuration was not loaded')
   return result
@@ -85,7 +87,7 @@ describe('production-safe authentication configuration', () => {
 
   test('requires Google to verify the email before accepting its identity', async () => {
     const { configuration } = loadConfiguration()
-    await expect(configuration.callbacks.signIn({ account: { provider: 'google' }, profile: { email_verified: true } })).resolves.toBe(true)
+    await expect(configuration.callbacks.signIn({ account: { provider: 'google' }, profile: { email_verified: true }, user: { id: 'google-user' } })).resolves.toBe(true)
     await expect(configuration.callbacks.signIn({ account: { provider: 'google' }, profile: { email_verified: false } })).resolves.toBe(false)
     await expect(configuration.callbacks.signIn({ account: { provider: 'google' } })).resolves.toBe(false)
     await expect(configuration.callbacks.signIn({ account: { provider: 'credentials' } })).resolves.toBe(true)
@@ -183,4 +185,31 @@ describe('production-safe authentication configuration', () => {
     process.env.TEST_MODE = '1'
     expect(() => loadConfiguration()).toThrow('must be disabled')
   })
+
+test('a protected password account needs a verified factor before a credential session is issued', async () => {
+  const { configuration, user, compare, verify } = loadConfiguration()
+  user.findUnique.mockResolvedValue({ id: 'protected', email: 'protected@example.test', password: 'hash', securityVersion: 1, twoFactorCredential: { enabled: true }, role: 'USER' })
+  compare.mockResolvedValue(true); verify.mockResolvedValue(false)
+  expect(await configuration.providers[0].authorize({ email: 'protected@example.test', password: 'password' })).toBeNull()
+  expect(await configuration.providers[0].authorize({ email: 'protected@example.test', password: 'password', twoFactorCode: '123456' })).toBeNull()
+  verify.mockResolvedValue(true)
+  expect(await configuration.providers[0].authorize({ email: 'protected@example.test', password: 'password', twoFactorCode: '123456' })).toMatchObject({ id: 'protected' })
+})
+test('a verified linked Google identity cannot skip the enabled local factor', async () => {
+  const { configuration, user } = loadConfiguration()
+  user.findUnique.mockResolvedValue({ twoFactorCredential: { enabled: true } })
+  expect(await configuration.callbacks.signIn({ account: { provider: 'google' }, profile: { email_verified: true }, user: { id: 'protected' } })).toBe(false)
+})
+test('an account security version change invalidates its existing JWT', async () => {
+  const { configuration, user } = loadConfiguration()
+  user.findUnique.mockResolvedValue({ password: 'hash', securityVersion: 1, role: 'USER', vip: false, freeSessionCredits: 0, memberships: [] })
+  expect(await configuration.callbacks.jwt({ token: { id: 'protected', passwordVersion: passwordVersion('hash') }, trigger: '' })).toBeNull()
+})
+
+test('enabling a factor between OAuth approval and JWT issuance cannot issue a bypassing session', async () => {
+  const { configuration, user } = loadConfiguration()
+  user.findUnique.mockResolvedValue({ password: 'hash', securityVersion: 1, twoFactorCredential: { enabled: true }, role: 'USER', memberships: [] })
+  expect(await configuration.callbacks.jwt({ token: {}, user: { id: 'protected' }, trigger: '', account: { provider: 'google' } })).toBeNull()
+})
+
 })
