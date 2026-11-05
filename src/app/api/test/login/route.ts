@@ -2,7 +2,7 @@ import { isTestMode } from '@/lib/test-mode'
 import { NextResponse } from 'next/server'
 import { encode } from 'next-auth/jwt'
 import { prisma } from '@/lib/prisma'
-import { passwordVersion } from '@/lib/auth/password-version'
+import { sessionCredentialVersion } from '@/lib/auth/password-version'
 
 // Test-only helper to bypass UI + CSRF for e2e. DO NOT ENABLE IN PRODUCTION.
 export async function GET(request: Request) {
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
       // Include both sub and id for maximum compatibility with callbacks
       sub: user.id,
       id: user.id,
-      passwordVersion: passwordVersion(user.password),
+      passwordVersion: sessionCredentialVersion(user.password, user.securityVersion),
       email: user.email!,
       name: user.name || 'Test User',
       role: role,

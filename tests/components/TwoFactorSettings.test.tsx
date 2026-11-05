@@ -1,0 +1,88 @@
+import React from 'react'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import TwoFactorSettings from '@/components/auth/TwoFactorSettings'
+jest.mock('next-auth/react', () => ({ signOut: jest.fn() }))
+jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush, refresh: mockRefresh }) }))
+const mockPush = jest.fn()
+const mockRefresh = jest.fn()
+const signOut = jest.requireMock<{ signOut: jest.Mock }>('next-auth/react').signOut
+const codes = Array.from({ length: 8 }, (_, i) => `${String(i).padStart(4, 'A')}-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA`)
+const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
+let fetchMock: jest.SpyInstance
+beforeEach(() => {
+  jest.clearAllMocks()
+  signOut.mockResolvedValue({ url: 'http://different-auth-host.example/auth/signin' })
+  fetchMock = jest.spyOn(globalThis, 'fetch').mockImplementation(async (url) => response(url === '/api/auth/session' ? null : { enabled: false, hasPassword: true, recoveryCodesRemaining: 0 }))
+})
+afterEach(() => jest.restoreAllMocks())
+async function start() {
+  const user = userEvent.setup()
+  render(<TwoFactorSettings userId="owner" />)
+  await user.type(await screen.findByLabelText('Password for two-factor changes'), 'CurrentPassword!')
+  fetchMock.mockResolvedValueOnce(response({ success: true, enabled: false, secret: 'A'.repeat(32), qrDataUrl: 'data:image/gif;base64,R0lG', expiresAt: new Date(Date.now() + 600000).toISOString() }))
+  await user.click(screen.getByRole('button', { name: 'Set up authenticator' }))
+  await screen.findByLabelText('Code from authenticator')
+  return user
+}
+test('setup remains unconfirmed until a valid server result; recovery codes require saving before sign-out', async () => {
+  const user = await start()
+  expect(screen.getByRole('img', { name: 'Authenticator setup QR code' })).toHaveAttribute('src', 'data:image/gif;base64,R0lG')
+  await user.type(screen.getByLabelText('Code from authenticator'), '123456')
+  fetchMock.mockResolvedValueOnce(response({ error: 'Password or two-factor code is invalid.' }, 400))
+  await user.click(screen.getByRole('button', { name: 'Enable two-factor authentication' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('invalid')
+  expect(screen.getByLabelText('Code from authenticator')).toHaveValue('123456')
+  expect(signOut).not.toHaveBeenCalled()
+  fetchMock.mockResolvedValueOnce(response({ success: true, enabled: true, reauthenticate: true, recoveryCodes: codes }))
+  await user.click(screen.getByRole('button', { name: 'Enable two-factor authentication' }))
+  expect(await screen.findByText(codes[0])).toBeVisible()
+  const finish = screen.getByRole('button', { name: 'Sign out and sign in again' })
+  expect(finish).toBeDisabled()
+  await user.click(screen.getByLabelText('I saved my recovery codes'))
+  await user.click(finish)
+  expect(signOut).toHaveBeenCalledWith({ redirect: false, redirectTo: '/auth/signin' })
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/auth/signin?callbackUrl=%2Fdashboard%2Fsettings'))
+  expect(mockRefresh).toHaveBeenCalled()
+})
+test('a malformed successful response cannot display enabled status or discard the setup', async () => {
+  const user = await start()
+  await user.type(screen.getByLabelText('Code from authenticator'), '123456')
+  fetchMock.mockResolvedValueOnce(response({ success: true, enabled: true, reauthenticate: true, recoveryCodes: ['invalid'] }))
+  await user.click(screen.getByRole('button', { name: 'Enable two-factor authentication' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('could not be confirmed')
+  expect(screen.getByLabelText('Code from authenticator')).toBeVisible()
+  expect(screen.queryByText('Two-factor authentication is enabled. Sign in again to continue.')).not.toBeInTheDocument()
+})
+test('account changes hide the previous setup key, password, and in-flight result', async () => {
+  const user = userEvent.setup()
+  const view = render(<TwoFactorSettings userId="first" />)
+  await user.type(await screen.findByLabelText('Password for two-factor changes'), 'FirstPassword!')
+  let resolve!: (value: Response) => void
+  fetchMock.mockImplementationOnce(() => new Promise<Response>(done => { resolve = done }))
+  await user.click(screen.getByRole('button', { name: 'Set up authenticator' }))
+  view.rerender(<TwoFactorSettings userId="second" />)
+  await waitFor(() => expect(screen.getByLabelText('Password for two-factor changes')).toHaveValue(''))
+  resolve(response({ success: true, enabled: false, secret: 'A'.repeat(32), qrDataUrl: 'data:image/gif;base64,R0lG', expiresAt: new Date().toISOString() }))
+  await waitFor(() => expect(screen.getByLabelText('Password for two-factor changes')).not.toBeDisabled())
+  await user.type(screen.getByLabelText('Password for two-factor changes'), 'SecondPassword!')
+  expect(screen.getByRole('button', { name: 'Set up authenticator' })).not.toBeDisabled()
+  expect(screen.queryByText('A'.repeat(32))).not.toBeInTheDocument()
+})
+test('an OAuth-only account is told to create a password before setup', async () => {
+  fetchMock.mockResolvedValueOnce(response({ enabled: false, hasPassword: false, recoveryCodesRemaining: 0 }))
+  render(<TwoFactorSettings userId="owner" />)
+  expect(await screen.findByText(/Set an account password before/)).toBeVisible()
+  expect(screen.queryByLabelText('Password for two-factor changes')).not.toBeInTheDocument()
+})
+test('failed sign-out leaves the only displayed recovery codes available', async () => {
+  const user = await start()
+  await user.type(screen.getByLabelText('Code from authenticator'), '123456')
+  fetchMock.mockResolvedValueOnce(response({ success: true, enabled: true, reauthenticate: true, recoveryCodes: codes }))
+  await user.click(screen.getByRole('button', { name: 'Enable two-factor authentication' }))
+  await user.click(await screen.findByLabelText('I saved my recovery codes'))
+  signOut.mockRejectedValueOnce(new Error('Offline'))
+  await user.click(screen.getByRole('button', { name: 'Sign out and sign in again' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Save your codes and try again')
+  expect(screen.getByText(codes[0])).toBeVisible()
+})

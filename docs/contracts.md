@@ -643,3 +643,52 @@ URLs. See [RFC 5545](https://www.rfc-editor.org/rfc/rfc5545). Download/import wo
 without Google/Zoom/API credentials. The file is a point-in-time export; it is not
 a subscribed calendar or automatic remote synchronization. Re-download after a
 change and check the account screen for current appointment status.
+
+
+## Authenticator protection (implementation-plan Sprint 2, Day 20)
+
+`GET /api/users/me/two-factor` returns only the authenticated owner's enabled
+state, password availability, and count of unused recovery codes. `POST` accepts
+strict JSON actions `begin`, `enable`, `cancel`, `disable`, or `recovery`. All
+actions require the current password; enabling also requires a valid pending
+authenticator code, and disabling/replacing recovery codes requires a current
+authenticator or unused recovery code. Account IDs supplied in the request body
+are rejected. Cross-site requests are rejected; responses are private/no-store.
+
+Setup lasts ten minutes and is bound to the current password hash. Secrets use
+20 random bytes and an account-bound AES-256-GCM envelope, with a key derived
+from the existing `AUTH_SECRET` (or existing `NEXTAUTH_SECRET`). No additional
+credential or external QR service is needed. The QR image is generated locally.
+A password change invalidates pending setup and existing sessions but does not
+remove an enabled factor. A recovery-email/password reset alone cannot bypass it.
+
+TOTP follows [RFC 6238](https://www.rfc-editor.org/rfc/rfc6238) with six digits,
+a 30-second period, and one step of clock skew. Each accepted counter is consumed
+once under the account advisory lock. Eight independently generated 128-bit
+recovery codes are shown once and stored as account-bound SHA-256 hashes.
+Concurrent requests cannot reuse either factor. Five failed factor/settings
+attempts in five minutes impose a durable per-account throttle. Password-only
+sign-in is rejected for protected accounts, and linked Google sign-in is denied
+while the local factor is enabled. OAuth approval is checked again at JWT
+issuance so concurrent activation cannot create a bypassing session.
+
+Enabling, disabling, or replacing recovery codes increments `User.securityVersion`.
+Every authenticated session read checks that version along with the password
+version; socket authorization performs the same existing periodic recheck.
+Disabling never restores an older session. The UI displays recovery codes only
+for their owner, requires acknowledgement before signing out, and keeps them
+available after a sign-out failure. It requires explicit server success before
+announcing any security change. Secrets and codes are not written to logs. Settings and navigation share a
+confirmed sign-out helper, then navigate to their validated local path. They do
+not follow a configured-host redirect returned by the authentication service.
+
+Apply additive migration `20261105210000_authenticator_security` before deploying
+this code. Existing users default to security version zero and have no enabled
+factor. The exact SQL preservation test runs inside a rolled-back isolated schema;
+application and browser tests use only the verified disposable test database.
+Do not deploy pre-MFA authentication code while any account has an enabled factor;
+that code would ignore it. Preserve the new schema and use a compatible application
+fix for rollback. Preserve the authentication secret across releases: changing it
+invalidates cookies and makes old encrypted TOTP keys unreadable. Saved recovery
+codes still permit login, authenticated disable, and fresh enrollment with the
+new key. There is no email-only or administrative factor-bypass endpoint.

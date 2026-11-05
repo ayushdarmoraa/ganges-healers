@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { signOut, useSession } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { Search, ShoppingCart, UserRound } from "lucide-react";
 import { BookSessionButton } from "./BookSessionButton";
 import { DesktopNav } from "./DesktopNav";
@@ -14,6 +14,7 @@ import { UserMenu, type UserMenuMode } from "./UserMenu";
 import { useCart } from "@/components/store/CartProvider";
 import { useSearch } from "@/lib/search/useSearch";
 import { searchSuggestionGroups } from "@/lib/search/results";
+import { signOutCurrentSession } from "@/lib/auth/client-session";
 
 export interface NavigationV2NavbarProps { className?: string }
 type Panel = 'search' | 'account' | 'mobile' | null;
@@ -73,13 +74,7 @@ export function Navbar({ className }: NavigationV2NavbarProps) {
     const epoch = accountEpoch.current;
     logoutInFlight.current = true; setLogoutPending(true); setLogoutError(null);
     try {
-      const result = await signOut({ redirect: false, redirectTo: '/' });
-      if (!result || typeof result.url !== 'string' || !result.url) throw new Error('Sign-out was not confirmed');
-      // Auth.js v5's client does not inspect HTTP status; verify cookie-backed state before claiming success.
-      const response = await fetch('/api/auth/session', { cache: 'no-store' });
-      if (!response.ok) throw new Error('Session could not be checked');
-      const remaining: unknown = await response.json();
-      if (remaining !== null && (typeof remaining !== 'object' || Array.isArray(remaining) || Object.keys(remaining).length !== 0)) throw new Error('A session is still active');
+      await signOutCurrentSession('/');
       if (owner.current && (owner.current !== uid || accountEpoch.current !== epoch)) return;
       closePanels(); router.replace('/'); router.refresh();
     } catch {

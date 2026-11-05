@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { signOut, useSession } from "next-auth/react"
+import { useSession } from "next-auth/react"
+import { useRouter } from 'next/navigation'
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -11,6 +12,8 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 import AvatarUpload from "@/components/dashboard/AvatarUpload"
+import TwoFactorSettings from "@/components/auth/TwoFactorSettings"
+import { signOutCurrentSession } from '@/lib/auth/client-session'
 
 // --- Schemas ---
 
@@ -46,7 +49,7 @@ interface Props {
 }
 
 export default function SettingsClient({ user }: Props) {
-  const { update: updateSession } = useSession()
+  const { update: updateSession, data: session, status } = useSession()
 
   return (
     <div className="container mx-auto p-6 max-w-2xl space-y-8">
@@ -55,6 +58,7 @@ export default function SettingsClient({ user }: Props) {
       <ProfileSection user={user} onSessionRefresh={updateSession} />
 
       <PasswordSection passwordExists={user.passwordExists} />
+      <TwoFactorSettings userId={session?.user?.id ?? ""} sessionLoading={status === "loading"} />
 
       <Card>
         <CardHeader>
@@ -180,6 +184,7 @@ function ProfileSection({
 // --- Password Section ---
 
 function PasswordSection({ passwordExists }: { passwordExists: boolean }) {
+  const router = useRouter()
   const [saving, setSaving] = useState(false)
 
   const form = useForm<PasswordData>({
@@ -225,7 +230,9 @@ function PasswordSection({ passwordExists }: { passwordExists: boolean }) {
       }
       toast.success("Password changed. Sign in again with your new password.")
       form.reset()
-      await signOut({ callbackUrl: '/auth/signin' })
+      await signOutCurrentSession('/auth/signin')
+      router.push('/auth/signin')
+      router.refresh()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Password change failed")
     } finally {

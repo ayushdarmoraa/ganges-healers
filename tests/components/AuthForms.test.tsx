@@ -12,8 +12,8 @@ jest.mock('next-auth/react', () => ({ getProviders: jest.fn(), signIn: jest.fn()
 jest.mock('@/components/dashboard/AvatarUpload', () => ({ __esModule: true, default: () => null }))
 jest.mock('sonner', () => ({ toast: { success: jest.fn(), error: jest.fn() } }))
 
-const router = { push: jest.fn() }
-const auth = jest.requireMock<{ getProviders: jest.Mock; signIn: jest.Mock }>('next-auth/react')
+const router = { push: jest.fn(), refresh: jest.fn() }
+const auth = jest.requireMock<{ getProviders: jest.Mock; signIn: jest.Mock; signOut: jest.Mock }>('next-auth/react')
 const toast = jest.requireMock<{ toast: { success: jest.Mock; error: jest.Mock } }>('sonner').toast
 
 beforeEach(() => {
@@ -21,7 +21,8 @@ beforeEach(() => {
   jest.requireMock<{ useRouter: jest.Mock }>('next/navigation').useRouter.mockReturnValue(router)
   jest.requireMock<{ useSearchParams: jest.Mock }>('next/navigation').useSearchParams.mockReturnValue(new URLSearchParams())
   auth.getProviders.mockResolvedValue({ credentials: { id: 'credentials' } })
-  auth.signIn.mockResolvedValue({ error: null })
+  auth.signIn.mockResolvedValue({ error: null, ok: true })
+  auth.signOut.mockResolvedValue({ url: 'http://different-auth-host.example/auth/signin' })
 })
 afterEach(() => jest.restoreAllMocks())
 
@@ -109,7 +110,29 @@ test('verified credentials navigate to the customer dashboard', async () => {
   await user.type(screen.getByLabelText('Password'), 'correct-password')
   await user.click(screen.getByRole('button', { name: 'Sign In' }))
   await waitFor(() => expect(router.push).toHaveBeenCalledWith('/dashboard'))
-  expect(auth.signIn).toHaveBeenCalledWith('credentials', { email: 'customer@example.test', password: 'correct-password', redirect: false })
+  expect(auth.signIn).toHaveBeenCalledWith('credentials', { email: 'customer@example.test', password: 'correct-password', twoFactorCode: '', redirect: false })
+})
+
+test('sign-in submits the authenticator or recovery code with the password', async () => {
+  const user = userEvent.setup()
+  render(<SignInPage />)
+  await user.type(screen.getByLabelText('Email'), 'customer@example.test')
+  await user.type(screen.getByLabelText('Password'), 'correct-password')
+  await user.type(screen.getByLabelText('Authenticator or recovery code (if enabled)'), '123456')
+  await user.click(screen.getByRole('button', { name: 'Sign In' }))
+  await waitFor(() => expect(auth.signIn).toHaveBeenCalledWith('credentials', { email: 'customer@example.test', password: 'correct-password', twoFactorCode: '123456', redirect: false }))
+})
+
+test('an unconfirmed authentication result cannot announce success', async () => {
+  auth.signIn.mockResolvedValue({ error: null })
+  const user = userEvent.setup()
+  render(<SignInPage />)
+  await user.type(screen.getByLabelText('Email'), 'customer@example.test')
+  await user.type(screen.getByLabelText('Password'), 'correct-password')
+  await user.click(screen.getByRole('button', { name: 'Sign In' }))
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Invalid credentials'))
+  expect(toast.success).not.toHaveBeenCalled()
+  expect(router.push).not.toHaveBeenCalled()
 })
 
 const selectedBooking = '/services/reiki-healing?openBooking=1&healerId=h_selected&programSlug=foundation'
@@ -271,11 +294,12 @@ async function submitSettingsPassword(user: ReturnType<typeof userEvent.setup>) 
 }
 
 test('a confirmed settings password change signs out the revoked current session', async () => {
-  jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ success: true })))
+  jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ success: true }))).mockResolvedValueOnce(new Response('null'))
   const user = userEvent.setup()
   render(<SettingsClient user={settingsUser} />)
   await submitSettingsPassword(user)
-  await waitFor(() => expect(jest.requireMock<{ signOut: jest.Mock }>('next-auth/react').signOut).toHaveBeenCalledWith({ callbackUrl: '/auth/signin' }))
+  await waitFor(() => expect(jest.requireMock<{ signOut: jest.Mock }>('next-auth/react').signOut).toHaveBeenCalledWith({ redirect: false, redirectTo: '/auth/signin' }))
+  await waitFor(() => expect(router.push).toHaveBeenCalledWith('/auth/signin'))
 })
 
 test('unconfirmed settings password changes preserve the draft and do not sign out', async () => {

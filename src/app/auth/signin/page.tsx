@@ -44,10 +44,11 @@ function SignInContent() {
       const result = await signIn("credentials", {
         email,
         password,
+        twoFactorCode: String(formData.get("twoFactorCode") || "").trim(),
         redirect: false,
       })
 
-      if (result?.error) {
+      if (result?.error || result?.ok !== true) {
         toast.error("Invalid credentials")
       } else {
         toast.success("Signed in successfully")
@@ -110,6 +111,7 @@ function SignInContent() {
                     disabled={isLoading}
                   />
                 </div>
+                <div className="space-y-2"><Label htmlFor="twoFactorCode">Authenticator or recovery code (if enabled)</Label><Input id="twoFactorCode" name="twoFactorCode" autoComplete="one-time-code" maxLength={128} disabled={isLoading} /><p className="text-xs text-muted-foreground">Use a fresh code from your authenticator, or one saved recovery code.</p></div>
                 <Link href={authPathWithCallback('/auth/reset-password', callbackUrl)} className="block text-sm underline">Forgot your password?</Link>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? "Signing in..." : "Sign In"}

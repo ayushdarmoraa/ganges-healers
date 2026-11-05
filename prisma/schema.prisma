@@ -14,6 +14,7 @@ model User {
   image              String?
   phone              String?             @unique
   password           String?
+  securityVersion    Int                 @default(0)
   role               Role                @default(USER)
   vip                Boolean             @default(false)
   freeSessionCredits Int                 @default(0)
@@ -43,6 +44,23 @@ model User {
   reviews            Review[]
   firstSource        String?
   firstVariant       String?
+  twoFactorCredential TwoFactorCredential?
+}
+
+model TwoFactorCredential {
+  userId                 String   @id
+  enabled                Boolean  @default(false)
+  encryptedSecret        String?
+  pendingEncryptedSecret String?
+  pendingPasswordVersion String?
+  pendingExpiresAt       DateTime?
+  lastAcceptedStep       BigInt?
+  recoveryHashes         String[] @default([])
+  failedAttempts         Int      @default(0)
+  failureWindowStart     DateTime?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Healer {

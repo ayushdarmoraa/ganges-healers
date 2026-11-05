@@ -196,3 +196,21 @@ this credential-free scope. The additive reservation migration is included for
 isolated SQL/data-preservation and application tests; production data and hosting
 settings are unchanged. See `docs/contracts.md` for permissions, migration order
 and rollback constraints.
+
+
+## Authenticator security follow-up
+
+Implementation-plan Sprint 2 Day 20 authenticator protection is implemented in
+account settings and real password sign-in. Setup, activation, replay prevention,
+one-time recovery codes, replacement/disable, account-scoped failures, and
+existing-session revocation require no new owner credentials. Secret encryption
+uses the application's existing authentication secret; QR creation is local.
+Protected accounts cannot skip their factor through Google or password recovery.
+Existing accounts remain unprotected until their owner enables it.
+
+The additive MFA migration, exact SQL preservation test, real-browser enable /
+login / recovery / disable journey, transaction concurrency tests, RFC vectors,
+and UI failure tests accompany the implementation. See `docs/contracts.md` for
+the deployment order and key/rollback constraints. Hosting, production migration,
+provider setup, real email delivery and live charges are outside the current
+credential-free work scope. No Vercel action is part of this follow-up.
