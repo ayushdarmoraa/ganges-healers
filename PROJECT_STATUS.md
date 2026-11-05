@@ -4,21 +4,21 @@ Reviewed November 5, 2026 against the implementation plan, repository branches, 
 
 ## Current development line
 
-The published release branch is `codex/site-completion-release` in PR #10. It consolidates the earlier community, publishing, notifications, navigation, store/course, authentication, membership, payment-recovery, refund-reconciliation, public-privacy, completed-session-review and booking-return work. The application remains the existing Next.js App Router project. Recovery hardening (PR #12) and course/program checkout recovery (PR #13) are merged. CI run 42088716885 verified combined source tree `5f6b6f2ebaeebd3171f58c19a9ce12d85549b1d5`: 538 unit, 242 integration, 267 UI, 32 browser and 6 operations checks, plus the production build. Only the existing legacy integration placeholder is skipped. These are isolated CI checks; actual email/payment delivery, deployment of this source, and production cutover are unverified.
+The release candidate is `codex/site-completion-release` in [PR #10](https://github.com/gangeshealers/ganges-healers/pull/10). It preserves the existing Next.js App Router application. Recent implementation-plan follow-ups are [recovery hardening #12](https://github.com/gangeshealers/ganges-healers/pull/12), [checkout recovery #13](https://github.com/gangeshealers/ganges-healers/pull/13), [dependency fixes #14](https://github.com/gangeshealers/ganges-healers/pull/14), [program scheduling and calendar exports #15](https://github.com/gangeshealers/ganges-healers/pull/15), and [authenticator security #16](https://github.com/gangeshealers/ganges-healers/pull/16). The linked PRs record their exact tested source and seven-job CI results; PR #10 records the final combined validation. Earlier dated/checkpoint notes below are history, not current unresolved CI gates.
 
-| Plan area | Implementation present | Remaining validation or release work |
+| Plan area | Credential-free implementation in this candidate | Outside the current work scope |
 | --- | --- | --- |
-| Foundation | Prisma migrations, CI, guarded test databases, health route, structured logs, Vercel configuration | Reconcile production schema/history and deploy the reviewed combined line |
-| Accounts and profiles | Registration/sign-in, sessions, role guards, account settings, healer profile/availability; optional phone handling and configured Google provider discovery | Real signup/sign-in/sign-out browser test passes; release-readiness CI run 41820806182 passed all six jobs. Google needs OAuth credentials and callback configuration |
-| Marketplace and bookings | Discovery, availability, creation, rescheduling, cancellation, credit confirmation | Combined-line concurrency, refund, and customer/healer flow tests |
-| Payments and memberships | Server-priced orders, verification/webhooks, enrollment fulfillment, invoices; owned subscription quotes, idempotent paid credit grants, expiry checks | Gateway test-mode checkout and callback delivery; mocked refunds do not establish live execution |
-| Programs and courses | Catalogs, enrollment and lesson delivery; corrected counts, final-lesson completion, monotonic progress | CI integration/browser checks; paid enrollment is separate from isolated progress fixtures |
-| Community and content | Topics/tags, drafts, administration, moderation/report review, blog publishing/withdrawal | Combined-line CI and role review before rollout |
-| Notifications and navigation | Inbox/read state, bells, polling/socket paths, search, account menus, cart | Combined-line CI and deployed responsive/authentication checks |
-| Store | Catalog/checkout, owned order details, status filters, bounded paging, saved line totals, recovery screens | Order browser coverage and separate gateway checkout testing |
-| Administration and analytics | Admin workspaces, payment reports, funnel/events, experiments, products | Provider configuration, access controls, data consistency, monitoring |
+| Foundation | Additive migrations, exact SQL/data-preservation rehearsals, guarded disposable test databases, CI, health route, structured logs | Production schema reconciliation and deployment; Vercel is excluded |
+| Accounts and profiles | Registration, password sign-in/recovery, role guards, profiles and availability; owner-enabled authenticator protection and single-use recovery codes | Google credentials/callback setup; real email/SMS delivery |
+| Marketplace and bookings | Discovery, capacity checks shared with programs, creation/rescheduling/cancellation, credit confirmation, calendar downloads | Live payment/refund delivery and deployed smoke checks |
+| Payments and memberships | Server-priced owned checkout, verified webhooks, idempotent fulfillment, invoice/access checks, immutable membership/program quotes and retry recovery | Gateway credentials, real checkout and webhook delivery |
+| Programs and courses | Catalogs, paid/free enrollment rules, owned lesson progress; program practitioner assignment, reservations, cancellation, guarded completion/progress and pause/resume | Remote meeting provisioning and live purchase delivery |
+| Community and content | Topics/tags, drafts, administration, moderation/report review, blog publishing/withdrawal | Owner-supplied published content and deployed role smoke checks |
+| Notifications and navigation | Inbox/read state, bells, polling/socket authorization, search, account menus and cart | External email/SMS providers and deployed responsive checks |
+| Store | Catalog/checkout, owned order details, filters/paging, saved line totals and recovery screens | Real gateway checkout and fulfillment operations |
+| Administration and analytics | Admin workspaces, access controls, payment reports, funnel/events, experiments and products | Production data/provider configuration and live monitoring |
 
-Implementation present means routes/components exist. It does not establish every production journey or completion of the whole website.
+The implemented candidate and passing isolated checks do not establish production deployment or completion of unspecified future sprint placeholders. No owner credential entry is needed for the changes above. The current production audit and remaining upstream finding are documented in `docs/ops-checklist.md`.
 
 ## Earlier store and course batch
 
@@ -173,10 +173,12 @@ paths. The legacy unused auth adapter is removed, bcryptjs is a runtime dependen
 and the email CLI is development-only. A CI job rejects critical production
 dependency advisories before the build. No schema or hosting settings change.
 
-The final dependency audit reports 0 critical, 1 high, 2 moderate and 1 low findings.
-The four residual advisories and their dependency paths are documented in
-`docs/ops-checklist.md`; they are not hidden or declared fixed. Application tests
-must pass against the new lockfile before this follow-up is merged.
+The initial dependency follow-up left four advisories visible. The reviewed
+compatibility follow-up fixes the high and two moderate findings with scoped
+resolutions for deepmerge-ts 8, glob 14 and minimatch 11. The current audit is
+0 critical, 0 high, 0 moderate and 1 low. The upstream low-severity deepmerge
+finding has no published fix and remains visible in `docs/ops-checklist.md`.
+CI rejects high and critical findings; full checks must pass before merging.
 
 ## Program delivery and calendar follow-up
 

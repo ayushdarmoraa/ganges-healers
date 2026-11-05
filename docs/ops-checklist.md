@@ -31,7 +31,7 @@
 
 ## Public Contract Quick Checks
 
-- Programs: Program detail shows a UI-only "Enroll (coming soon)" banner; no backend calls are made.
+- Programs: owners can enroll, resume a saved checkout, and view purchased sessions in My Programs. Staff assigns practitioners and reserves program-owned appointments; proposals remain unconfirmed until reservation succeeds.
 - Product Detail CTA → navigates to `/services/<serviceSlug>?openBooking=1&productSlug=<slug>` and opens BookingModal (context only).
   - Emits client-only analytics event `product_service_cta_click` on click; no server/API/DB changes.
 
@@ -48,7 +48,7 @@
 
 ## Dependency release checks
 
-Use the committed lockfile with the pinned pnpm version. CI rejects critical
+Use the committed lockfile with the pinned pnpm version. CI rejects high and critical
 production dependency advisories before the build. This threshold does not assert
 that lower-severity findings are resolved or that the site is exploitation-free;
 review the complete `pnpm audit --prod` report when preparing a release.
@@ -71,23 +71,33 @@ versions before merging. No schema migration or hosting setting change is includ
 Rollback the dependency commit and its lockfile together if compatibility checks
 fail; that also restores the earlier vulnerable versions and is not a release fix.
 
-The final November 5 production dependency audit reports **0 critical, 1 high,
-2 moderate and 1 low** findings, compared with 7 critical, 77 high, 74 moderate
-and 10 low before the patch. These are package audit counts, not confirmed
-application exploit paths. Targeted pnpm resolutions update compatible transitive
-packages and prevent the old nested versions from remaining in the lockfile.
-Next's optional Sharp resolution is explicitly fixed at 0.35.5 (within Next's
-published supported range), and PostCSS 8 at 8.5.23. Webpack is an explicit
-development dependency to satisfy Sentry's existing build peer requirement.
+The final compatibility follow-up pins Prisma config's `deepmerge-ts` to 8.0.0,
+Sentry bundler plugins' `glob` to 14.0.2, and that glob's `minimatch` to 11.0.1.
+The published engines support the existing Node 20 CI runtime. Deepmerge v8 changes
+Map/deepmergeInto behavior; the existing Prisma configuration supplies ordinary
+configuration records and Prisma uses `deepmerge` through c12. Generated-client,
+configuration-loading and full application/build/browser checks verify this usage.
+Glob keeps the `glob` API used by Sentry; the real build verifies plugin behavior.
+These narrowly scoped resolutions avoid upgrading the application framework or
+Prisma major. Keep them until the parent packages adopt supported fixed versions.
 
-Remaining findings are tracked, not suppressed:
+The production dependency audit is **0 critical, 0 high, 0 moderate, 1 low** after
+these fixes, compared with 7 critical, 77 high, 74 moderate and 10 low before the
+first dependency patch. No findings are suppressed. The CI gate now rejects high
+as well as critical findings. See the full audit output for lower-severity results.
 
-| Dependency path | Severity | Follow-up |
-| --- | --- | --- |
-| Prisma → config → deepmerge-ts 7.1.5 | High | Upstream fix requires v8. The advisory concerns cyclic JavaScript object graphs; this repo's static Prisma config does not merge public request objects. This is a code/configuration assessment, not proof of universal non-reachability. Prefer an upstream-supported Prisma dependency update over forcing an unreviewed major. [Advisory](https://github.com/RebeccaStevens/deepmerge-ts/security/advisories/GHSA-ggr8-5vv4-36mx) |
-| Sentry → bundler plugins → glob 13 | Moderate | Fixed in glob 14.0.2; review the build-tool major upgrade. [Advisory](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4) |
-| Sentry → glob → minimatch 10 | Moderate | Fixed in minimatch 11.0.1; review alongside glob. [Advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249) |
-| Email render → html-to-text → deepmerge | Low | No patched release reported by this audit; keep template inputs constrained and track upstream. [Advisory](https://github.com/advisories/GHSA-gcqx-w48m-w2h4) |
+| Resolved dependency | Fix / verification |
+| --- | --- |
+| Prisma → config → deepmerge-ts 7.1.5 | Pinned 8.0.0 after reviewing the v8 changes and current configuration API usage. [Release](https://github.com/RebeccaStevens/deepmerge-ts/releases/tag/v8.0.0) |
+| Sentry → bundler plugins → glob 13 | Pinned 14.0.2; cancellation returns immediately instead of continuing traversal. [Advisory](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4) |
+| Glob → minimatch | Pinned 11.0.1, compatible with glob 14's declared dependency. [Advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249) |
 
-The critical-only CI gate deliberately leaves these findings visible. It is not a
-complete security review or evidence of a production deployment.
+One low-severity finding remains visible: email render → html-to-text →
+`deepmerge` 4.3.1. The [published advisory](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)
+reports no patched release. The application passes its own fixed React templates to Resend without
+caller-controlled render/plain-text options; user text is rendered as content,
+not as a deepmerge options object. This is a bounded code assessment, not proof about every upstream path.
+Do not invent a fixed version or remove the finding from audit results. Track an
+upstream patch. The audit threshold is not a complete security review or evidence
+of a production deployment. Roll back the dependency resolutions and lockfile
+together if compatibility fails; doing so restores the earlier package findings.
