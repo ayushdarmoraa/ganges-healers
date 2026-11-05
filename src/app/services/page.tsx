@@ -45,7 +45,7 @@ interface UiService {
   image?: string
   price: number
   duration: number
-  averageRating: number
+  averageRating: number | null
   totalSessions: number
   totalReviews: number
 }
@@ -95,7 +95,12 @@ async function getServices(params: Record<string, string | string[] | undefined>
     }
   })
 
-  // We removed reviews from MVP; synthesize rating/reviews as neutral defaults
+  // One aggregate query for the catalog, rather than one query per service.
+  const aggregates = services.length ? await prisma.review.groupBy({
+    by: ['serviceId'], where: { serviceId: { in: services.map(service => service.id) } },
+    _avg: { rating: true }, _count: { rating: true },
+  }) : []
+  const ratings = new Map(aggregates.map(row => [row.serviceId, row]))
   return services.map((s: RawService): UiService => ({
     id: s.id,
     name: s.name,
@@ -105,9 +110,9 @@ async function getServices(params: Record<string, string | string[] | undefined>
     image: s.image ?? undefined,
     price: s.price,
     duration: s.duration,
-    averageRating: 5.0, // placeholder neutral high rating until review system exists
+    averageRating: ratings.get(s.id)?._avg.rating ?? null,
     totalSessions: s._count.bookings,
-    totalReviews: 0
+    totalReviews: ratings.get(s.id)?._count.rating ?? 0
   }))
 }
 
