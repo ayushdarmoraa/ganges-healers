@@ -23,7 +23,7 @@ import { makeServiceCrumbs } from '@/lib/seo/breadcrumbs'
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params
-  const url = canonicalOf(`/services/${slug}`, ['openBooking','programSlug'])
+  const url = canonicalOf(`/services/${slug}`, ['openBooking','programSlug','healerId'])
   // Best-effort fetch of service for title/desc; avoid throwing on not found here
   try {
     const s = await prisma.service.findUnique({ where: { slug }, select: { name: true, description: true } })
@@ -62,6 +62,8 @@ export default async function ServiceDetailPage({
   const openBooking = (typeof sp.openBooking === 'string' ? sp.openBooking : Array.isArray(sp.openBooking) ? sp.openBooking[0] : undefined) === '1'
   const programSlug = typeof sp.programSlug === 'string' ? sp.programSlug : Array.isArray(sp.programSlug) ? sp.programSlug[0] : undefined
   const productSlug = typeof sp.productSlug === 'string' ? sp.productSlug : Array.isArray(sp.productSlug) ? sp.productSlug[0] : undefined
+  const requestedHealerId = typeof sp.healerId === 'string' ? sp.healerId : undefined
+  const hasRequestedHealer = sp.healerId !== undefined
 
   const service = await prisma.service.findUnique({
     where: { slug },
@@ -91,7 +93,7 @@ export default async function ServiceDetailPage({
 
   const [healers, reviews, monthlyBookings, sacredTools] = await Promise.all([
     prisma.healer.findMany({
-      where: { specializations: { has: key } },
+      where: { isActive: true, specializations: { has: key } },
       select: {
         id: true,
         bio: true,
@@ -154,6 +156,7 @@ export default async function ServiceDetailPage({
     rating: h.rating ?? 0,
     reviewCount: h._count.reviews,
   }))
+  const bookingHealer = hasRequestedHealer ? healerData.find(healer => healer.id === requestedHealerId) : healerData[0]
 
   // Category-specific long-form content
   const categoryLabel = (service.category ?? "General").replace(/_/g, " ")
@@ -175,13 +178,17 @@ export default async function ServiceDetailPage({
         }}
       />
 
-      {openBooking && healerData[0] ? (
+      {openBooking && hasRequestedHealer && !bookingHealer ? (
+        <p role="alert" className="rounded-lg border border-input bg-muted p-4 text-sm">The selected healer is unavailable for this service. Please choose an available healer below.</p>
+      ) : null}
+      {openBooking && bookingHealer ? (
         <BookingAutoOpen
+          key={bookingHealer.id}
           enabled={true}
           programSlug={programSlug}
           productSlug={productSlug}
           serviceSlug={service.slug}
-          healer={{ id: healerData[0].id, name: healerData[0].user?.name ?? 'Healer', experienceYears: healerData[0].experienceYears, rating: healerData[0].rating ?? 5 }}
+          healer={{ id: bookingHealer.id, name: bookingHealer.user?.name ?? 'Healer', experienceYears: bookingHealer.experienceYears, rating: bookingHealer.reviewCount > 0 ? bookingHealer.rating : 0 }}
           serviceId={service.id}
           serviceName={service.name}
         />
