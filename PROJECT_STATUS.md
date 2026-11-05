@@ -1,10 +1,10 @@
 # Ganges Healers — Implementation and Rollout Status
 
-Reviewed November 4, 2026 against the implementation plan, repository branches, open pull requests, Neon ownership/migration records, and Vercel metadata. This replaces the September 2025 inventory, which described features that have since been implemented.
+Reviewed November 5, 2026 against the implementation plan, repository branches, open pull requests, Neon ownership/migration records, and the Ganges-owned Vercel Preview. Implementation and verified release state are recorded separately below.
 
 ## Current development line
 
-Continue on `codex/membership-fulfillment` (PR #8), stacked on `codex/release-auth-readiness` (PR #7) and `feat/store-order-details` (PR #6). It includes the community, publishing, notification, and navigation work from PR #5, customer-order screens, and course-progress corrections originally developed in PR #4. The application remains a Next.js App Router project; the plan's example microservice layout is not the current repository layout.
+Continue on `codex/booking-return-continuity`, locally stacked on `codex/public-marketplace-privacy` (`13fd169`), `codex/verified-session-reviews` (`0a94ba9`), `codex/refund-event-reconciliation` (`9620c71`), `codex/payment-webhook-recovery` (PR #9), `codex/membership-fulfillment` (PR #8), `codex/release-auth-readiness` (PR #7) and `feat/store-order-details` (PR #6). It includes the community, publishing, notification, and navigation work from PR #5, customer-order screens, and course-progress corrections originally developed in PR #4. The application remains a Next.js App Router project; the plan's example microservice layout is not the current repository layout. The local follow-ups have not been published or deployed.
 
 | Plan area | Implementation present | Remaining validation or release work |
 | --- | --- | --- |
@@ -20,7 +20,7 @@ Continue on `codex/membership-fulfillment` (PR #8), stacked on `codex/release-au
 
 Implementation present means routes/components exist. It does not establish every production journey or completion of the whole website.
 
-## This batch
+## Earlier store and course batch
 
 - Integrated existing course progress/ownership fixes, portable Windows loader URLs, and Playwright artifact exclusion.
 - Require a nonempty session user ID before querying order history. Detail queries retain order and owner IDs.
@@ -51,8 +51,44 @@ Implementation present means routes/components exist. It does not establish ever
 - Signed subscription charges record payment and grant credits in one transaction. Replays/concurrency, mismatched charges, unpaid activation, delayed cancellation/activation, and extra-cycle charges are covered by integration tests. Enabled application failures return 500 for provider retries; the environment gate remains.
 - VIP access in bookings, audio, community, and sessions checks current membership lifecycle/expiry. Existing manual VIP accounts without subscriptions retain access. The customer balance shows remaining credits, pending links can be continued, and expired plans can be purchased again.
 - Invoice generation supports the current schema without assuming the legacy invoiceUrl column exists, and membership receipts describe the actual purchase.
-- Local verification: 382 unit tests, 203 UI tests, TypeScript, focused ESLint, and diff checks passed. Initial isolated CI passed the new real database/payment/invoice cases but exposed a missing auth mock in the public dry-run suite; the fixture now explicitly verifies that dry runs never call auth. The updated full CI result is required before merge.
-- Preview-only membership side effects are enabled on the isolated verified copy with test-mode credentials. Production is unchanged. A real gateway test charge/callback and production configuration remain release gates; a configured key or synthetic signed test does not prove provider delivery.
+- Full CI for PR #8 passed all six jobs. The later PR #9 result below validates the combined development line.
+- Preview-only membership side effects were enabled in the earlier workspace on the isolated verified copy with test-mode credentials. That does not configure payments in the new Ganges-owned workspace. A real gateway test charge/callback and production configuration remain release gates; a configured key or synthetic signed test does not prove provider delivery.
+
+## Payment recovery batch (PR #9)
+
+- Verified captured events finish server-owned booking, course, program and store purchases even when the browser callback is lost. Amount, currency, resource and customer bindings are checked inside the existing transaction; retries cannot grant stock/access twice. Invoice retries run after fulfillment commits.
+- Anonymous membership checkout returns to sign-in and then the membership screen. Membership refresh uses a stable callback so session refresh does not loop requests.
+- CI run 41970494620 at `3ee260c` passed all six jobs: 382 unit, 208 integration, 205 UI, 27 browser and 6 operations checks, plus the production build. All browser checks ran; only one legacy integration placeholder is skipped.
+- The protected Ganges-owned Preview built successfully from this commit. Browser checks confirmed the homepage, database health and configured credentials provider. This does not verify a real payment or production rollout.
+
+## Refund reconciliation follow-up
+
+- Add a shared transactional outcome writer for cancellation responses and verified refund events. Keep confirmed outcomes terminal, bind provider IDs/amount/currency to stored records, serialize refunds per payment, and mark only fully covered payments refunded.
+- Never submit money from a webhook. Request retries when delivery precedes saving a known payment's refund ID; unrelated payments are ignored without guessed customer bindings. Invalid data and transaction failures retain the existing retry response.
+- Extend cancellation regression tests and add webhook replay, stale-status, ownership/amount, partial/full total and concurrency coverage. The new `src/lib/payments/refunds.ts` keeps transactional state reconciliation separate from the existing provider SDK adapter and is used by both the webhook dispatcher and cancellation route; new refund unit coverage is separate from the subscription suite.
+- Local verification: all 402 unit tests and 205 UI tests pass, as do TypeScript, focused ESLint and diff checks. Eight new database-backed webhook/race cases extend the existing cancellation transaction suite. The dedicated test database's read-only identity check could not connect from this workspace, so those integration cases and a new production build still need CI. No database reset or production write was attempted. No schema or dependency change is required; revert this patch to roll back its behavior.
+
+## Verified-session reviews follow-up
+
+- Connect the existing Review model to a customer submission flow in My Bookings. Only the owner of a completed session after its scheduled end can submit; self-reviews and foreign bookings are rejected. The server derives all resource IDs, validates 1–5 integer ratings and bounded optional comments, and preserves plain-text rendering.
+- Use one transactional service in `src/lib/bookings/reviews.ts` behind the new booking review route. The existing healer lock serializes duplicate reviews and rating-average updates. Identical retries return the accepted record; conflicting replacements are rejected. A separate form component is reused by booking cards rather than growing the bookings page with editor state.
+- Replace the service catalog's synthesized 5.0 rating with one batched aggregate of actual reviews. Service healer cards and booking dialogs no longer show ratings when there are no reviews. Existing bookings/payment/cancellation API contracts remain; the owned bookings list adds its saved review.
+- Local verification: all 424 unit and 216 UI tests pass, along with TypeScript, focused ESLint and diff checks. Browser UI checks use the actual bookings components with explicitly labeled sample data and simulated API responses; they do not establish database or provider delivery. The form saves and displays its result, and its controls fit a 390-pixel mobile frame without horizontal overflow. Malformed responses preserve the draft instead of reporting an unconfirmed save. Four new real-database transaction cases and one booking-to-public-review browser journey are ready for CI, but were not run because the dedicated database identity read remains unreachable. Browser test discovery passed. No schema or dependency changes are needed.
+- The next release work remains publication of the stacked local branches, database-backed CI and preview verification, followed by fresh-data migration and provider configuration. Current deployed Preview still runs PR #9. A configured preview or passing local UI suite does not establish completion of the production website.
+
+## Public marketplace privacy follow-up
+
+- Replace the public service endpoint's raw booking/account export with explicit public field projections, both in Prisma selection and JSON output. Preserve the legacy bookings array as public practitioner summaries only; document removed private fields and the authenticated booking API for customer details.
+- Service API averages/counts now use actual service reviews. Preserve its numeric unrated value, envelope, error responses and administrator mutations. Practitioner deduplication uses a map rather than a quadratic search.
+- Exclude inactive practitioners from public details and service cards, and omit inactive service links from practitioner profiles/directories.
+- Local verification: all 434 unit and 216 UI tests pass, as do six existing mocked healer API checks, TypeScript, focused ESLint and diff checks. Ten new unit regression cases cover data projection, unknown private fields, query selection, truthful ratings and inactive profiles. A new real-database privacy/visibility case extends the services integration suite and awaits CI with the earlier local follow-ups. No migration or dependency changes; no production write/deployment was performed.
+
+## Booking and authentication continuity follow-up
+
+- Carry the selected practitioner from a healer profile into service booking. An explicitly unavailable/ambiguous choice never falls back to someone else. Preserve generic service auto-open links and existing program/product contexts; remount the flow when the selected healer changes.
+- Signed-out confirmation returns to the chosen service/practitioner after sign-in, without creating a booking or preserving a stale slot. Require a nonempty customer ID and wait for loading sessions before confirmation.
+- Honor validated local return URLs for password and configured Google sign-in, registration links and registration success. This also completes the membership sign-in return path. The new shared pure helper belongs to authentication routing and is reused by client and server consumers; external, ambiguous and looping destinations default safely to the dashboard.
+- Local verification: all 463 unit and 230 UI tests pass, as do TypeScript, focused ESLint and diff checks. New coverage includes 29 callback validation cases and 14 UI scenarios for selected practitioners, signed-out/loading sessions and credentials/Google/registration returns. Browser discovery includes the existing real-password flow and a new profile-selection → registration → real-sign-in journey with two competing practitioners. Real database/browser execution and a new production build remain pending CI; discovery is not an end-to-end pass. No schema/dependency changes or provider/payment behavior changes.
 
 ## Database ownership and rollout
 
@@ -67,11 +103,11 @@ A read-only migration-history check on the transferred `ganges-healers` project 
 
 Missing entries do not prove every corresponding schema object is absent. Compare the intended target schema, rehearse additive SQL on an isolated copy, and reconcile history before a reviewed deployment migration. Do not reset production or blindly mark migrations applied.
 
-The current Vercel Production `DATABASE_URL` and `DIRECT_URL` point to a different endpoint from the transferred `ganges-healers` default production branch. They match the older Vercel Marketplace Neon store. Therefore the two completed project transfers do not establish migration of the database used by the existing live deployment. Identify and compare that database before any data cutover or production URL change. Preview variables match the dedicated transferred preview project, whose expected enrollment, analytics, and product columns were checked read-only.
+The earlier live Vercel deployment points to the older Vercel Marketplace Neon store, rather than the transferred `ganges-healers` default production branch. The read-only copy/rehearsal identified and compared that actual source, then verified original rows and an additive schema upgrade on an isolated Ganges-owned copy. The new Preview uses that copy. It is a snapshot, not a continuously synchronized replica; a production cutover still requires a fresh snapshot during write maintenance and repeated verification.
 
 Vercel's production deployment predates this combined feature work. Feature branches and passing tests do not establish a production rollout. Verify payment, email, upload, cron, and optional worker configuration at deployment; keep test shortcuts disabled in Preview and Production.
 
-The Vercel Git connection was repaired from the old `pahadi-labs` owner to `ayushdarmoraa/ganges-healers`. The release-readiness branch changes the unsupported hourly and six-hourly cron expressions to daily schedules supported by the current Hobby plan. All five endpoints remain configured; precise hourly messaging requires a different scheduler. Preview uses its dedicated database, authentication secret, and Razorpay test credentials. The earlier `codex/preview-store-course-5035361` branch is a separate snapshot of `8152886` with cron execution disabled in its configuration. Deploy the new branch and verify it before rollout.
+GitHub ownership is now `gangeshealers/ganges-healers`, and the new Ganges-owned Vercel project is connected to that repository. Its protected Preview from PR #9 is ready; main still points to the older code and its new-workspace build failed because that code initializes Razorpay without credentials. The reviewed development line fixes this import-time failure. The new workspace has branch-scoped `DATABASE_URL`, `AUTH_SECRET` and `CRON_SECRET`; payment, email, upload and optional provider configuration remain outstanding. No production cutover has occurred. The release-readiness branch's daily cron expressions fit the existing Hobby plan; precise hourly messaging requires a different scheduler. The GitHub write connection is currently unavailable, so this local follow-up cannot yet be published through it.
 
 ## Release sequence
 
