@@ -179,3 +179,79 @@ test('freezes a legacy pending quote and reuses its gateway order on retry', asy
   expect(await retry.json()).toEqual(quote)
   expect(gateway).toHaveBeenCalledTimes(1)
 })
+
+// These exercise the public program endpoint against PostgreSQL; only provider I/O is mocked.
+test('dismissed program checkout resumes one enrollment at its original price', async () => {
+  const p = await program()
+  const first = await (await enrollProgram(request({}), { params: Promise.resolve({ slug: p.slug }) })).json()
+  await prisma.program.update({ where: { id: p.id }, data: { pricePaise: 90000 } })
+  const retry = await enrollProgram(request({}), { params: Promise.resolve({ slug: p.slug }) })
+  expect(retry.status).toBe(200)
+  expect(await retry.json()).toMatchObject({ ...first, resumed: true, amountPaise: 25000 })
+  expect(await prisma.programEnrollment.count({ where: { userId, programId: p.id } })).toBe(1)
+  expect(await prisma.payment.count({ where: { userId, type: 'PROGRAM', metadata: { path: ['enrollmentId'], equals: first.enrollmentId } } })).toBe(1)
+})
+
+test('concurrent program enrollment requests save one purchase and return the same order', async () => {
+  const p = await program()
+  const responses = await Promise.all([enrollProgram(request({}), { params: Promise.resolve({ slug: p.slug }) }), enrollProgram(request({}), { params: Promise.resolve({ slug: p.slug }) })])
+  expect(responses.map(row => row.status)).toEqual([200, 200])
+  const bodies = await Promise.all(responses.map(row => row.json()))
+  expect(bodies[0].enrollmentId).toBe(bodies[1].enrollmentId)
+  expect(bodies[0].orderId).toBe(bodies[1].orderId)
+  expect(await prisma.programEnrollment.count({ where: { userId, programId: p.id } })).toBe(1)
+  expect(await prisma.payment.count({ where: { userId, type: 'PROGRAM', metadata: { path: ['enrollmentId'], equals: bodies[0].enrollmentId } } })).toBe(1)
+})
+
+test('a program gateway failure leaves a reservation that can resume successfully', async () => {
+  const p = await program()
+  const gateway = jest.requireMock<{ getRazorpayClient: jest.Mock }>('@/lib/razorpay').getRazorpayClient
+  gateway.mockResolvedValueOnce(null)
+  expect((await enrollProgram(request({}), { params: Promise.resolve({ slug: p.slug }) })).status).toBe(500)
+  const reserved = await prisma.programEnrollment.findFirstOrThrow({ where: { userId, programId: p.id } })
+  const retry = await enrollProgram(request({}), { params: Promise.resolve({ slug: p.slug }) })
+  expect(retry.status).toBe(200)
+  expect(await retry.json()).toMatchObject({ enrollmentId: reserved.id, resumed: true })
+  expect(await prisma.programEnrollment.count({ where: { userId, programId: p.id } })).toBe(1)
+})
+
+test('an active program enrollment recovers access without a second payment', async () => {
+  const p = await program()
+  const first = await (await enrollProgram(request({}), { params: Promise.resolve({ slug: p.slug }) })).json()
+  expect((await verifyOrder(first.orderId)).status).toBe(200)
+  const retry = await enrollProgram(request({}), { params: Promise.resolve({ slug: p.slug }) })
+  expect(retry.status).toBe(409)
+  expect(await retry.json()).toMatchObject({ enrolled: true, enrollmentId: first.enrollmentId })
+  expect(await prisma.payment.count({ where: { userId, type: 'PROGRAM', metadata: { path: ['enrollmentId'], equals: first.enrollmentId } } })).toBe(1)
+})
+
+test('ambiguous older pending program enrollments require review before another charge', async () => {
+  const p = await program()
+  await prisma.programEnrollment.createMany({ data: [1, 2].map(() => ({ userId, programId: p.id, pricePaise: 25000 })) })
+  const retry = await enrollProgram(request({}), { params: Promise.resolve({ slug: p.slug }) })
+  expect(retry.status).toBe(409)
+  expect((await retry.json()).error).toContain('Multiple pending enrollments')
+  expect(await prisma.payment.count({ where: { userId, type: 'PROGRAM', metadata: { path: ['programId'], equals: p.id } } })).toBe(0)
+})
+
+test('program enrollment does not replace a saved terminal payment', async () => {
+  const p = await program()
+  const first = await (await enrollProgram(request({}), { params: Promise.resolve({ slug: p.slug }) })).json()
+  await prisma.payment.updateMany({ where: { userId, gatewayOrderId: first.orderId }, data: { status: 'refunded', statusEnum: 'REFUNDED' } })
+  const retry = await enrollProgram(request({}), { params: Promise.resolve({ slug: p.slug }) })
+  expect(retry.status).toBe(409)
+  expect(await prisma.payment.count({ where: { userId, type: 'PROGRAM', metadata: { path: ['enrollmentId'], equals: first.enrollmentId } } })).toBe(1)
+})
+
+test('program retry and generic checkout share one persisted provider order', async () => {
+  const p = await program()
+  const enrollment = await prisma.programEnrollment.create({ data: { userId, programId: p.id, pricePaise: 25000 } })
+  const responses = await Promise.all([
+    enrollProgram(request({}), { params: Promise.resolve({ slug: p.slug }) }),
+    createOrder(request({ type: 'PROGRAM', metadata: { enrollmentId: enrollment.id } })),
+  ])
+  expect(responses.map(row => row.status)).toEqual([200, 200])
+  const bodies = await Promise.all(responses.map(row => row.json()))
+  expect(bodies[0].orderId).toBe(bodies[1].orderId)
+  expect(await prisma.payment.count({ where: { userId, type: 'PROGRAM', metadata: { path: ['enrollmentId'], equals: enrollment.id } } })).toBe(1)
+})

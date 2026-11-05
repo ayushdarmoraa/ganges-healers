@@ -98,3 +98,26 @@ wait for activity/analytics side effects rather than forcing Jest to exit.
   - `membership.subscribe.dryrun.api.test.ts`
   - `membership.subscribe.live.api.test.ts` (SDK mocked)
   - `payments.webhook.verify.api.test.ts`
+
+## Gateway receipt identifiers
+
+All order-creation paths use the shared `createGatewayReceipt` formatter: generic
+payments, programs, store purchases and courses. Receipts consist of their existing
+purchase prefix and a random UUID without separators, giving unique references
+of at most 39 characters. They do not depend on record-ID lengths or clock ticks.
+Amounts, currency, resource metadata, order IDs and public response fields are
+unchanged. Existing receipts remain valid and need no backfill.
+
+This implements the [Razorpay receipt contract](https://razorpay.com/docs/api/orders/fetch-with-id/)
+(maximum 40 characters and unique per order). The formatter is separate from lazy
+SDK construction so it is shared without initializing a provider client or requiring
+credentials. Local format checks and mocked order creation do not establish a real
+provider checkout or capture.
+
+Generic and program enrollment checkout share `src/lib/payments/create-order.ts`.
+It resolves an owned resource and freezes its server quote, reuses a matching
+pending order, and rechecks under the existing purchase lock after provider I/O.
+Provider notes include only string/number values; nullable fulfillment bindings
+remain in canonical database metadata. The original API response fields and
+payment fulfillment checks remain in place. Program retries are described in
+[the API contracts](./contracts.md#program-checkout-recovery).
