@@ -3,65 +3,7 @@ import bcrypt from 'bcryptjs'
 import { test, expect } from '@playwright/test'
 import { PrismaClient } from '@prisma/client'
 import { loadTestDatabaseEnvironment, verifyTestDatabaseConnection } from '../../scripts/test-database'
-
-test('a recovery link changes the real password, revokes an existing session and preserves the return page', async ({ page, browser, baseURL }) => {
-  test.setTimeout(120000)
-  const settings = loadTestDatabaseEnvironment()
-  await verifyTestDatabaseConnection(settings)
-  const db = new PrismaClient({ datasources: { db: { url: settings.environment.DATABASE_URL } } })
-  const email = `reset-${crypto.randomUUID()}@example.test`
-  const oldPassword = `Old-${crypto.randomUUID()}!`
-  const newPassword = `New-${crypto.randomUUID()}!`
-  const token = crypto.randomBytes(32).toString('hex')
-  const recovery = await browser.newContext()
-  let userId = ''
-  try {
-    userId = (await db.user.create({ data: { email, password: await bcrypt.hash(oldPassword, 4), name: 'Recovery Customer' } })).id
-    await page.goto('/auth/signin')
-    await page.getByLabel('Email', { exact: true }).fill(email)
-    await page.getByLabel('Password', { exact: true }).fill(oldPassword)
-    await page.getByRole('button', { name: 'Sign In', exact: true }).click()
-    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 30000 })
-    expect((await (await page.request.get('/api/auth/session')).json()).user.id).toBe(userId)
-
-    // Isolated delivery fixture: real email issuance/delivery is covered separately; no provider email is sent by E2E.
-    await db.verificationToken.create({ data: {
-      identifier: `password-reset:${userId}:${crypto.createHash('sha256').update(email).digest('hex')}`,
-      token: crypto.createHash('sha256').update(token).digest('hex'), expires: new Date(Date.now() + 900000),
-    } })
-    const resetPage = await recovery.newPage()
-    const link = new URL('/auth/reset-password', baseURL)
-    link.searchParams.set('callbackUrl', '/dashboard/settings')
-    link.hash = new URLSearchParams({ token }).toString()
-    await resetPage.goto(link.href)
-    await expect(resetPage.getByLabel('New password', { exact: true })).toBeVisible({ timeout: 30000 })
-    expect(new URL(resetPage.url()).hash).toBe('')
-    await expect(resetPage.locator('meta[name="referrer"]')).toHaveAttribute('content', 'no-referrer')
-    await resetPage.getByLabel('New password', { exact: true }).fill(newPassword)
-    await resetPage.getByLabel('Confirm new password').fill(newPassword)
-    await resetPage.getByRole('button', { name: 'Reset password', exact: true }).click()
-    await expect(resetPage.getByRole('status')).toContainText('Your password has been updated')
-    expect(await (await page.request.get('/api/auth/session')).json()).toBeNull()
-    expect((await resetPage.request.post('/api/auth/reset-password', { data: { token, newPassword: oldPassword } })).status()).toBe(400)
-    await resetPage.getByRole('link', { name: 'Back to sign in' }).click()
-    await resetPage.getByLabel('Email', { exact: true }).fill(email)
-    await resetPage.getByLabel('Password', { exact: true }).fill(oldPassword)
-    await resetPage.getByRole('button', { name: 'Sign In', exact: true }).click()
-    await expect(resetPage.getByText('Invalid credentials', { exact: true })).toBeVisible({ timeout: 30000 })
-    await resetPage.getByLabel('Password', { exact: true }).fill(newPassword)
-    await resetPage.getByRole('button', { name: 'Sign In', exact: true }).click()
-    await expect(resetPage).toHaveURL(new URL('/dashboard/settings', baseURL).href, { timeout: 30000 })
-    expect((await (await resetPage.request.get('/api/auth/session')).json()).user.id).toBe(userId)
-  } finally {
-    await recovery.close()
-    try {
-      if (userId) {
-        await db.verificationToken.deleteMany({ where: { identifier: { startsWith: `password-reset:${userId}:` } } })
-        await db.user.delete({ where: { id: userId } })
-      }
-    } finally { await db.$disconnect() }
-  }
-})
+import { passwordVersion } from '../../src/lib/auth/password-version'
 
 test('register without a phone, sign in with the stored password, and sign out', async ({ page, baseURL }) => {
   test.setTimeout(120_000)
@@ -171,6 +113,59 @@ test('a profile-selected practitioner survives registration and real password si
     try {
       await db.user.deleteMany({ where: { OR: [{ email }, { id: { in: practitionerUsers } }] } })
       if (serviceId) await db.service.delete({ where: { id: serviceId } })
+    } finally { await db.$disconnect() }
+  }
+})
+
+test('a single-use recovery link changes the real password, revokes old sessions, and keeps the booking return', async ({ page, browser, baseURL }) => {
+  test.setTimeout(180_000)
+  const settings = loadTestDatabaseEnvironment()
+  await verifyTestDatabaseConnection(settings)
+  const db = new PrismaClient({ datasources: { db: { url: settings.environment.DATABASE_URL } } })
+  const email = `recovery-${crypto.randomUUID()}@example.test`
+  const oldPassword = `Old-${crypto.randomUUID()}!`
+  const newPassword = `New-${crypto.randomUUID()}!`
+  const stored = await bcrypt.hash(oldPassword, 4)
+  const user = await db.user.create({ data: { email, password: stored } })
+  const recovery = crypto.randomBytes(32).toString('hex')
+  const hash = crypto.createHash('sha256').update(recovery).digest('hex')
+  const callback = '/services?search=Yoga'
+  let oldSession: Awaited<ReturnType<typeof browser.newContext>> | undefined
+  try {
+    await page.goto('/auth/signin')
+    await page.getByLabel('Email', { exact: true }).fill(email)
+    await page.getByLabel('Password', { exact: true }).fill(oldPassword)
+    await page.getByRole('button', { name: 'Sign In', exact: true }).click()
+    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 30_000 })
+    oldSession = await browser.newContext({ baseURL, storageState: await page.context().storageState() })
+    expect((await (await oldSession.request.get('/api/auth/session')).json()).user.id).toBe(user.id)
+    // Isolated fixture represents the emailed fragment; no external email or real account is used.
+    await db.verificationToken.create({ data: { token: hash, identifier: `password-reset:${user.id}:${passwordVersion(stored)}:${crypto.createHash('sha256').update(email.toLowerCase()).digest('hex')}`, expires: new Date(Date.now() + 15 * 60_000) } })
+    await page.goto(`/auth/reset-password?${new URLSearchParams({ callbackUrl: callback })}#token=${recovery}`)
+    await expect(page.getByLabel('New password', { exact: true })).toBeVisible({ timeout: 30_000 })
+    await expect(page).not.toHaveURL(/#token=/)
+    await page.getByLabel('New password', { exact: true }).fill(newPassword)
+    await page.getByLabel('Confirm new password', { exact: true }).fill(newPassword)
+    await page.getByRole('button', { name: 'Update password', exact: true }).click()
+    await expect(page.getByText('Password updated', { exact: true })).toBeVisible({ timeout: 30_000 })
+    expect(await db.verificationToken.findUnique({ where: { token: hash } })).toBeNull()
+    expect(await (await oldSession.request.get('/api/auth/session')).json()).toBeNull()
+    expect((await oldSession.request.get('/api/notifications')).status()).toBe(401)
+    const replay = await page.request.post('/api/auth/password-reset/confirm', { data: { token: recovery, newPassword: oldPassword } })
+    expect(replay.status()).toBe(400)
+    await page.getByRole('link', { name: 'Sign in with your new password' }).click()
+    await page.getByLabel('Email', { exact: true }).fill(email)
+    await page.getByLabel('Password', { exact: true }).fill(oldPassword)
+    await page.getByRole('button', { name: 'Sign In', exact: true }).click()
+    await expect(page.getByText('Invalid credentials', { exact: true })).toBeVisible({ timeout: 30_000 })
+    await page.getByLabel('Password', { exact: true }).fill(newPassword)
+    await page.getByRole('button', { name: 'Sign In', exact: true }).click()
+    await expect(page).toHaveURL(new URL(callback, baseURL).href, { timeout: 30_000 })
+  } finally {
+    await oldSession?.close()
+    try {
+      await db.verificationToken.deleteMany({ where: { identifier: { startsWith: `password-reset:${user.id}:` } } })
+      await db.user.delete({ where: { id: user.id } })
     } finally { await db.$disconnect() }
   }
 })

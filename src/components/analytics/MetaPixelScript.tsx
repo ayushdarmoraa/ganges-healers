@@ -3,13 +3,15 @@
 import Script from 'next/script'
 import { usePathname } from 'next/navigation'
 
+const PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID
+
 /**
  * Renders the Meta Pixel base code. Renders nothing when the env var is absent.
  */
 export default function MetaPixelScript() {
-  const PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID
   const pathname = usePathname()
-  if (!PIXEL_ID || !pathname || pathname === '/auth/forgot-password' || pathname === '/auth/reset-password') return null
+  // Account credentials and recovery URLs must never be sent to advertising analytics.
+  if (!PIXEL_ID || pathname?.startsWith('/auth/') || pathname === '/register') return null
 
   return (
     <>

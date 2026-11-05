@@ -1,9 +1,16 @@
 import type { Server, Socket } from 'socket.io'
+import { prisma } from '@/lib/prisma'
+import { passwordVersion } from '@/lib/auth/password-version'
 
 interface SocketIdentity { userId: string; expiresAt: number }
+type VerifyCredential = (userId: string, version: unknown) => Promise<boolean>
+const verifyCredential: VerifyCredential = async (userId, version) => {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { password: true } })
+  return Boolean(user && typeof version === 'string' && version === passwordVersion(user.password))
+}
 
 /** Decode only server-issued Auth.js session cookies; the handshake's claimed user ID is ignored. */
-export async function notificationSocketIdentity(cookie: string | undefined): Promise<SocketIdentity | null> {
+export async function notificationSocketIdentity(cookie: string | undefined, verify: VerifyCredential = verifyCredential): Promise<SocketIdentity | null> {
   const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET
   if (!cookie || !secret) return null
   const { getToken } = await import('next-auth/jwt')
@@ -11,19 +18,19 @@ export async function notificationSocketIdentity(cookie: string | undefined): Pr
   for (const cookieName of ['__Secure-authjs.session-token', 'authjs.session-token']) {
     const token = await getToken({ req: { headers }, secret, cookieName, salt: cookieName })
     const userId = typeof token?.id === 'string' ? token.id : token?.sub
-    if (userId && userId.length <= 200 && typeof token?.exp === 'number' && Number.isFinite(token.exp) && token.exp * 1000 > Date.now()) return { userId, expiresAt: token.exp * 1000 }
+    if (userId && userId.length <= 200 && typeof token?.exp === 'number' && Number.isFinite(token.exp) && token.exp * 1000 > Date.now() && await verify(userId, token.passwordVersion)) return { userId, expiresAt: token.exp * 1000 }
   }
   return null
 }
 
 /** The same registration is used by the custom server and the real transport test. */
-export function registerNotificationSockets(io: Server, siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000') {
+export function registerNotificationSockets(io: Server, siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000', verify: VerifyCredential = verifyCredential) {
   io.use(async (socket: Socket, next) => {
     try {
       // CORS alone does not protect WebSocket upgrades from a foreign browser origin.
       const origin = socket.handshake.headers.origin
       if (origin && new URL(origin).origin !== new URL(siteUrl).origin) return next(new Error('Unauthorized'))
-      const identity = await notificationSocketIdentity(socket.request.headers.cookie)
+      const identity = await notificationSocketIdentity(socket.request.headers.cookie, verify)
       if (!identity) return next(new Error('Unauthorized'))
       socket.data.notificationIdentity = identity
       next()
@@ -36,7 +43,14 @@ export function registerNotificationSockets(io: Server, siteUrl = process.env.NE
     const expire = () => {
       const remaining = identity.expiresAt - Date.now()
       if (remaining <= 0) { socket.disconnect(true); return }
-      timer = setTimeout(expire, Math.min(remaining, 2147483647))
+      timer = setTimeout(() => {
+        // Long-lived transports must also stop accepting a reset or deleted account's old cookie.
+        void notificationSocketIdentity(socket.request.headers.cookie, verify).then(fresh => {
+          if (!socket.connected) return
+          if (!fresh) socket.disconnect(true)
+          else expire()
+        }).catch(() => socket.disconnect(true))
+      }, Math.min(remaining, 30_000))
       timer.unref()
     }
     expire()

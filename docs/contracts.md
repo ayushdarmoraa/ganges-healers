@@ -23,7 +23,44 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 
 ## Public APIs: Contracts to Preserve
 
+### Password recovery
+- `POST /api/auth/password-reset` accepts `{ email, callbackUrl? }`. Configured
+  deployments return one generic `{ message }` before account lookup/delivery
+  using Next.js `after`, so unknown and social-only emails share the same
+  response. Invalid input returns 400; unavailable email/origin configuration
+  returns 503 consistently. Responses are not cached.
+- `POST /api/auth/password-reset/confirm` accepts `{ token, newPassword }` and
+  returns `{ success: true }`. Passwords require 8–72 UTF-8 bytes; malformed,
+  expired, superseded and consumed links return a safe 400 error. Tokens expire
+  after 15 minutes; only SHA-256 hashes are stored in the existing
+  `VerificationToken` table. A database uniqueness throttle limits delivery to
+  one request per account every five minutes across serverless instances.
+- Links use only configured `AUTH_URL`, `NEXTAUTH_URL`, `NEXT_PUBLIC_SITE_URL`
+  or the Vercel-provided `VERCEL_URL`; incoming Host headers are not trusted.
+  HTTPS is required outside local non-production environments. Tokens travel
+  in fragments, are removed from the address on landing and are submitted only
+  in the confirmation body. The recovery page has no-referrer/no-index metadata;
+  advertising pixels are excluded from account pages.
+- Credential replacement and link consumption are atomic. A per-account
+  conditional update serializes different concurrent links without deadlocks;
+  successful recovery invalidates all remaining links and database sessions.
+  JWT sessions bind to a digest of the current stored credential and fail on
+  their next read after a password change. Existing cookies without that digest
+  require sign-in once after rollout. Long-lived notification sockets reject
+  stale/deleted accounts on connection and recheck at most every 30 seconds.
+- Sign-in, registration, booking and existing password-change response shapes
+  remain unchanged. Recovery preserves only a validated local callback and
+  never signs the customer in automatically. Auth logs contain no email,
+  password, token or recovery URL. No schema migration or dependency is added.
+
 ### Public marketplace data
+- Service discovery links use the supported text-search parameter instead of
+  nonexistent category constants. Category choices come from distinct active
+  catalog values. Filter state remounts on a changed URL, including browser
+  back/forward and cleared filters; legacy `q` searches remain supported.
+  Invalid/repeated numeric filters are not passed to Prisma as NaN/infinity;
+  zero is a valid price bound. Every empty filtered result offers a link to
+  clear all catalog filters. Existing service/booking JSON APIs are unchanged.
 - `GET /api/services/[id]` keeps `{ success, data }`, public catalog fields,
   `_count.bookings`, `healers`, numeric `averageRating`, and `totalBookings`.
   `totalReviews` is additive; ratings are computed from actual service reviews

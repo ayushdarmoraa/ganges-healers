@@ -4,9 +4,12 @@ import userEvent from '@testing-library/user-event'
 import { RegisterForm } from '@/components/auth/register-form'
 import SignInPage from '@/app/auth/signin/page'
 import RegisterPage from '@/app/register/page'
+import PasswordResetForm from '@/components/auth/password-reset-form'
+import SettingsClient from '@/app/dashboard/settings/SettingsClient'
 
 jest.mock('next/navigation', () => ({ useRouter: jest.fn(), useSearchParams: jest.fn() }))
-jest.mock('next-auth/react', () => ({ getProviders: jest.fn(), signIn: jest.fn() }))
+jest.mock('next-auth/react', () => ({ getProviders: jest.fn(), signIn: jest.fn(), signOut: jest.fn(), useSession: () => ({ update: jest.fn() }) }))
+jest.mock('@/components/dashboard/AvatarUpload', () => ({ __esModule: true, default: () => null }))
 jest.mock('sonner', () => ({ toast: { success: jest.fn(), error: jest.fn() } }))
 
 const router = { push: jest.fn() }
@@ -77,7 +80,6 @@ test('sign-in hides Google when it is not returned by the configured providers',
   await waitFor(() => expect(auth.getProviders).toHaveBeenCalled())
   expect(screen.queryByRole('tab', { name: 'Google' })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Sign In' })).toBeVisible()
-  expect(screen.getByRole('link', { name: 'Forgot your password?' })).toHaveAttribute('href', '/auth/forgot-password')
 })
 
 test('sign-in offers a configured Google provider', async () => {
@@ -127,6 +129,9 @@ test('credentials return to the chosen healer and registration link carries the 
   const register = new URL(screen.getByRole('link', { name: 'Create one' }).getAttribute('href')!, 'https://example.test')
   expect(register.pathname).toBe('/register')
   expect(register.searchParams.get('callbackUrl')).toBe(selectedBooking)
+  const recovery = new URL(screen.getByRole('link', { name: 'Forgot your password?' }).getAttribute('href')!, 'https://example.test')
+  expect(recovery.pathname).toBe('/auth/reset-password')
+  expect(recovery.searchParams.get('callbackUrl')).toBe(selectedBooking)
   await submitSignIn(user)
   await waitFor(() => expect(router.push).toHaveBeenCalledWith(selectedBooking))
 })
@@ -173,4 +178,112 @@ test('the registration page preserves the callback on its existing-account link'
   render(await RegisterPage({ searchParams: Promise.resolve({ callbackUrl: selectedBooking }) }))
   const destination = new URL(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')!, 'https://example.test')
   expect(destination.searchParams.get('callbackUrl')).toBe(selectedBooking)
+})
+
+afterEach(() => { window.history.replaceState(null, '', '/') })
+
+test('recovery requests preserve the selected booking and show only the generic account response', async () => {
+  withCallback(selectedBooking)
+  const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ message: 'If an account uses that email, you will receive a reset link.' }), { status: 200 }))
+  const user = userEvent.setup()
+  render(<PasswordResetForm />)
+  await user.type(await screen.findByLabelText('Email'), 'customer@example.test')
+  await user.click(screen.getByRole('button', { name: 'Send reset link' }))
+  expect(await screen.findByRole('status')).toHaveTextContent('If an account')
+  expect(JSON.parse(fetch.mock.calls[0][1]!.body as string)).toEqual({ email: 'customer@example.test', callbackUrl: selectedBooking })
+})
+
+test('an unconfigured delivery provider displays the actual unavailable error', async () => {
+  jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ error: 'Password recovery is temporarily unavailable.' }), { status: 503 }))
+  const user = userEvent.setup()
+  render(<PasswordResetForm />)
+  await user.type(await screen.findByLabelText('Email'), 'customer@example.test')
+  await user.click(screen.getByRole('button', { name: 'Send reset link' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('temporarily unavailable')
+  expect(screen.queryByText(/you will receive/)).not.toBeInTheDocument()
+})
+
+test('a recovery fragment is removed from the address and submitted only to the confirmation API', async () => {
+  const token = 'a'.repeat(64)
+  window.history.replaceState(null, '', `/auth/reset-password#token=${token}`)
+  withCallback(selectedBooking)
+  const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ success: true }), { status: 200 }))
+  const user = userEvent.setup()
+  render(<PasswordResetForm />)
+  expect(window.location.hash).toBe('')
+  await user.type(await screen.findByLabelText('New password', { exact: true }), 'Replacement123!')
+  await user.type(screen.getByLabelText('Confirm new password'), 'Replacement123!')
+  await user.click(screen.getByRole('button', { name: 'Update password' }))
+  expect(await screen.findByText('Password updated')).toBeVisible()
+  expect(fetch).toHaveBeenCalledWith('/api/auth/password-reset/confirm', expect.objectContaining({ body: JSON.stringify({ token, newPassword: 'Replacement123!' }) }))
+  expect(new URL(screen.getByRole('link', { name: 'Sign in with your new password' }).getAttribute('href')!, 'https://example.test').searchParams.get('callbackUrl')).toBe(selectedBooking)
+})
+
+test('mismatched passwords never send a confirmation request', async () => {
+  window.history.replaceState(null, '', `/auth/reset-password#token=${'b'.repeat(64)}`)
+  const fetch = jest.spyOn(globalThis, 'fetch')
+  const user = userEvent.setup()
+  render(<PasswordResetForm />)
+  await user.type(await screen.findByLabelText('New password', { exact: true }), 'Replacement123!')
+  await user.type(screen.getByLabelText('Confirm new password'), 'Different123!')
+  await user.click(screen.getByRole('button', { name: 'Update password' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Passwords do not match')
+  expect(fetch).not.toHaveBeenCalled()
+})
+
+test('a malformed recovery fragment can request a fresh link without retaining the token', async () => {
+  window.history.replaceState(null, '', '/auth/reset-password#token=invalid')
+  render(<PasswordResetForm />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('invalid')
+  expect(screen.getByLabelText('Email')).toBeVisible()
+  expect(window.location.hash).toBe('')
+})
+
+test('a malformed confirmation response never claims the password changed and retains the editor', async () => {
+  window.history.replaceState(null, '', `/auth/reset-password#token=${'a'.repeat(64)}`)
+  jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ok: true })))
+  const user = userEvent.setup()
+  render(<PasswordResetForm />)
+  await user.type(await screen.findByLabelText('New password', { exact: true }), 'Replacement123!')
+  await user.type(screen.getByLabelText('Confirm new password'), 'Replacement123!')
+  await user.click(screen.getByRole('button', { name: 'Update password' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Unable to confirm')
+  expect(screen.queryByText('Password updated')).not.toBeInTheDocument()
+  expect(screen.getByLabelText('New password', { exact: true })).toHaveValue('Replacement123!')
+})
+
+test('a malformed request response does not promise unconfirmed delivery', async () => {
+  jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ok: true })))
+  const user = userEvent.setup()
+  render(<PasswordResetForm />)
+  await user.type(await screen.findByLabelText('Email'), 'customer@example.test')
+  await user.click(screen.getByRole('button', { name: 'Send reset link' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Unable to confirm')
+  expect(screen.queryByRole('status')).not.toBeInTheDocument()
+})
+
+const settingsUser = { name: 'Customer', email: 'customer@example.test', phone: '', image: '', passwordExists: true }
+async function submitSettingsPassword(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByPlaceholderText('Enter current password'), 'Original123!')
+  await user.type(screen.getByPlaceholderText('Enter new password'), 'Replacement123!')
+  await user.type(screen.getByPlaceholderText('Confirm new password'), 'Replacement123!')
+  await user.click(screen.getByRole('button', { name: 'Change Password' }))
+}
+
+test('a confirmed settings password change signs out the revoked current session', async () => {
+  jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ success: true })))
+  const user = userEvent.setup()
+  render(<SettingsClient user={settingsUser} />)
+  await submitSettingsPassword(user)
+  await waitFor(() => expect(jest.requireMock<{ signOut: jest.Mock }>('next-auth/react').signOut).toHaveBeenCalledWith({ callbackUrl: '/auth/signin' }))
+})
+
+test('unconfirmed settings password changes preserve the draft and do not sign out', async () => {
+  jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ok: true })))
+  const user = userEvent.setup()
+  render(<SettingsClient user={settingsUser} />)
+  await submitSettingsPassword(user)
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Password change could not be confirmed. Please try again.'))
+  expect(jest.requireMock<{ signOut: jest.Mock }>('next-auth/react').signOut).not.toHaveBeenCalled()
+  expect(screen.getByPlaceholderText('Enter new password')).toHaveValue('Replacement123!')
 })

@@ -3,15 +3,13 @@ import { z } from "zod"
 import bcrypt from "bcryptjs"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { lockTransaction } from '@/lib/db/locks'
-import { recoveryPasswordSchema } from '@/lib/auth/password-reset'
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 const PasswordSchema = z.object({
   currentPassword: z.string().min(1),
-  newPassword: recoveryPasswordSchema,
+  newPassword: z.string().min(6, "Password must be at least 6 characters").max(72).refine(value => Buffer.byteLength(value, 'utf8') <= 72, 'Password is too long'),
 })
 
 export async function POST(req: Request) {
@@ -51,18 +49,11 @@ export async function POST(req: Request) {
     }
 
     const hashed = await bcrypt.hash(newPassword, 12)
-    const userId = user.id
-    const changed = await prisma.$transaction(async tx => {
-      await lockTransaction(tx, 'credentials', userId)
-      const updated = await tx.user.updateMany({
-        where: { id: userId, password: user.password },
-        data: { password: hashed, passwordChangedAt: new Date() },
-      })
-      if (updated.count !== 1) return false
-      await tx.verificationToken.deleteMany({ where: { identifier: { startsWith: `password-reset:${userId}:` } } })
-      return true
+    const changed = await prisma.user.updateMany({
+      where: { id: session.user.id, password: user.password },
+      data: { password: hashed },
     })
-    if (!changed) return NextResponse.json({ error: 'Your password changed during this request. Sign in again and retry.' }, { status: 409 })
+    if (changed.count !== 1) return NextResponse.json({ error: "Current password is incorrect" }, { status: 400 })
 
     console.log("[users][me][password][changed]", { userId: session.user.id })
 

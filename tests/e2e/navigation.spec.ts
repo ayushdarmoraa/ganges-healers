@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
+import { PrismaClient } from '@prisma/client'
+import { loadTestDatabaseEnvironment, verifyTestDatabaseConnection } from '../../scripts/test-database'
 
 test('desktop and mobile header search real content and retain a working cart', async ({ page, browser, baseURL }) => {
   test.setTimeout(240_000)
@@ -141,4 +144,37 @@ test('account navigation follows real session roles and signs out through Auth.j
   expect((await page.request.get('/api/notifications')).status()).toBe(401)
   await page.getByRole('button', { name: 'Open navigation menu' }).click()
   await expect(page.getByRole('dialog', { name: 'Mobile navigation' }).getByRole('link', { name: 'Sign in', exact: true })).toBeVisible()
+})
+
+test('homepage discovery finds services, uses actual categories and recovers from empty searches', async ({ page }) => {
+  test.setTimeout(120_000)
+  const settings = loadTestDatabaseEnvironment()
+  await verifyTestDatabaseConnection(settings)
+  const db = new PrismaClient({ datasources: { db: { url: settings.environment.DATABASE_URL } } })
+  const token = randomUUID()
+  const title = `Hypnotherapy Discovery ${token}`
+  const category = `Discovery Care ${token}`
+  let id = ''
+  try {
+    id = (await db.service.create({ data: { slug: `discovery-${token}`, name: title, category, description: 'A catalog discovery fixture.', price: 100, duration: 60 } })).id
+    await page.goto('/')
+    await page.getByRole('link', { name: 'Anxiety & Stress', exact: true }).click()
+    await expect(page).toHaveURL(/\/services\?search=hypnotherapy$/, { timeout: 30_000 })
+    await expect(page.getByRole('link', { name: new RegExp(title) })).toBeVisible({ timeout: 30_000 })
+    await page.getByRole('combobox', { name: 'Category' }).selectOption(category)
+    await page.getByRole('button', { name: 'Apply Filters', exact: true }).click()
+    await expect(page.getByRole('combobox', { name: 'Category' })).toHaveValue(category)
+    await expect(page.getByRole('link', { name: new RegExp(title) })).toBeVisible()
+    await page.getByRole('textbox', { name: 'Search', exact: true }).fill(`no-match-${token}`)
+    await page.getByRole('button', { name: 'Apply Filters', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'No matching services', exact: true })).toBeVisible({ timeout: 30_000 })
+    await page.getByRole('link', { name: 'Clear filters', exact: true }).click()
+    await expect(page).toHaveURL(/\/services$/, { timeout: 30_000 })
+    await expect(page.getByRole('textbox', { name: 'Search', exact: true })).toHaveValue('')
+    await expect(page.getByRole('combobox', { name: 'Category' })).toHaveValue('')
+    await expect(page.getByRole('link', { name: new RegExp(title) })).toBeVisible()
+  } finally {
+    try { if (id) await db.service.delete({ where: { id } }) }
+    finally { await db.$disconnect() }
+  }
 })

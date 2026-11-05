@@ -98,13 +98,12 @@ Implementation present means routes/components exist. It does not establish ever
 
 ## Database ownership and rollout
 
-### Password recovery follow-up
+### Recovery identity and retry follow-up
 
-- Add request/reset forms and API routes using the existing email service and verification-token table. Links expire after 15 minutes, are single-use, bind the current email identity, and cannot redirect outside the application. Generic asynchronous request responses do not reveal whether an account exists.
-- Store token digests only, place the raw token in an email URL fragment, clear it from the browser address after opening, and exclude recovery pages from advertising scripts and referrers. Delivery failures remove only their own token reservation.
-- Serialize issuance, redemption and settings password changes with the shared transaction lock helper. Add one nullable `User.passwordChangedAt` column; an updated password invalidates old and legacy JWT sessions through the existing account lookup.
-- Unit, UI, real-database concurrency and browser reset/sign-in/session-revocation coverage is included. Validation results are recorded in the follow-up PR. The browser delivery fixture and mocked Resend calls do not establish real email delivery. No live data or Vercel settings were changed.
-- Apply the additive migration on a verified database target before using this application version. See [password recovery](docs/password-recovery.md). Provider configuration, production reconciliation and rollout remain outstanding.
+- Extend the existing recovery flow with unambiguous account selection and current-email binding. A link cannot reset an account whose email changed, including an email update racing confirmation.
+- Failed issuance or delivery releases only its own token and throttle reservation, allowing immediate retry without erasing a newer request. Malformed successful HTTP responses no longer claim delivery or a completed password change.
+- Confirmed settings password changes sign the revoked session out; overlong UTF-8 passwords are rejected consistently. Existing credential-version checks and notification socket revocation remain in place.
+- Extend the existing unit, UI, real-database transaction and browser fixtures. Local and CI results are recorded in the follow-up PR. No additional migration or dependency is part of this patch; no live data or Vercel settings were changed.
 
 The `ganges-healers` and `ganges-healers-preview` Neon projects now belong to `gangeshealers@gmail.com` in Ganges. The production-named project retains four branches and its approved six-hour recovery window; preview retains its separate branch.
 
@@ -124,6 +123,20 @@ Vercel's production deployment predates this combined feature work. Feature bran
 GitHub ownership is now `gangeshealers/ganges-healers`, and the new Ganges-owned Vercel project is connected to that repository. Its protected Preview from PR #9 is ready; main still points to the older code and its new-workspace build failed because that code initializes Razorpay without credentials. The reviewed development line fixes this import-time failure. The new workspace has branch-scoped `DATABASE_URL`, `AUTH_SECRET` and `CRON_SECRET`; payment, email, upload and optional provider configuration remain outstanding. No production cutover has occurred. The release-readiness branch's daily cron expressions fit the existing Hobby plan; precise hourly messaging requires a different scheduler. The GitHub write connection is confirmed as gangeshealers. PR #10 contains the complete release. The existing DATABASE_URL, AUTH_SECRET and CRON_SECRET Preview secrets are now scoped to codex/site-completion-release; they remain write-only. The protected Preview built successfully after identity verification, and its database health check passed. Provider configuration and a fresh-data production cutover remain outstanding.
 
 ## Release sequence
+
+Current release validation: password-recovery commit `ab7d435` passed all six CI
+jobs in run `42078234321`: 511 unit, 225 integration, 237 UI and 30 browser
+tests, operations checks and the production build. One existing integration
+placeholder remains skipped. Its protected Vercel Preview is ready and database
+health passed. Recovery adds the missing request/reset screens and API flow,
+hashed expiring links, transactional replay protection and credential-bound
+session revocation; configured email delivery remains unverified.
+
+The service-discovery follow-up fixes a reproduced homepage dead end, derives
+category filters from the active catalog, preserves URL state, validates price
+bounds and makes all empty filtered results recoverable. Local validation passed
+248 UI tests, TypeScript and focused lint; the new real-browser catalog journey
+awaits its own CI/deployment. No schema, dependency or payment API changes.
 
 1. Finish combined-branch CI and address failures without weakening flow assertions.
 2. Review stacked pull requests and reconcile database prerequisites on an isolated copy.

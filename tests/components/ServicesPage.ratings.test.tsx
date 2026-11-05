@@ -11,6 +11,8 @@ jest.mock('@/lib/prisma', () => ({ prisma: {
   review: { groupBy: jest.fn(async () => [{ serviceId: 'rated', _avg: { rating: 3.5 }, _count: { rating: 2 } }]) },
 } }))
 
+beforeEach(() => jest.clearAllMocks())
+
 test('catalog cards show actual average/count and a truthful unrated state in one batched query', async () => {
   render(await ServicesPage({ searchParams: Promise.resolve({}) }))
   expect(screen.getByLabelText('3.5 out of 5 from 2 reviews')).toBeVisible()
@@ -18,4 +20,17 @@ test('catalog cards show actual average/count and a truthful unrated state in on
   expect(screen.queryByText('5.0')).not.toBeInTheDocument()
   expect(prisma.review.groupBy).toHaveBeenCalledTimes(1)
   expect(prisma.review.groupBy).toHaveBeenCalledWith({ by: ['serviceId'], where: { serviceId: { in: ['rated', 'new'] } }, _avg: { rating: true }, _count: { rating: true } })
+  expect(prisma.service.findMany).toHaveBeenCalledWith({ where: { isActive: true }, select: { category: true }, distinct: ['category'], orderBy: { category: 'asc' } })
+})
+
+test('malformed prices and repeated search values never reach Prisma as NaN, infinity or comma-joined terms', async () => {
+  await ServicesPage({ searchParams: Promise.resolve({ minPrice: 'NaN', maxPrice: 'Infinity', search: ['first', 'second'], category: ['one', 'two'] }) })
+  expect(prisma.service.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { isActive: true }, select: expect.objectContaining({ name: true }) }))
+})
+
+test('valid search and category filters retain a zero minimum price', async () => {
+  await ServicesPage({ searchParams: Promise.resolve({ minPrice: '0', maxPrice: '9000', search: 'hypnotherapy', category: 'Therapy' }) })
+  expect(prisma.service.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { isActive: true, category: 'Therapy', price: { gte: 0, lte: 9000 }, OR: [
+    { name: { contains: 'hypnotherapy', mode: 'insensitive' } }, { description: { contains: 'hypnotherapy', mode: 'insensitive' } },
+  ] } }))
 })

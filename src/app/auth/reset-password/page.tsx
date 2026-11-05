@@ -1,11 +1,13 @@
 import type { Metadata } from 'next'
-import PasswordRecoveryForm from '@/components/auth/password-recovery-form'
-import { safeCallbackUrl } from '@/lib/auth/callback-url'
+import { Suspense } from 'react'
+import PasswordResetForm from '@/components/auth/password-reset-form'
 
-export const metadata: Metadata = { title: 'Reset your password | Ganges Healers', robots: { index: false, follow: false }, referrer: 'no-referrer' }
+export const metadata: Metadata = {
+  title: 'Password recovery | Ganges Healers',
+  robots: { index: false, follow: false },
+  referrer: 'no-referrer',
+}
 
-export default async function ResetPasswordPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const query = await searchParams
-  // The secret arrives in the email URL fragment, which is read and cleared in the client form.
-  return <PasswordRecoveryForm mode="reset" callbackUrl={safeCallbackUrl(query.callbackUrl)} />
+export default function PasswordResetPage() {
+  return <div className="container mx-auto max-w-md px-4 py-16"><Suspense fallback={<p role="status">Loading password recovery…</p>}><PasswordResetForm /></Suspense></div>
 }

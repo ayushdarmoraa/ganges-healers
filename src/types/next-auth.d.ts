@@ -21,6 +21,7 @@ declare module "next-auth" {
 declare module "next-auth/jwt" {
   interface JWT {
     id: string
+    passwordVersion?: string
     role: string
     vip: boolean
     freeSessionCredits: number

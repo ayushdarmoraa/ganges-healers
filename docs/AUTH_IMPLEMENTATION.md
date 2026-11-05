@@ -123,7 +123,7 @@ GOOGLE_CLIENT_SECRET="your-google-client-secret"
 2. **Add Google OAuth credentials** if needed
 3. **Customize user roles** and permissions as needed
 4. **Add email verification** for enhanced security
-5. **Verify password recovery delivery** using [the recovery guide](password-recovery.md); the request/reset forms, single-use links and password-session revocation are implemented.
+5. **Verify password recovery email delivery** using the implemented flow below
 6. **Add rate limiting** for auth endpoints
 
 ## 🐛 Troubleshooting
@@ -132,3 +132,35 @@ GOOGLE_CLIENT_SECRET="your-google-client-secret"
 - **Auth not working**: Verify `AUTH_SECRET` is set in `.env`
 - **Database issues**: Run `npm run prisma:migrate` and `npm run seed`
 - **Google OAuth issues**: Verify client ID/secret and redirect URIs in Google Console
+# Password recovery
+
+Recovery issuance requires a unique case-insensitive account match. Reset links
+bind both the current stored credential version and a digest of the normalized
+account email; changing either makes an earlier link invalid. The update checks
+both values again atomically, including an email change racing confirmation.
+Old links from the earlier preview implementation require a fresh request.
+
+Failed token persistence or email delivery removes only that attempt's link and
+its exact throttle reservation. A delayed failure cannot clear a newer request's
+reservation. The customer may retry immediately after failed delivery rather than
+waiting through an unused cooldown. Recovery forms require the documented success
+envelope before claiming delivery or a changed password, and retain drafts on
+malformed replies. Confirmed settings password changes explicitly sign the current
+browser out. Both settings and recovery reject passwords exceeding bcrypt's
+72-byte UTF-8 capacity.
+
+The sign-in screen links to `/auth/reset-password` and preserves a safe local
+booking callback. Recovery uses the existing Resend service and
+`VerificationToken` table; it requires `RESEND_API_KEY`, a verified sender for
+`noreply@gangeshealers.com`, and a trusted application origin (`AUTH_URL`,
+`NEXTAUTH_URL`, `NEXT_PUBLIC_SITE_URL`, or automatic `VERCEL_URL`). Missing
+configuration is shown as temporarily unavailable; email delivery has not been
+verified in the new Ganges workspace.
+
+Links expire after 15 minutes, are single-use, and invalidate other recovery
+links and prior sessions. Accounts with Google only continue using Google.
+The rollout requires existing users to sign in once because old JWT cookies do
+not contain a credential version. Browser/API sessions revalidate on their next
+read; custom-server notification sockets revalidate within 30 seconds. Existing
+password-change responses remain compatible and cannot overwrite a concurrently
+changed credential. See `docs/contracts.md` for endpoint and error contracts.

@@ -1,3 +1,5 @@
+import { passwordVersion } from '@/lib/auth/password-version'
+
 jest.mock('next-auth', () => ({
   __esModule: true,
   default: jest.fn(() => ({ handlers: {}, auth: jest.fn(), signIn: jest.fn(), signOut: jest.fn() })),
@@ -16,7 +18,7 @@ jest.mock('bcryptjs', () => ({ __esModule: true, default: { compare: jest.fn() }
 
 interface AuthConfiguration {
   secret?: string
-  callbacks: { jwt: (input: { token: Record<string, unknown>; trigger: string; session?: unknown; user?: { id: string; role?: string } }) => Promise<Record<string, unknown> | null>; signIn: (input: { account?: { provider: string }; profile?: { email_verified?: boolean } }) => Promise<boolean> }
+  callbacks: { jwt: (input: { token: Record<string, unknown>; trigger: string; session?: unknown; user?: Record<string, unknown> }) => Promise<Record<string, unknown> | null>; signIn: (input: { account?: { provider: string }; profile?: { email_verified?: boolean } }) => Promise<boolean> }
   providers: Array<{
     id: string
     authorize: (credentials: Record<string, string>) => Promise<Record<string, unknown> | null>
@@ -100,7 +102,7 @@ describe('production-safe authentication configuration', () => {
   test('refreshes membership claims only from the database when the client requests an update', async () => {
     const { configuration, user } = loadConfiguration()
     user.findUnique.mockResolvedValue({ name: 'Customer', image: null, vip: false, freeSessionCredits: 2, memberships: [] })
-    const token = await configuration.callbacks.jwt({ token: { id: 'owner', vip: true, freeSessionCredits: 999 }, trigger: 'update', session: { vip: true, freeSessionCredits: 999 } })
+    const token = await configuration.callbacks.jwt({ token: { id: 'owner', passwordVersion: passwordVersion(null), vip: true, freeSessionCredits: 999 }, trigger: 'update', session: { vip: true, freeSessionCredits: 999 } })
     expect(token).toMatchObject({ id: 'owner', vip: false, freeSessionCredits: 2 })
   })
 
@@ -111,7 +113,7 @@ describe('production-safe authentication configuration', () => {
   ])('refreshes a cached %s role to the current database %s role on an ordinary session read', async (cachedRole, currentRole) => {
     const { configuration, user } = loadConfiguration()
     user.findUnique.mockResolvedValue({ name: 'Account', image: null, role: currentRole, vip: false, freeSessionCredits: 0, memberships: [] })
-    const token = await configuration.callbacks.jwt({ token: { id: 'account', role: cachedRole }, trigger: '' })
+    const token = await configuration.callbacks.jwt({ token: { id: 'account', passwordVersion: passwordVersion(null), role: cachedRole }, trigger: '' })
     expect(token).toMatchObject({ id: 'account', role: currentRole })
     expect(user.findUnique).toHaveBeenCalledTimes(1)
     expect(user.findUnique).toHaveBeenCalledWith({
@@ -124,7 +126,7 @@ describe('production-safe authentication configuration', () => {
     const { configuration, user } = loadConfiguration()
     user.findUnique.mockResolvedValue({ name: 'Customer', image: null, role: 'USER', vip: false, freeSessionCredits: 0, memberships: [] })
     await expect(configuration.callbacks.jwt({
-      token: { id: 'customer', role: 'USER' }, trigger: 'update',
+      token: { id: 'customer', passwordVersion: passwordVersion(null), role: 'USER' }, trigger: 'update',
       session: { role: 'ADMIN', user: { role: 'ADMIN' } },
     })).resolves.toMatchObject({ role: 'USER' })
   })
@@ -147,29 +149,26 @@ describe('production-safe authentication configuration', () => {
     await expect(configuration.callbacks.jwt({ token: { id: 'account', role: 'ADMIN' }, trigger: '' })).rejects.toThrow('Account lookup unavailable')
   })
 
-  test.each([undefined, null, 1])('revokes an older or legacy session after the password changes (%s)', async passwordVersion => {
+  test('issues new sessions bound to the current credential and rejects pre-recovery sessions', async () => {
     const { configuration, user } = loadConfiguration()
-    user.findUnique.mockResolvedValue({ role: 'USER', vip: false, freeSessionCredits: 0, memberships: [], passwordChangedAt: new Date(2000) })
-    await expect(configuration.callbacks.jwt({ token: { id: 'account', passwordVersion }, trigger: '' })).resolves.toBeNull()
+    user.findUnique.mockResolvedValue({ role: 'USER', password: 'new-stored-hash', memberships: [] })
+    const issued = await configuration.callbacks.jwt({ token: {}, trigger: '', user: { id: 'account', passwordVersion: passwordVersion('new-stored-hash') } })
+    expect(issued).toMatchObject({ passwordVersion: passwordVersion('new-stored-hash') })
+    await expect(configuration.callbacks.jwt({ token: { id: 'account', passwordVersion: passwordVersion('old-stored-hash') }, trigger: '' })).resolves.toBeNull()
+    await expect(configuration.callbacks.jwt({ token: { id: 'account' }, trigger: '' })).resolves.toBeNull()
   })
 
-  test('preserves a session issued after the most recent password change', async () => {
+  test('a password reset racing sign-in cannot issue a session for the previous password', async () => {
     const { configuration, user } = loadConfiguration()
-    user.findUnique.mockResolvedValue({ role: 'USER', vip: false, freeSessionCredits: 0, memberships: [], passwordChangedAt: new Date(2000) })
-    await expect(configuration.callbacks.jwt({ token: { id: 'account', passwordVersion: 2000 }, trigger: '' })).resolves.toMatchObject({ id: 'account', passwordVersion: 2000 })
+    user.findUnique.mockResolvedValue({ role: 'USER', password: 'changed-hash', memberships: [] })
+    await expect(configuration.callbacks.jwt({ token: {}, trigger: '', user: { id: 'account', passwordVersion: passwordVersion('old-hash') } })).resolves.toBeNull()
   })
 
-  test('a verified new sign-in receives the database password version', async () => {
+  test('binds a verified social sign-in to the current credential and ignores client version claims', async () => {
     const { configuration, user } = loadConfiguration()
-    user.findUnique.mockResolvedValue({ role: 'USER', vip: false, freeSessionCredits: 0, memberships: [], passwordChangedAt: new Date(2000) })
-    await expect(configuration.callbacks.jwt({ token: {}, user: { id: 'account' }, trigger: 'signIn' })).resolves.toMatchObject({ id: 'account', passwordVersion: 2000 })
-    expect(user.findUnique).toHaveBeenCalledTimes(1)
-  })
-
-  test('client session updates cannot bypass password-session revocation', async () => {
-    const { configuration, user } = loadConfiguration()
-    user.findUnique.mockResolvedValue({ role: 'USER', vip: false, freeSessionCredits: 0, memberships: [], passwordChangedAt: new Date(2000) })
-    await expect(configuration.callbacks.jwt({ token: { id: 'account', passwordVersion: null }, session: { passwordVersion: 2000 }, trigger: 'update' })).resolves.toBeNull()
+    user.findUnique.mockResolvedValue({ role: 'USER', password: null, memberships: [] })
+    await expect(configuration.callbacks.jwt({ token: {}, trigger: '', user: { id: 'account' } })).resolves.toMatchObject({ passwordVersion: passwordVersion(null) })
+    await expect(configuration.callbacks.jwt({ token: { id: 'account', passwordVersion: 'stale' }, trigger: 'update', session: { passwordVersion: passwordVersion(null) } })).resolves.toBeNull()
   })
 
   test('requires a configured production secret rather than a public fallback', () => {

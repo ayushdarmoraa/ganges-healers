@@ -1,96 +1,97 @@
 import { createHash, randomBytes } from 'node:crypto'
+import { Prisma } from '@prisma/client'
 import bcrypt from 'bcryptjs'
-import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { lockTransaction } from '@/lib/db/locks'
 import { emailService } from '@/lib/email/email.service'
 import { safeCallbackUrl } from './callback-url'
+import { passwordVersion } from './password-version'
 
-const TOKEN_PATTERN = /^[a-f0-9]{64}$/
-const IDENTIFIER_PATTERN = /^password-reset:([^:]+):([a-f0-9]{64})$/
 const TOKEN_LIFETIME_MS = 15 * 60_000
-const REQUEST_COOLDOWN_MS = 60_000
+const REQUEST_INTERVAL_MS = 5 * 60_000
+const digest = (value: string) => createHash('sha256').update(value).digest('hex')
+export const RESET_MESSAGE = 'If an account with a password uses that email, you will receive a reset link. Check your inbox and spam folder.'
 
-export const recoveryPasswordSchema = z.string().min(6, 'Password must be at least 6 characters')
-  .max(72, 'Password is too long')
-  .refine(value => Buffer.byteLength(value, 'utf8') <= 72, 'Password is too long; try a shorter password')
+export class PasswordResetError extends Error {}
 
-/** Fixed public errors never include an email, token, password, or database diagnostic. */
-export class PasswordResetError extends Error {
-  constructor() { super('This reset link is invalid or has expired. Request a new link.') }
-}
-
-function digest(value: string) { return createHash('sha256').update(value).digest('hex') }
-function normalizedEmail(value: string) { return value.trim().toLowerCase() }
-function identifierFor(userId: string, email: string) {
-  return `password-reset:${userId}:${digest(normalizedEmail(email))}`
-}
-
-/** Use configured application origins only. Request Host/forwarded headers never choose email links. */
-export function passwordResetOrigin(environment: Readonly<Record<string, string | undefined>> = process.env): string | null {
-  const configured = environment.NEXT_PUBLIC_SITE_URL || environment.AUTH_URL || environment.NEXTAUTH_URL
+/** Recovery destinations come only from server configuration, never an incoming Host header. */
+export function passwordResetBaseUrl(environment: NodeJS.ProcessEnv = process.env): string | null {
+  const configured = environment.AUTH_URL || environment.NEXTAUTH_URL || environment.NEXT_PUBLIC_SITE_URL ||
+    (environment.VERCEL_URL ? `https://${environment.VERCEL_URL}` : undefined)
   if (!configured) return null
   try {
     const url = new URL(configured)
-    const local = environment.NODE_ENV !== 'production' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
-    if ((url.protocol !== 'https:' && !(local && url.protocol === 'http:')) || url.username || url.password) return null
+    const localDevelopment = environment.NODE_ENV !== 'production' && ['localhost', '127.0.0.1'].includes(url.hostname)
+    if (url.username || url.password || url.search || url.hash || (url.protocol !== 'https:' && !(localDevelopment && url.protocol === 'http:'))) return null
     return url.origin
   } catch { return null }
 }
 
-/** Issue one opaque, expiring link per account; the caller schedules this after its generic response. */
-export async function requestPasswordReset(email: string, origin: string, callbackUrl: unknown = undefined): Promise<void> {
-  // Do not send password reset links for OAuth-only, unknown, or ambiguous legacy email accounts.
-  const candidates = await prisma.user.findMany({
-    where: { email: { equals: normalizedEmail(email), mode: 'insensitive' } },
-    select: { id: true, email: true, password: true }, take: 2,
+/** Run after the generic HTTP response so account lookup and mail timing cannot enumerate users. */
+export async function requestPasswordReset(email: string, baseUrl: string, callbackUrl: unknown) {
+  const matches = await prisma.user.findMany({
+    where: { email: { equals: email.trim().toLowerCase(), mode: 'insensitive' } },
+    select: { id: true, email: true, password: true },
+    take: 2,
   })
-  if (candidates.length !== 1 || !candidates[0].password) return
-  const user = candidates[0]
-  const identifier = identifierFor(user.id, user.email)
-  const token = randomBytes(32).toString('hex')
-  const hashedToken = digest(token)
-  const issued = await prisma.$transaction(async tx => {
-    await lockTransaction(tx, 'credentials', user.id)
-    const now = new Date()
-    const recent = await tx.verificationToken.findFirst({ where: { identifier }, orderBy: { expires: 'desc' } })
-    if (recent && recent.expires.getTime() - TOKEN_LIFETIME_MS + REQUEST_COOLDOWN_MS > now.getTime()) return false
-    await tx.verificationToken.deleteMany({ where: { identifier: { startsWith: `password-reset:${user.id}:` } } })
-    await tx.verificationToken.create({ data: { identifier, token: hashedToken, expires: new Date(now.getTime() + TOKEN_LIFETIME_MS) } })
-    return true
-  })
-  if (!issued) return
-  const link = new URL('/auth/reset-password', origin)
-  // Fragments are not sent in HTTP requests or Referer headers, keeping the secret out of access logs.
-  link.hash = new URLSearchParams({ token }).toString()
-  link.searchParams.set('callbackUrl', safeCallbackUrl(callbackUrl))
+  // Older mixed-case accounts can collide under an insensitive lookup; never choose one arbitrarily.
+  if (matches.length !== 1) return
+  const user = matches[0]
+  if (!user?.password) return
+  const now = new Date()
+  const rateToken = digest(`password-reset-rate:${user.id}`)
+  const rateIdentifier = `password-reset-rate:${user.id}`
+  const rateExpires = new Date(now.getTime() + REQUEST_INTERVAL_MS)
+  await prisma.verificationToken.deleteMany({ where: { token: rateToken, identifier: rateIdentifier, expires: { lte: now } } })
   try {
-    const result = await emailService.sendPasswordReset({ to: user.email, resetUrl: link.href })
+    // The unique token makes this throttle shared across serverless instances and concurrent requests.
+    await prisma.verificationToken.create({ data: { token: rateToken, identifier: rateIdentifier, expires: rateExpires } })
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') return
+    throw error
+  }
+  const prefix = `password-reset:${user.id}:`
+  const token = randomBytes(32).toString('hex')
+  const tokenHash = digest(token)
+  const identifier = `${prefix}${passwordVersion(user.password)}:${digest(user.email.trim().toLowerCase())}`
+  try {
+    await prisma.verificationToken.deleteMany({ where: { identifier: { startsWith: prefix }, expires: { lte: now } } })
+    await prisma.verificationToken.create({ data: { token: tokenHash, identifier, expires: new Date(now.getTime() + TOKEN_LIFETIME_MS) } })
+    const link = new URL('/auth/reset-password', baseUrl)
+    const destination = safeCallbackUrl(callbackUrl)
+    if (destination !== '/dashboard') link.searchParams.set('callbackUrl', destination)
+    // A fragment is not sent in HTTP requests or Referer headers. The page clears it immediately.
+    link.hash = new URLSearchParams({ token }).toString()
+    const result = await emailService.sendPasswordReset({ to: user.email, link: link.href })
     if (!result.success) throw new Error('Reset delivery failed')
   } catch {
-    // Bind cleanup to this attempt so it cannot erase a newer successful request.
-    await prisma.verificationToken.deleteMany({ where: { identifier, token: hashedToken } })
-    throw new Error('Password reset email could not be delivered')
+    // Release only this attempt's throttle reservation, so a delayed failure cannot erase a newer one.
+    await prisma.verificationToken.deleteMany({ where: { OR: [
+      { token: tokenHash, identifier },
+      { token: rateToken, identifier: rateIdentifier, expires: rateExpires },
+    ] } })
+    console.error('[auth][password-reset][delivery-failed]')
   }
 }
 
-/** Atomically consume a reset link, replace the stored hash, and revoke prior password sessions. */
-export async function resetPassword(token: string, newPassword: string): Promise<void> {
-  if (!TOKEN_PATTERN.test(token) || !recoveryPasswordSchema.safeParse(newPassword).success) throw new PasswordResetError()
-  const hashedToken = digest(token)
-  const candidate = await prisma.verificationToken.findUnique({ where: { token: hashedToken } })
-  const identity = candidate?.identifier.match(IDENTIFIER_PATTERN)
-  if (!candidate || !identity || candidate.expires <= new Date()) throw new PasswordResetError()
-  const userId = identity[1]
-  const hash = await bcrypt.hash(newPassword, 12)
+/** Consume the recovery token and update the credential atomically; concurrent replays cannot win. */
+export async function confirmPasswordReset(token: string, newPassword: string) {
+  const tokenHash = digest(token)
+  const record = await prisma.verificationToken.findUnique({ where: { token: tokenHash } })
+  const now = new Date()
+  const parts = record?.identifier.split(':')
+  if (!record || record.expires <= now || parts?.length !== 4 || parts[0] !== 'password-reset') throw new PasswordResetError('This reset link is invalid or has expired. Request a new link.')
+  const userId = parts[1]
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true, password: true } })
+  if (!user?.password || parts[2] !== passwordVersion(user.password) || parts[3] !== digest(user.email.trim().toLowerCase())) throw new PasswordResetError('This reset link is invalid or has expired. Request a new link.')
+  const hashed = await bcrypt.hash(newPassword, 12)
   await prisma.$transaction(async tx => {
-    await lockTransaction(tx, 'credentials', userId)
-    const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true, email: true, password: true } })
-    if (!user?.password || identifierFor(user.id, user.email) !== candidate.identifier) throw new PasswordResetError()
-    const now = new Date()
-    const consumed = await tx.verificationToken.deleteMany({ where: { identifier: candidate.identifier, token: hashedToken, expires: { gt: now } } })
-    if (consumed.count !== 1) throw new PasswordResetError()
-    await tx.user.update({ where: { id: userId }, data: { password: hash, passwordChangedAt: now } })
+    // Lock the account before token rows, so different concurrent links cannot deadlock each other.
+    const changed = await tx.user.updateMany({ where: { id: userId, email: user.email, password: user.password }, data: { password: hashed } })
+    if (changed.count !== 1) throw new PasswordResetError('This reset link is invalid or has expired. Request a new link.')
+    const consumed = await tx.verificationToken.deleteMany({ where: { token: tokenHash, identifier: record.identifier, expires: { gt: new Date() } } })
+    if (consumed.count !== 1) throw new PasswordResetError('This reset link is invalid or has expired. Request a new link.')
     await tx.verificationToken.deleteMany({ where: { identifier: { startsWith: `password-reset:${userId}:` } } })
+    await tx.session.deleteMany({ where: { userId } })
   })
+  console.info('[auth][password-reset][completed]')
 }
