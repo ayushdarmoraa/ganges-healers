@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs'
 import { test, expect, type Page, type BrowserContext } from '@playwright/test'
 import { PrismaClient } from '@prisma/client'
 import { loadTestDatabaseEnvironment, verifyTestDatabaseConnection } from '../../scripts/test-database'
-import { generateAuthenticatorCode } from '../../src/lib/auth/two-factor-crypto'
+import { generateAuthenticatorCode, matchingRecoveryCode } from '../../src/lib/auth/two-factor-crypto'
 
 test('an owner enables an authenticator, signs in with one-use factors, and disables it without reviving old sessions', async ({ page, browser, baseURL }) => {
   test.setTimeout(240000)
@@ -13,6 +13,11 @@ test('an owner enables an authenticator, signs in with one-use factors, and disa
   const password = `Test-${randomUUID()}!`
   const account = await db.user.create({ data: { email, password: await bcrypt.hash(password, 8) } })
   const contexts: BrowserContext[] = []
+  let clientNumber = 10
+  // Distinct simulated clients must not exhaust the shared proxy/IP budget across auth journeys.
+  // The database factor throttle remains shared by account across all of these clients.
+  const clientHeaders = () => ({ 'x-forwarded-for': `192.0.2.${clientNumber++}` })
+  await page.context().setExtraHTTPHeaders(clientHeaders())
   const login = async (target: Page, code = '', accepted = true) => {
     await target.goto('/auth/signin')
     await target.getByLabel('Email', { exact: true }).fill(email)
@@ -20,17 +25,18 @@ test('an owner enables an authenticator, signs in with one-use factors, and disa
     await target.getByLabel('Authenticator or recovery code (if enabled)', { exact: true }).fill(code)
     const submitted = target.waitForResponse(response => response.url().includes('/api/auth/callback/credentials') && response.request().method() === 'POST')
     await target.getByRole('button', { name: 'Sign In', exact: true }).click()
-    await submitted
+    const submittedResponse = await submitted
+    expect(submittedResponse.status(), 'The simulated client must not exhaust the IP request budget').not.toBe(429)
     if (accepted) await expect(target).toHaveURL(/\/dashboard$/, { timeout: 30000 })
     else {
       await expect(target.getByText('Invalid credentials', { exact: true })).toBeVisible({ timeout: 30000 })
       expect(await (await target.request.get('/api/auth/session')).json()).toBeNull()
     }
   }
-  const freshPage = async () => { const context = await browser.newContext({ baseURL }); contexts.push(context); return context.newPage() }
+  const freshPage = async () => { const context = await browser.newContext({ baseURL, extraHTTPHeaders: clientHeaders() }); contexts.push(context); return context.newPage() }
   try {
     await login(page)
-    const oldSession = await browser.newContext({ baseURL, storageState: await page.context().storageState() }); contexts.push(oldSession)
+    const oldSession = await browser.newContext({ baseURL, storageState: await page.context().storageState(), extraHTTPHeaders: clientHeaders() }); contexts.push(oldSession)
     await page.goto('/dashboard/settings')
     await page.getByLabel('Password for two-factor changes', { exact: true }).fill(password)
     await page.getByRole('button', { name: 'Set up authenticator', exact: true }).click()
@@ -51,7 +57,10 @@ test('an owner enables an authenticator, signs in with one-use factors, and disa
     const freshCode = generateAuthenticatorCode(secret!, timestamp)
     await login(page, freshCode)
     const replayPage = await freshPage(); await login(replayPage, freshCode, false)
+    const beforeRecovery = await db.twoFactorCredential.findUniqueOrThrow({ where: { userId: account.id } })
+    expect(matchingRecoveryCode(account.id, recovery[0], beforeRecovery.recoveryHashes)).toBe(0)
     const recoveredPage = await freshPage(); await login(recoveredPage, recovery[0])
+    expect((await db.twoFactorCredential.findUniqueOrThrow({ where: { userId: account.id } })).recoveryHashes).toHaveLength(7)
     await login(replayPage, recovery[0], false)
     await recoveredPage.goto('/dashboard/settings')
     await recoveredPage.getByLabel('Password for two-factor changes', { exact: true }).fill(password)
