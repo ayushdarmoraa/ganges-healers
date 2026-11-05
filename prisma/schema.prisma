@@ -61,7 +61,9 @@ model Healer {
   updatedAt          DateTime                 @updatedAt
   bookings           Booking[]
   user               User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  programEnrollments ProgramEnrollment[]
+  programEnrollments ProgramEnrollment[] @relation("PurchasedProgramHealer")
+  assignedPrograms   ProgramEnrollment[] @relation("AssignedProgramHealer")
+  programSessions    ProgramSession[]
   reviews            Review[]
 }
 
@@ -193,6 +195,7 @@ model ProgramEnrollment {
   programId String
   pricePaise Int?
   healerId  String?
+  assignedHealerId String?
   status    ProgramEnrollmentStatus @default(pending_payment)
   schedule  Json?
   progress  Json?
@@ -200,13 +203,41 @@ model ProgramEnrollment {
   endDate   DateTime?
   createdAt DateTime                @default(now())
   updatedAt DateTime                @updatedAt
-  healer    Healer?                 @relation(fields: [healerId], references: [id])
+  healer    Healer?                 @relation("PurchasedProgramHealer", fields: [healerId], references: [id])
+  assignedHealer Healer?            @relation("AssignedProgramHealer", fields: [assignedHealerId], references: [id], onDelete: SetNull)
   program   Program                 @relation(fields: [programId], references: [id], onDelete: Cascade)
   user      User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions  ProgramSession[]
 
   @@index([userId, status])
   @@index([programId])
   @@index([healerId])
+  @@index([assignedHealerId])
+}
+
+model ProgramSession {
+  id           String               @id @default(cuid())
+  enrollmentId String
+  healerId     String
+  sessionNumber Int
+  scheduledAt  DateTime
+  durationMin  Int
+  status       ProgramSessionStatus @default(SCHEDULED)
+  completedAt  DateTime?
+  meetingLink  String?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  enrollment   ProgramEnrollment    @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  healer       Healer               @relation(fields: [healerId], references: [id], onDelete: Cascade)
+
+  @@unique([enrollmentId, sessionNumber])
+  @@index([healerId, scheduledAt, status])
+}
+
+enum ProgramSessionStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
 }
 
 model MembershipPlan {

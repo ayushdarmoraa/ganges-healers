@@ -6,6 +6,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import Link from 'next/link'
+import { writeProgramCatalog, archiveProgramCatalog } from '@/lib/programs/queries'
 
 async function guardAdmin() {
   const session = await auth()
@@ -14,59 +16,39 @@ async function guardAdmin() {
   return session
 }
 
-async function createProgram(formData: FormData) {
-  'use server'
-  await guardAdmin()
-  const title = String(formData.get('title'))
-  const slug = String(formData.get('slug'))
-  const description = String(formData.get('description'))
-  const pricePaise = parseInt(String(formData.get('pricePaise') || '0'), 10)
-  const totalSessions = parseInt(String(formData.get('totalSessions') || '1'), 10)
-  const sessionsPerWeek = parseInt(String(formData.get('sessionsPerWeek') || '1'), 10)
-  const durationMinutes = parseInt(String(formData.get('durationMinutes') || '60'), 10)
-
-  await prisma.program.create({
-    data: { title, slug, description, pricePaise, totalSessions, sessionsPerWeek, durationMinutes },
-  })
-  revalidatePath('/admin/programs')
+function programForm(formData: FormData) {
+  return Object.fromEntries(['title', 'slug', 'description', 'pricePaise', 'totalSessions', 'sessionsPerWeek', 'durationMinutes'].map(key => [key, formData.get(key)]))
 }
-
-async function updateProgram(formData: FormData) {
-  'use server'
-  await guardAdmin()
-  const id = String(formData.get('id'))
-  const title = String(formData.get('title'))
-  const description = String(formData.get('description'))
-  const pricePaise = parseInt(String(formData.get('pricePaise') || '0'), 10)
-  const totalSessions = parseInt(String(formData.get('totalSessions') || '1'), 10)
-  const sessionsPerWeek = parseInt(String(formData.get('sessionsPerWeek') || '1'), 10)
-  const durationMinutes = parseInt(String(formData.get('durationMinutes') || '60'), 10)
-
-  await prisma.program.update({
-    where: { id },
-    data: { title, description, pricePaise, totalSessions, sessionsPerWeek, durationMinutes },
-  })
-  revalidatePath('/admin/programs')
+async function saveCatalog(formData: FormData, update: boolean) {
+  const session = await guardAdmin()
+  if (!session.user?.id) throw new Error('Unauthorized')
+  try { await writeProgramCatalog(session.user.id, programForm(formData), update ? String(formData.get('id')) : undefined) }
+  catch (error) {
+    if (error && typeof error === 'object' && 'status' in error && error.status === 400) redirect('/admin/programs?error=invalid-program')
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') redirect('/admin/programs?error=duplicate-slug')
+    throw error
+  }
+  revalidatePath('/admin/programs'); revalidatePath('/programs')
 }
-
+async function createProgram(formData: FormData) { 'use server'; await saveCatalog(formData, false) }
+async function updateProgram(formData: FormData) { 'use server'; await saveCatalog(formData, true) }
 async function toggleProgram(formData: FormData) {
   'use server'
-  await guardAdmin()
-  const id = String(formData.get('id'))
-  const current = String(formData.get('isActive')) === 'true'
-  await prisma.program.update({ where: { id }, data: { isActive: !current } })
-  revalidatePath('/admin/programs')
+  const session = await guardAdmin()
+  if (!session.user?.id) throw new Error('Unauthorized')
+  await archiveProgramCatalog(session.user.id, String(formData.get('id')), String(formData.get('isActive')) === 'true')
+  revalidatePath('/admin/programs'); revalidatePath('/programs')
 }
-
 async function deleteProgram(formData: FormData) {
   'use server'
-  await guardAdmin()
-  const id = String(formData.get('id'))
-  await prisma.program.delete({ where: { id } })
-  revalidatePath('/admin/programs')
+  const session = await guardAdmin()
+  if (!session.user?.id) throw new Error('Unauthorized')
+  await archiveProgramCatalog(session.user.id, String(formData.get('id')))
+  revalidatePath('/admin/programs'); revalidatePath('/programs')
 }
 
-export default async function AdminProgramsPage() {
+export default async function AdminProgramsPage({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> } = {}) {
+  const query = searchParams ? await searchParams : {}
   await guardAdmin()
 
   const programs = await prisma.program.findMany({
@@ -77,6 +59,9 @@ export default async function AdminProgramsPage() {
   return (
     <div className="container mx-auto px-4 py-8 space-y-8">
       <h1 className="text-2xl font-semibold">Admin · Programs</h1>
+      <Button asChild variant="outline"><Link href="/admin/program-enrollments">Manage enrollments and sessions</Link></Button>
+      {query.error && <p role="alert" className="text-destructive">{query.error === 'duplicate-slug' ? 'That program slug is already in use.' : 'Check the title, description and numbers. Use a positive program price, 1–366 sessions, 1–7 sessions per week and 1–1440 minutes per session.'}</p>}
+      <p className="text-sm text-muted-foreground">Deleting a program with enrollments archives its catalog listing and preserves customer access.</p>
 
       <Card>
         <CardContent className="p-4">
@@ -92,7 +77,7 @@ export default async function AdminProgramsPage() {
             </div>
             <div className="grid gap-1">
               <Label htmlFor="new-price">Price (paise)</Label>
-              <Input id="new-price" name="pricePaise" type="number" min="0" required />
+              <Input id="new-price" name="pricePaise" type="number" min="1" required />
             </div>
             <div className="grid gap-1">
               <Label htmlFor="new-total">Total Sessions</Label>
@@ -141,7 +126,7 @@ export default async function AdminProgramsPage() {
                   </form>
                   <form action={deleteProgram}>
                     <input type="hidden" name="id" value={p.id} />
-                    <Button type="submit" variant="destructive" size="sm">Delete</Button>
+                    <Button type="submit" variant="destructive" size="sm">{p._count.enrollments > 0 ? 'Archive' : 'Delete'}</Button>
                   </form>
                 </div>
               </div>

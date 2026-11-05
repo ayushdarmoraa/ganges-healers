@@ -82,7 +82,7 @@ function hasBookingConflict(proposed: Date, durationMin: number, bookings: Array
 
 // Check absolute intervals, including sessions starting on a previous day. This
 // query uses the healer/start index without a duration-dependent lower bound.
-async function overlappingBookings(client: Prisma.TransactionClient, healerId: string, start: Date, end: Date, excludeId: string | null = null) {
+async function overlappingBookings(client: Prisma.TransactionClient, healerId: string, start: Date, end: Date, excludeId: string | null = null, excludeProgramSessionId: string | null = null) {
   return client.$queryRaw<Array<{ id: string; scheduledAt: Date; durationMin: number }>>`
     SELECT id, "scheduledAt", "durationMin" FROM "Booking"
     WHERE "healerId" = ${healerId}
@@ -90,6 +90,14 @@ async function overlappingBookings(client: Prisma.TransactionClient, healerId: s
       AND "scheduledAt" < (${end.toISOString()}::timestamptz AT TIME ZONE 'UTC')
       AND "scheduledAt" + "durationMin" * INTERVAL '1 minute' > (${start.toISOString()}::timestamptz AT TIME ZONE 'UTC')
       AND (${excludeId}::text IS NULL OR id <> ${excludeId}::text)
+    UNION ALL
+    SELECT s.id, s."scheduledAt", s."durationMin" FROM "ProgramSession" s
+    JOIN "ProgramEnrollment" e ON e.id = s."enrollmentId"
+    WHERE s."healerId" = ${healerId}
+      AND s.status = 'SCHEDULED' AND e.status IN ('active', 'paused')
+      AND s."scheduledAt" < (${end.toISOString()}::timestamptz AT TIME ZONE 'UTC')
+      AND s."scheduledAt" + s."durationMin" * INTERVAL '1 minute' > (${start.toISOString()}::timestamptz AT TIME ZONE 'UTC')
+      AND (${excludeProgramSessionId}::text IS NULL OR s.id <> ${excludeProgramSessionId}::text)
   `
 }
 
@@ -100,7 +108,8 @@ export async function getHealerAvailability(
   healerId: string,
   date: string, // YYYY-MM-DD in India
   durationMin = 60,
-  excludeBookingId?: string
+  excludeBookingId?: string,
+  excludeProgramSessionId?: string
 ): Promise<AvailabilityDay> {
   // Get healer with availability rules
   const healer = await prisma.healer.findUnique({
@@ -128,7 +137,7 @@ export async function getHealerAvailability(
   // Get existing bookings for this healer on this date
   const startOfDay = new Date(date + 'T00:00:00+05:30')
   const endOfDay = new Date(startOfDay.getTime() + 86400000)
-  const existingBookings = await overlappingBookings(prisma, healerId, startOfDay, endOfDay, excludeBookingId)
+  const existingBookings = await overlappingBookings(prisma, healerId, startOfDay, endOfDay, excludeBookingId, excludeProgramSessionId)
 
   // Check each slot
   const rawAvail = healer.availability as unknown
@@ -163,16 +172,17 @@ export async function getHealerAvailability(
 /**
  * Validate booking request
  */
-export async function validateBookingSlot(
+async function validateReservationSlot(
   healerId: string,
-  serviceId: string,
+  serviceId: string | null,
   scheduledAt: Date,
-  options: { client?: Prisma.TransactionClient; excludeBookingId?: string; durationMin?: number } = {}
+  options: { client?: Prisma.TransactionClient; excludeBookingId?: string; excludeProgramSessionId?: string; durationMin?: number; strict?: boolean } = {}
 ): Promise<{ valid: boolean; error?: string }> {
-  const isTest = isTestMode()
+  const isTest = !options.strict && isTestMode()
   const client = options.client ?? prisma
   // Check if time is in future
   const now = new Date()
+  if (!Number.isFinite(scheduledAt.getTime())) return { valid: false, error: 'Invalid booking time' }
   if (!isTest && scheduledAt <= now) {
     return { valid: false, error: 'Booking time must be in the future' }
   }
@@ -190,21 +200,21 @@ export async function validateBookingSlot(
     select: { availability: true, isActive: true }
   })
   
-  const service = await client.service.findUnique({
+  const service = serviceId ? await client.service.findUnique({
     where: { id: serviceId },
     select: { duration: true, isActive: true }
-  })
+  }) : null
   
   if (!healer || !healer.isActive) {
     return { valid: false, error: 'Healer not found or inactive' }
   }
   
-  if (!service || !service.isActive) {
+  if (serviceId && (!service || !service.isActive)) {
     return { valid: false, error: 'Service not found or inactive' }
   }
   
   // Check healer availability for this day/time
-  const durationMin = options.durationMin ?? service.duration
+  const durationMin = options.durationMin ?? service?.duration ?? 0
   if (!Number.isSafeInteger(durationMin) || durationMin <= 0) return { valid: false, error: 'Invalid service duration' }
   
   const healerAvailRaw = healer.availability as unknown
@@ -214,7 +224,7 @@ export async function validateBookingSlot(
   }
   
   const existingBookings = await overlappingBookings(client, healerId, scheduledAt,
-    new Date(scheduledAt.getTime() + durationMin * 60000), options.excludeBookingId)
+    new Date(scheduledAt.getTime() + durationMin * 60000), options.excludeBookingId, options.excludeProgramSessionId)
   const conflict = hasBookingConflict(scheduledAt, durationMin, existingBookings)
   // Never bypass the overlap check, even in TEST_MODE: it is an integrity rule.
   if (conflict) {
@@ -222,4 +232,16 @@ export async function validateBookingSlot(
   }
   
   return { valid: true }
+}
+
+/** Keep the existing service-priced booking validation contract. */
+export function validateBookingSlot(healerId: string, serviceId: string, scheduledAt: Date,
+  options: { client?: Prisma.TransactionClient; excludeBookingId?: string; durationMin?: number } = {}) {
+  return validateReservationSlot(healerId, serviceId, scheduledAt, options)
+}
+
+/** Program sessions use their paid enrollment duration, never an arbitrary service price. */
+export function validateProgramSessionSlot(healerId: string, scheduledAt: Date, durationMin: number,
+  options: { client?: Prisma.TransactionClient; excludeProgramSessionId?: string } = {}) {
+  return validateReservationSlot(healerId, null, scheduledAt, { ...options, durationMin, strict: true })
 }

@@ -570,3 +570,76 @@ the selected program through sign-in, offers Continue checkout after dismissal,
 and requires `{ verified: true }` before reporting success. Program fulfillment
 and appointment scheduling behavior are unchanged and need their separate release
 checks. No schema migration, live provider call or hosting change is required.
+
+## Program session delivery (implementation-plan Sprint 4)
+
+`GET /api/program-enrollments?scope=mine|healer|admin&page=1` and
+`GET /api/program-enrollments/[id]` return private enrollment views. Pages are
+bounded to 10 enrollments and 1000 pages, ordered by creation time and ID. Normal
+customers see only their own enrollments; active practitioners see their assigned
+work; administrators can manage all enrollments. Current database roles are
+checked. Private responses use `Cache-Control: private, no-store`.
+
+The authenticated `PATCH /api/program-enrollments/[id]` accepts strict `assign`,
+`schedule`, `cancel`, `complete`, `pause` and `resume` actions. Only administrators
+assign active practitioners. Assignment uses the new `assignedHealerId`; it never
+changes the original `healerId` bound into the payment quote. Existing verified
+payment replays keep their original price, resource and practitioner bindings.
+Customers cannot grant access or mark attendance themselves. Unpaid enrollments
+cannot reserve sessions. Paused enrollments cannot open a duplicate checkout.
+
+Actual reservations live in `ProgramSession`, uniquely keyed by enrollment and
+session number. The purchased schedule snapshot defines session count/duration;
+later catalog edits do not change them. Older pending purchases without a snapshot
+freeze current terms on their next quote; historical original terms cannot be
+reconstructed from absent data. The activation helper rebases proposed dates when
+payment is confirmed. Malformed or oversized snapshots require review.
+
+Old JSON dates remain proposals until staff confirms a reservation. Confirmation
+and rescheduling enforce future, 30-minute-aligned clinic times in Asia/Kolkata,
+the practitioner's working window and actual duration. Program and service
+reservations share the existing healer advisory lock and overlap query, including
+intervals crossing midnight. Rescheduling excludes only its own reservation.
+Cancelling a reservation releases capacity; it does not cancel/refund the purchase
+or remove the purchased session. Staff cannot overwrite completed sessions, and
+completion opens only after the reserved end time. Repeated completion is
+idempotent; the last completed session closes the enrollment at 100% progress.
+Legacy completed schedule entries retain their history.
+
+Pause requires reserved sessions to be cancelled first; resume preserves progress
+and purchased terms. Reassignment likewise requires all live reservations to be
+cancelled or completed first. Calendar/meeting links describe confirmed rows only;
+optional meeting links must use HTTPS. No remote meeting is fabricated.
+
+The admin catalog validates positive paid prices, bounded session counts (1–366),
+frequency (1–7 per week) and duration (1–1440 minutes). Catalog deletion archives
+programs with any enrollment. Catalog writes/deletion and new allocations share a
+catalog lock so a concurrent purchase cannot be cascaded away. Existing active
+access survives archival. Existing paid enrollment response fields are unchanged.
+
+Migration `20261105200000_program_session_reservations` adds the reservation table,
+status enum, assignment column, foreign keys, indexes and duration/number checks.
+It backfills no appointments and modifies no original quote bindings. Apply it
+before deploying this code; otherwise availability reads will fail because the
+new reservation table is required. Test the exact SQL on an isolated schema and
+the app against a disposable database. To roll back application behavior, preserve
+the additive table/column and reservation data; removing the schema is not needed.
+Do not deploy older booking-only overlap code while live program reservations
+exist, because it would ignore those reservations.
+
+## Credential-free calendar exports (implementation-plan Sprint 3)
+
+`GET /api/bookings/[id]/calendar` and
+`GET /api/program-enrollments/[id]/sessions/[number]/calendar` return a private,
+authenticated iCalendar attachment. Customers can export their own appointments;
+assigned active practitioners and administrators can export work they manage.
+Unauthorized records return `404`, absent authentication `401`. A program proposal
+has no calendar reservation to export. Booking requests are tentative; confirmed
+appointments and cancellations retain their actual state.
+
+Exports use absolute UTC intervals, stable resource UIDs, escaped text and UTF-8
+line folding. They omit customer email/attendee lists and reject unsafe meeting
+URLs. See [RFC 5545](https://www.rfc-editor.org/rfc/rfc5545). Download/import works
+without Google/Zoom/API credentials. The file is a point-in-time export; it is not
+a subscribed calendar or automatic remote synchronization. Re-download after a
+change and check the account screen for current appointment status.

@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { buildProgramSchedule, readProgramOutline } from '@/lib/programs/schedule'
 import type { Payment, Prisma } from '@prisma/client'
 
 interface ActivateArgs {
@@ -19,22 +20,6 @@ export interface ActivationResult {
   enrollmentId?: string
   paymentId?: string
   orderId?: string
-}
-
-function buildSchedule(totalSessions: number, sessionsPerWeek: number, durationMinutes: number, start: Date) {
-  const perWeek = Math.max(1, sessionsPerWeek)
-  const offsets: number[] = []
-  for (let i = 0; i < perWeek; i++) offsets.push(Math.floor((i * 7) / perWeek))
-  const sessions: Array<{ index: number; scheduledAt: string; durationMinutes: number; status: string }> = []
-  for (let i = 0; i < totalSessions; i++) {
-    const cycle = Math.floor(i / perWeek)
-    const idxInWeek = i % perWeek
-    const dayOffset = offsets[idxInWeek] + cycle * 7
-    const startDate = new Date(start.getTime() + dayOffset * 24 * 60 * 60 * 1000)
-    sessions.push({ index: i, scheduledAt: startDate.toISOString(), durationMinutes, status: 'scheduled' })
-  }
-  const endDate = sessions.length ? new Date(new Date(sessions[sessions.length - 1].scheduledAt).getTime() + durationMinutes * 60000) : null
-  return { sessions, endDate }
 }
 
 async function activate(args: ActivateArgs, client: Prisma.TransactionClient): Promise<ActivationResult> {
@@ -81,7 +66,10 @@ async function activate(args: ActivateArgs, client: Prisma.TransactionClient): P
       return { activated: false, idempotent: false, updatedRows: 0 }
     }
     const now = new Date()
-    const { sessions, endDate } = buildSchedule(program.totalSessions, program.sessionsPerWeek, program.durationMinutes, now)
+    const purchased = readProgramOutline(enrollment.schedule)
+    if (enrollment.schedule != null && !purchased) return { activated: false, idempotent: false, updatedRows: 0 }
+    const sessions = purchased ? purchased.map((session, index) => ({ index, scheduledAt: new Date(now.getTime() + Date.parse(session.suggestedAt) - Date.parse(purchased[0].suggestedAt)).toISOString(), durationMinutes: session.durationMin, status: 'scheduled' })) : buildProgramSchedule(program.totalSessions, program.sessionsPerWeek, program.durationMinutes, now).sessions
+    const endDate = new Date(Math.max(...sessions.map(session => Date.parse(session.scheduledAt) + session.durationMinutes * 60000)))
     const updated = await tx.programEnrollment.update({
       where: { id: enrollment.id },
       data: {

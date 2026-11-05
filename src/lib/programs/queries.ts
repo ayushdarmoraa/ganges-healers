@@ -97,3 +97,36 @@ export async function getProgramBySlug(slug: string): Promise<ProgramDetail | nu
     serviceSlug: null,
   }
 }
+
+/** Admin catalog writes share enrollment's catalog lock; existing purchases are preserved. */
+export async function writeProgramCatalog(actorId: string, input: unknown, id?: string) {
+  const { programFields } = await import('./schedule')
+  const { lockTransaction } = await import('@/lib/db/locks')
+  const actor = await prisma.user.findUnique({ where: { id: actorId }, select: { role: true } })
+  if (actor?.role !== 'ADMIN') throw Object.assign(new Error('Forbidden'), { status: 403 })
+  const parsed = (id ? programFields.omit({ slug: true }) : programFields).safeParse(input)
+  if (!parsed.success) throw Object.assign(new Error('Invalid program fields'), { status: 400 })
+  if (!id) return prisma.program.create({ data: programFields.parse(input) })
+  return prisma.$transaction(async tx => {
+    await lockTransaction(tx, 'program', `catalog:${id}`)
+    return tx.program.update({ where: { id }, data: parsed.data })
+  })
+}
+
+/** A catalog deletion archives purchased programs rather than cascading away paid enrollments. */
+export async function archiveProgramCatalog(actorId: string, id: string, expectedActive?: boolean) {
+  const { lockTransaction } = await import('@/lib/db/locks')
+  const actor = await prisma.user.findUnique({ where: { id: actorId }, select: { role: true } })
+  if (actor?.role !== 'ADMIN') throw Object.assign(new Error('Forbidden'), { status: 403 })
+  return prisma.$transaction(async tx => {
+    await lockTransaction(tx, 'program', `catalog:${id}`)
+    const program = await tx.program.findUnique({ where: { id }, select: { isActive: true } })
+    if (!program) return null
+    if (expectedActive !== undefined) {
+      if (program.isActive !== expectedActive) return program
+      return tx.program.update({ where: { id }, data: { isActive: !expectedActive } })
+    }
+    if (await tx.programEnrollment.count({ where: { programId: id } })) return tx.program.update({ where: { id }, data: { isActive: false } })
+    return tx.program.delete({ where: { id } })
+  })
+}

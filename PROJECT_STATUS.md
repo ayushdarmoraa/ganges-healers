@@ -177,3 +177,22 @@ The final dependency audit reports 0 critical, 1 high, 2 moderate and 1 low find
 The four residual advisories and their dependency paths are documented in
 `docs/ops-checklist.md`; they are not hidden or declared fixed. Application tests
 must pass against the new lockfile before this follow-up is merged.
+
+## Program delivery and calendar follow-up
+
+Implementation-plan Sprint 4 now has actual program-owned session reservations,
+practitioner assignment, customer/healer/admin workspaces, pause/resume and guarded
+session completion. This follows the plan's program-session entitlement model;
+it does not grant arbitrary individual-service credits. Suggested JSON dates stay
+proposals. Confirmed rows share ordinary booking locks/overlap checks; progress
+and completion reflect reserved, ended sessions. Program terms freeze at checkout,
+and later staff assignment preserves the original payment binding. Purchased
+programs are archived rather than deleted.
+
+Sprint 3 calendar support includes private iCalendar exports for bookings and
+confirmed program appointments. The downloads need no provider account, new
+secret or external message. Automated Google/Zoom provisioning remains outside
+this credential-free scope. The additive reservation migration is included for
+isolated SQL/data-preservation and application tests; production data and hosting
+settings are unchanged. See `docs/contracts.md` for permissions, migration order
+and rollback constraints.

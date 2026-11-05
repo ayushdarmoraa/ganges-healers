@@ -87,7 +87,7 @@ test('an already enrolled program customer goes to the dashboard without another
   jest.spyOn(globalThis, 'fetch').mockImplementation(async () => response({ enrolled: true, enrollmentId: 'enrollment' }, 409))
   render(component)
   await userEvent.click(screen.getByRole('button', { name: 'Enroll Now' }))
-  await waitFor(() => expect(push).toHaveBeenCalledWith('/dashboard'))
+  await waitFor(() => expect(push).toHaveBeenCalledWith('/dashboard/programs'))
   expect(openRazorpayCheckout).not.toHaveBeenCalled()
 })
 
