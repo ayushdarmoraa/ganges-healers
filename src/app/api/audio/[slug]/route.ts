@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { hasVipAccess } from '@/lib/memberships/access'
 import { auth } from '@/lib/auth'
 
 export const runtime = 'nodejs'
@@ -30,33 +31,24 @@ export async function GET(
         )
       }
 
-      // Allow if VIP
-      if (!session.user.vip) {
-        // Check for active VIP membership
-        const membership = await prisma.vIPMembership.findFirst({
-          where: { userId: session.user.id, status: 'active' },
-          select: { id: true },
-        })
+      if (!await hasVipAccess(session.user.id)) {
+        // Check for active program enrollment or course enrollment
+        const [programEnrollment, courseEnrollment] = await Promise.all([
+          prisma.programEnrollment.findFirst({
+            where: { userId: session.user.id, status: 'active' },
+            select: { id: true },
+          }),
+          prisma.courseEnrollment.findFirst({
+            where: { userId: session.user.id, status: 'active' },
+            select: { id: true },
+          }),
+        ])
 
-        if (!membership) {
-          // Check for active program enrollment or course enrollment
-          const [programEnrollment, courseEnrollment] = await Promise.all([
-            prisma.programEnrollment.findFirst({
-              where: { userId: session.user.id, status: 'active' },
-              select: { id: true },
-            }),
-            prisma.courseEnrollment.findFirst({
-              where: { userId: session.user.id, status: 'active' },
-              select: { id: true },
-            }),
-          ])
-
-          if (!programEnrollment && !courseEnrollment) {
-            return NextResponse.json(
-              { ...track, audioUrl: null, locked: true, reason: 'Premium content requires VIP membership, or an active program/course enrollment' },
-              { status: 200 }
-            )
-          }
+        if (!programEnrollment && !courseEnrollment) {
+          return NextResponse.json(
+            { ...track, audioUrl: null, locked: true, reason: 'Premium content requires VIP membership, or an active program/course enrollment' },
+            { status: 200 }
+          )
         }
       }
     }

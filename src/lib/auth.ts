@@ -6,6 +6,7 @@ import CredentialsProvider from "next-auth/providers/credentials"
 import GoogleProvider from "next-auth/providers/google"
 import bcrypt from "bcryptjs"
 
+import { membershipAccess } from '@/lib/memberships/access'
 import { assertProductionTestModeDisabled } from '@/lib/test-mode'
 
 assertProductionTestModeDisabled()
@@ -71,15 +72,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (typeof u.vip !== 'undefined') token.vip = u.vip
         if (typeof u.freeSessionCredits !== 'undefined') token.freeSessionCredits = u.freeSessionCredits
       }
-      // When the client calls update(), re-fetch name & image from DB
-      if (trigger === 'update' && token.id) {
+      // Refresh entitlements on session reads so expiration never relies on a cached claim. Client updates refresh profile from DB.
+      if (token.id) {
         const fresh = await prisma.user.findUnique({
           where: { id: token.id as string },
-          select: { name: true, image: true },
+          select: { name: true, image: true, vip: true, freeSessionCredits: true, memberships: { select: { status: true, endDate: true } } },
         })
         if (fresh) {
-          token.name = fresh.name
-          token.picture = fresh.image
+          if (trigger === 'update') {
+            token.name = fresh.name
+            token.picture = fresh.image
+          }
+          token.vip = membershipAccess(fresh.vip, fresh.memberships)
+          token.freeSessionCredits = fresh.freeSessionCredits
         }
       }
       return token

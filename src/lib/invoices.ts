@@ -45,10 +45,10 @@ export function formatInvoiceData(payment: PaymentLike): InvoicePDFData {
 export async function createAndStoreInvoicePdf(lookupId: string, opts?: { force?: boolean }): Promise<string | null> {
   // Raw flexible lookup (legacy-safe). Using $queryRawUnsafe with parameter binding simulation.
   console.log('[invoices][gen] start_lookup', { lookupId })
-  interface RawPaymentRow { id: string; paymentId?: string | null; gatewayPaymentId?: string | null; orderId?: string | null; gatewayOrderId?: string | null; userId?: string | null; bookingId?: string | null; amountPaise?: number | null; currency?: string | null; invoiceUrl?: string | null }
+  interface RawPaymentRow { id: string; paymentId?: string | null; gatewayPaymentId?: string | null; orderId?: string | null; gatewayOrderId?: string | null; userId?: string | null; bookingId?: string | null; amountPaise?: number | null; currency?: string | null; invoiceUrl?: string | null; type?: string | null }
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, "paymentId", "gatewayPaymentId", "orderId", "gatewayOrderId", "userId", "bookingId", "amountPaise", currency, "invoiceUrl"
-     FROM "Payment"
+    `SELECT id, "paymentId", "gatewayPaymentId", "orderId", "gatewayOrderId", "userId", "bookingId", "amountPaise", currency, to_jsonb(p)->>'invoiceUrl' AS "invoiceUrl", type::text
+     FROM "Payment" p
      WHERE $1 IN ("paymentId","gatewayPaymentId","orderId","gatewayOrderId","id")
      LIMIT 1`,
     lookupId
@@ -100,7 +100,7 @@ export async function createAndStoreInvoicePdf(lookupId: string, opts?: { force?
   const currency = (row.currency || 'INR').toUpperCase()
   const customerName = user?.name || 'Customer'
   const customerEmail = user?.email || 'unknown@example.com'
-  const serviceTitle = service?.name || 'Session'
+  const serviceTitle = service?.name || (row.type === 'MEMBERSHIP' ? 'VIP Membership' : 'Session')
 
   console.log('[invoices][gen] start_pdf', { lookupId, invoiceNo: invoiceNumber })
   let pdfBytes: Uint8Array

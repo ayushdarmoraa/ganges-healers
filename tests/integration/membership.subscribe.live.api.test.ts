@@ -7,6 +7,7 @@ import * as Subscribe from '@/app/api/memberships/subscribe/route'
 jest.mock('razorpay', () => {
   return function MockRazorpay(this: any) {
     return {
+      plans: { fetch: async () => { const p = await prisma.membershipPlan.findUniqueOrThrow({ where: { slug: 'vip-monthly' } }); return { period: 'monthly', interval: 1, item: { amount: p.pricePaise, currency: 'INR' } } } },
       subscriptions: {
         create: async (args: any) => ({ id: 'sub_mocked_123', short_url: 'https://rzp.io/i/mock123', ...args })
       }
@@ -14,8 +15,12 @@ jest.mock('razorpay', () => {
   }
 })
 
+jest.mock('@/lib/auth', () => ({ auth: async () => ({ user: { id: process.env.TEST_LIVE_MEMBER_ID } }) }))
+
 describe('Membership Subscribe live path (mocked Razorpay)', () => {
   beforeAll(async () => {
+    const user = await prisma.user.create({ data: { email: `live_member_${Date.now()}@example.com` } })
+    process.env.TEST_LIVE_MEMBER_ID = user.id
     // ensure vip-monthly exists in DB for lookup
     await prisma.membershipPlan.upsert({
       where: { slug: 'vip-monthly' },
@@ -27,6 +32,7 @@ describe('Membership Subscribe live path (mocked Razorpay)', () => {
   })
 
   afterAll(async () => {
+    await prisma.user.deleteMany({ where: { id: process.env.TEST_LIVE_MEMBER_ID } })
     await prisma.$disconnect()
   })
 

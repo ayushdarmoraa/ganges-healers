@@ -4,6 +4,7 @@ import { cacheSet, cacheDeleteByPrefix } from '@/lib/cache'
 
 jest.mock('@/lib/auth', () => ({ auth: jest.fn() }))
 jest.mock('@/lib/prisma', () => ({ prisma: {
+  user: { findUnique: jest.fn() },
   audioTrack: { findMany: jest.fn(), findFirst: jest.fn() },
   vIPMembership: { findFirst: jest.fn() },
   programEnrollment: { findFirst: jest.fn() },
@@ -28,6 +29,7 @@ beforeEach(() => {
   mockAuth.mockResolvedValue(null)
   db.audioTrack.findMany.mockImplementation(async args => args.distinct ? [{ category: 'Meditation' }] : [premium, free])
   db.audioTrack.findFirst.mockResolvedValue(premium)
+  db.user.findUnique.mockResolvedValue({ vip: false, memberships: [] })
   db.vIPMembership.findFirst.mockResolvedValue(null)
   db.programEnrollment.findFirst.mockResolvedValue(null)
   db.courseEnrollment.findFirst.mockResolvedValue(null)
@@ -75,16 +77,25 @@ describe('audio playback access', () => {
     mockAuth.mockResolvedValue({ user: { id: 'listener', vip: false } })
     const response = await detail()
     expect(await response.json()).toMatchObject({ audioUrl: null, locked: true })
-    for (const model of ['vIPMembership', 'programEnrollment', 'courseEnrollment']) {
+    expect(db.user.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'listener' } }))
+    for (const model of ['programEnrollment', 'courseEnrollment']) {
       expect(db[model].findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 'listener', status: 'active' } }))
     }
   })
 
   test.each(['vip', 'vIPMembership', 'programEnrollment', 'courseEnrollment'])('allows the existing %s entitlement through the detail endpoint', async entitlement => {
     mockAuth.mockResolvedValue({ user: { id: 'listener', vip: entitlement === 'vip' } })
-    if (entitlement !== 'vip') db[entitlement].findFirst.mockResolvedValue({ id: 'entitlement' })
+    if (entitlement === 'vip') db.user.findUnique.mockResolvedValue({ vip: true, memberships: [] })
+    else if (entitlement === 'vIPMembership') db.user.findUnique.mockResolvedValue({ vip: false, memberships: [{ status: 'active', endDate: null }] })
+    else db[entitlement].findFirst.mockResolvedValue({ id: 'entitlement' })
     const response = await detail()
     expect(await response.json()).toMatchObject({ audioUrl: premium.audioUrl, locked: false })
+  })
+
+  test('an expired membership cannot use a stale VIP session to disclose premium media', async () => {
+    mockAuth.mockResolvedValue({ user: { id: 'listener', vip: true } })
+    db.user.findUnique.mockResolvedValue({ vip: true, memberships: [{ status: 'active', endDate: new Date('2020-01-01') }] })
+    expect(await (await detail()).json()).toMatchObject({ audioUrl: null, locked: true })
   })
 
   test('keeps free playback public', async () => {

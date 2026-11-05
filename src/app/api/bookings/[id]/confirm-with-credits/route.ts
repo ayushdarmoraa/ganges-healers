@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@prisma/client'
+import { hasVipAccess } from '@/lib/memberships/access'
+import { lockTransaction } from '@/lib/db/locks'
 import { auth } from '@/lib/auth'
 
 export async function POST(
@@ -16,9 +18,10 @@ export async function POST(
 
   try {
   const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await lockTransaction(tx, 'membership', session.user.id)
       const user = await tx.user.findUnique({ where: { id: session.user.id } })
       if (!user) throw new Error('USER_NOT_FOUND')
-      if (!user.vip || (user.freeSessionCredits ?? 0) <= 0) throw new Error('NO_CREDITS')
+      if ((user.freeSessionCredits ?? 0) <= 0 || !await hasVipAccess(user.id, tx)) throw new Error('NO_CREDITS')
 
       const booking = await tx.booking.findUnique({ where: { id } })
       if (!booking) throw new Error('BOOKING_NOT_FOUND')
@@ -31,7 +34,7 @@ export async function POST(
       })
       if (confirmed.count !== 1) throw new Error('INVALID_STATE')
       const credit = await tx.user.updateMany({
-        where: { id: user.id, vip: true, freeSessionCredits: { gt: 0 } },
+        where: { id: user.id, freeSessionCredits: { gt: 0 } },
         data: { freeSessionCredits: { decrement: 1 } },
       })
       if (credit.count !== 1) throw new Error('NO_CREDITS')

@@ -4,14 +4,14 @@ Reviewed November 4, 2026 against the implementation plan, repository branches, 
 
 ## Current development line
 
-Continue on `codex/release-auth-readiness`, based on `feat/store-order-details` at `8152886`. It includes the community, publishing, notification, and navigation work from PR #5, customer-order screens, and course-progress corrections originally developed in PR #4. The application remains a Next.js App Router project; the plan's example microservice layout is not the current repository layout.
+Continue on `codex/membership-fulfillment` (PR #8), stacked on `codex/release-auth-readiness` (PR #7) and `feat/store-order-details` (PR #6). It includes the community, publishing, notification, and navigation work from PR #5, customer-order screens, and course-progress corrections originally developed in PR #4. The application remains a Next.js App Router project; the plan's example microservice layout is not the current repository layout.
 
 | Plan area | Implementation present | Remaining validation or release work |
 | --- | --- | --- |
 | Foundation | Prisma migrations, CI, guarded test databases, health route, structured logs, Vercel configuration | Reconcile production schema/history and deploy the reviewed combined line |
-| Accounts and profiles | Registration/sign-in, sessions, role guards, account settings, healer profile/availability; optional phone handling and configured Google provider discovery | Real signup/sign-in/sign-out browser test replaces the skipped case; await new branch CI. Google needs OAuth credentials and callback configuration |
+| Accounts and profiles | Registration/sign-in, sessions, role guards, account settings, healer profile/availability; optional phone handling and configured Google provider discovery | Real signup/sign-in/sign-out browser test passes; release-readiness CI run 41820806182 passed all six jobs. Google needs OAuth credentials and callback configuration |
 | Marketplace and bookings | Discovery, availability, creation, rescheduling, cancellation, credit confirmation | Combined-line concurrency, refund, and customer/healer flow tests |
-| Payments and memberships | Server-priced orders, verification/webhooks, enrollment fulfillment, invoices, subscriptions | Gateway test-mode checkout and callback delivery; mocked refunds do not establish live execution |
+| Payments and memberships | Server-priced orders, verification/webhooks, enrollment fulfillment, invoices; owned subscription quotes, idempotent paid credit grants, expiry checks | Gateway test-mode checkout and callback delivery; mocked refunds do not establish live execution |
 | Programs and courses | Catalogs, enrollment and lesson delivery; corrected counts, final-lesson completion, monotonic progress | CI integration/browser checks; paid enrollment is separate from isolated progress fixtures |
 | Community and content | Topics/tags, drafts, administration, moderation/report review, blog publishing/withdrawal | Combined-line CI and role review before rollout |
 | Notifications and navigation | Inbox/read state, bells, polling/socket paths, search, account menus, cart | Combined-line CI and deployed responsive/authentication checks |
@@ -44,6 +44,15 @@ Implementation present means routes/components exist. It does not establish ever
 - Follow-up CI at `0f1cea9` passed 368 unit, 179 integration, 198 UI and 27 browser checks, including real form signup and sign-out. Only the legacy integration placeholder remains skipped.
 - The preserved-data Preview exposed duplicate legacy membership cards and fabricated fallback statistics/customer quotations. Homepage plans now use canonical slugs and configured benefits; statistics use actual counts, including zero; the store shows product-selection guidance.
 - An isolated copy of the older live database was verified table-by-table, upgraded additively to the application schema and reconciled to all 22 migrations. The release branch's protected Preview uses this copy. See `docs/database-rehearsal.md` for verified scope and the fresh-snapshot/write-maintenance procedure still required for production.
+
+## Membership completion batch (PR #8)
+
+- Real checkout requires an authenticated owner, reuses pending checkout links, and saves a server-owned price/benefit quote. The actual gateway plan must match the displayed amount, currency, frequency, and interval before a customer is sent to pay. Billing remains one cycle.
+- Signed subscription charges record payment and grant credits in one transaction. Replays/concurrency, mismatched charges, unpaid activation, delayed cancellation/activation, and extra-cycle charges are covered by integration tests. Enabled application failures return 500 for provider retries; the environment gate remains.
+- VIP access in bookings, audio, community, and sessions checks current membership lifecycle/expiry. Existing manual VIP accounts without subscriptions retain access. The customer balance shows remaining credits, pending links can be continued, and expired plans can be purchased again.
+- Invoice generation supports the current schema without assuming the legacy invoiceUrl column exists, and membership receipts describe the actual purchase.
+- Local verification: 382 unit tests, 203 UI tests, TypeScript, focused ESLint, and diff checks passed. Initial isolated CI passed the new real database/payment/invoice cases but exposed a missing auth mock in the public dry-run suite; the fixture now explicitly verifies that dry runs never call auth. The updated full CI result is required before merge.
+- Preview-only membership side effects are enabled on the isolated verified copy with test-mode credentials. Production is unchanged. A real gateway test charge/callback and production configuration remain release gates; a configured key or synthetic signed test does not prove provider delivery.
 
 ## Database ownership and rollout
 

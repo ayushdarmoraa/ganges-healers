@@ -16,7 +16,7 @@ jest.mock('bcryptjs', () => ({ __esModule: true, default: { compare: jest.fn() }
 
 interface AuthConfiguration {
   secret?: string
-  callbacks: { signIn: (input: { account?: { provider: string }; profile?: { email_verified?: boolean } }) => Promise<boolean> }
+  callbacks: { jwt: (input: { token: Record<string, unknown>; trigger: string; session?: unknown }) => Promise<Record<string, unknown>>; signIn: (input: { account?: { provider: string }; profile?: { email_verified?: boolean } }) => Promise<boolean> }
   providers: Array<{
     id: string
     authorize: (credentials: Record<string, string>) => Promise<Record<string, unknown> | null>
@@ -95,6 +95,13 @@ describe('production-safe authentication configuration', () => {
     compare.mockResolvedValue(true)
     await expect(configuration.providers[0].authorize({ email: 'registered@example.com', password: 'correct-password' })).resolves.toMatchObject({ id: 'registered-user', role: 'USER' })
     expect(user.create).not.toHaveBeenCalled()
+  })
+
+  test('refreshes membership claims only from the database when the client requests an update', async () => {
+    const { configuration, user } = loadConfiguration()
+    user.findUnique.mockResolvedValue({ name: 'Customer', image: null, vip: false, freeSessionCredits: 2, memberships: [] })
+    const token = await configuration.callbacks.jwt({ token: { id: 'owner', vip: true, freeSessionCredits: 999 }, trigger: 'update', session: { vip: true, freeSessionCredits: 999 } })
+    expect(token).toMatchObject({ id: 'owner', vip: false, freeSessionCredits: 2 })
   })
 
   test('requires a configured production secret rather than a public fallback', () => {
