@@ -8,6 +8,7 @@ import RescheduleModal from '../../../components/bookings/RescheduleModal'
 import CancelDialog from '../../../components/bookings/CancelDialog'
 import { track } from '@/lib/analytics/client'
 import { toast } from 'sonner'
+import type { BookingReview } from '@/components/bookings/BookingReviewForm'
 
 type ApiBooking = {
   id: string
@@ -18,9 +19,10 @@ type ApiBooking = {
   status: 'PENDING'|'SCHEDULED'|'CONFIRMED'|'RESCHEDULED'|'CANCELLED'|'COMPLETED'
   durationMin?: number | null
   pricePaise?: number | null
-  healer?: { user?: { name?: string | null } | null } | null
+  healer?: { userId?: string; user?: { name?: string | null } | null } | null
   service?: { name?: string | null; category?: string | null; slug?: string | null } | null
   payment?: { status?: string | null; amountPaise?: number | null } | null
+  review?: BookingReview | null
 }
 
 export type NormalizedBooking = {
@@ -35,6 +37,8 @@ export type NormalizedBooking = {
   healerId: string
   serviceId: string
   amountPaise: number
+  canReview?: boolean
+  review?: BookingReview | null
 }
 
 export default function MyBookingsPage() {
@@ -76,6 +80,8 @@ export default function MyBookingsPage() {
             healerId: b.healerId,
             serviceId: b.serviceId,
             amountPaise: Number.isFinite(b.payment?.amountPaise) ? (b.payment?.amountPaise || 0) : (b.pricePaise || 0),
+            canReview: status === 'COMPLETED' && start.getTime() + (b.durationMin ?? 60) * 60000 <= now && b.userId !== b.healer?.userId,
+            review: b.review ?? null,
           }
         })
         if (mounted) setItems(normalized)
@@ -90,7 +96,7 @@ export default function MyBookingsPage() {
 
   const { upcoming, past } = useMemo(() => {
     const now = Date.now()
-    const upcoming = items.filter(i => new Date(i.startIso).getTime() > now && i.status !== 'CANCELLED')
+    const upcoming = items.filter(i => new Date(i.startIso).getTime() > now && i.status !== 'CANCELLED' && i.status !== 'COMPLETED')
     const past = items.filter(i => new Date(i.startIso).getTime() <= now || i.status === 'CANCELLED' || i.status === 'COMPLETED')
     return { upcoming, past }
   }, [items])
@@ -129,14 +135,14 @@ export default function MyBookingsPage() {
             {upcoming.length === 0 ? (
               <Card className="p-6 text-muted-foreground">No upcoming bookings.</Card>
             ) : upcoming.map((b) => (
-              <BookingCard key={b.id} booking={b} onReschedule={() => onRescheduleOpen(b)} onCancel={() => onCancelOpen(b)} />
+              <BookingCard key={b.id} booking={b} onReschedule={() => onRescheduleOpen(b)} onCancel={() => onCancelOpen(b)} onReviewSaved={review => applyUpdate({ ...b, review })} />
             ))}
           </TabsContent>
           <TabsContent value="past" className="mt-4 space-y-3">
             {past.length === 0 ? (
               <Card className="p-6 text-muted-foreground">No past bookings.</Card>
             ) : past.map((b) => (
-              <BookingCard key={b.id} booking={b} onReschedule={() => onRescheduleOpen(b)} onCancel={() => onCancelOpen(b)} />
+              <BookingCard key={b.id} booking={b} onReschedule={() => onRescheduleOpen(b)} onCancel={() => onCancelOpen(b)} onReviewSaved={review => applyUpdate({ ...b, review })} />
             ))}
           </TabsContent>
         </Tabs>
