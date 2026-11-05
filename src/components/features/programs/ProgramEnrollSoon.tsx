@@ -60,7 +60,7 @@ export default function ProgramEnrollSoon({ programSlug, programTitle, pricePais
       const raw: unknown = await enrollRes.json().catch(() => null)
       const body = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null
       if (enrollRes.status === 409 && body?.enrolled === true && typeof body.enrollmentId === 'string' && body.enrollmentId) {
-        router.push('/dashboard')
+        router.push('/dashboard/programs')
         return
       }
       if (!enrollRes.ok) throw new Error(typeof body?.error === 'string' ? body.error : 'Enrollment failed')
@@ -101,7 +101,7 @@ export default function ProgramEnrollSoon({ programSlug, programTitle, pricePais
 
       setSuccess(true)
       toast.success('Enrollment confirmed! Redirecting to dashboard…')
-      setTimeout(() => router.push('/dashboard'), 1500)
+      setTimeout(() => router.push('/dashboard/programs'), 1500)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Something went wrong'
       if (msg === 'Payment dismissed') {

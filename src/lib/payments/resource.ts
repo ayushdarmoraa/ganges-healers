@@ -1,6 +1,7 @@
 import type { PaymentType, Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { lockTransaction } from '@/lib/db/locks'
+import { buildProgramSchedule, readProgramOutline } from '@/lib/programs/schedule'
 
 export class PaymentResourceError extends Error {
   constructor(message: string, public readonly status: number) {
@@ -107,8 +108,10 @@ export async function resolvePaymentResource(input: ResourceInput): Promise<Paym
     const resource = pricedResource(type, amount, {
       enrollmentId, programId: enrollment.programId, healerId: enrollment.healerId,
     }, enrollment.status === 'pending_payment')
-    if (freezeQuote && enrollment.pricePaise == null) {
-      await client.programEnrollment.update({ where: { id: enrollmentId }, data: { pricePaise: amount } })
+    if (freezeQuote && enrollment.schedule != null && !readProgramOutline(enrollment.schedule)) throw new PaymentResourceError('The purchased session schedule needs review', 409)
+    if (freezeQuote && (enrollment.pricePaise == null || enrollment.schedule == null)) {
+      const schedule = enrollment.schedule == null ? buildProgramSchedule(enrollment.program.totalSessions, enrollment.program.sessionsPerWeek, enrollment.program.durationMinutes, new Date()).sessions : undefined
+      await client.programEnrollment.update({ where: { id: enrollmentId }, data: { pricePaise: amount, ...(schedule ? { schedule } : {}) } })
     }
     return resource
   }

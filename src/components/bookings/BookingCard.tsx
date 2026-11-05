@@ -28,6 +28,7 @@ export default function BookingCard({ booking, onReschedule, onCancel, onReviewS
           <div className="font-medium">{serviceName}</div>
           <div className="text-sm text-muted-foreground">with {healerName}</div>
           <div className="text-sm">{formatLocal(startIso)}</div>
+          <a className="text-sm underline" href={`/api/bookings/${encodeURIComponent(booking.id)}/calendar`}>Download calendar</a>
           <div className={cn('text-xs inline-flex rounded px-2 py-0.5 border',
             status === 'CANCELLED' ? 'border-destructive text-destructive' : 'border-muted-foreground text-muted-foreground'
           )} aria-label={`status ${status}`}>{status}</div>

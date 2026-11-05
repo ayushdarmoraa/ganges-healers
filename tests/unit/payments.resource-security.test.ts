@@ -76,7 +76,7 @@ beforeEach(() => {
   db.order.findUnique.mockResolvedValue({ id: 'owned-order', userId: 'buyer', totalPaise: 25000, status: 'pending_payment' })
   db.programEnrollment.findUnique.mockResolvedValue({
     id: 'enrollment', userId: 'buyer', programId: 'program', healerId: 'healer', status: 'pending_payment',
-    program: { pricePaise: 25000, isActive: true },
+    program: { pricePaise: 25000, isActive: true, totalSessions: 6, sessionsPerWeek: 2, durationMinutes: 60 },
   })
   db.courseEnrollment.findUnique.mockResolvedValue({
     id: 'enrollment', userId: 'buyer', courseId: 'course', status: 'pending_payment',
@@ -103,7 +103,7 @@ describe('server-priced order creation', () => {
     db[model].findUnique.mockResolvedValue({
       id: 'enrollment', userId: 'buyer', programId: 'program', healerId: null, courseId: 'course',
       status: 'pending_payment', pricePaise: 10000,
-      program: { pricePaise: 25000, isActive: true }, course: { pricePaise: 25000, isActive: true },
+      program: { pricePaise: 25000, isActive: true, totalSessions: 6, sessionsPerWeek: 2, durationMinutes: 60 }, course: { pricePaise: 25000, isActive: true },
     })
     const response = await createOrder(request({ type, metadata: { enrollmentId: 'enrollment' } }))
     expect(response.status).toBe(200)
