@@ -109,6 +109,10 @@ describe('server-priced order creation', () => {
     expect(response.status).toBe(200)
     expect((await response.json()).amountPaise).toBe(10000)
     expect(gatewayCreate).toHaveBeenCalledWith(expect.objectContaining({ amount: 10000 }))
+    if (type === 'PROGRAM') {
+      expect(gatewayCreate.mock.calls[0][0].notes).toEqual({ enrollmentId: 'enrollment', programId: 'program' })
+      expect(db.payment.create.mock.calls[0][0].data.metadata.healerId).toBeNull()
+    }
   })
 
   test('reuses a matching pending payment without opening another gateway order', async () => {

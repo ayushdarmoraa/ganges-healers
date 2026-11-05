@@ -535,7 +535,8 @@ A zero-price server quote returns `{ enrolled: true, enrollmentId, amountPaise: 
 and grants active access without a gateway or payment row. An already active or
 completed enrollment retains `409` and `error: 'Already enrolled'`, adding
 `enrolled: true` so the client can continue learning. Course enrollment and order
-allocation are serialized per customer/course. Missing gateway configuration and
+allocation are serialized per customer/course and use the existing shared purchase
+lock to coordinate generic payment checkout and fulfillment. Missing gateway configuration and
 failed order creation do not persist a new reservation that would block retry.
 Receipts remain within the gateway's 40-character limit.
 
@@ -551,3 +552,21 @@ before reporting a paid purchase. Courses without lessons return to My Courses
 instead of constructing an undefined lesson URL. Course data, licensed media and
 real gateway delivery still need their separate release checks. No migration or
 provider configuration change is introduced by this patch.
+
+## Program checkout recovery
+
+`POST /api/programs/[slug]/enroll` preserves the paid response fields and reuses
+one pending enrollment and its saved quote. Retries add `resumed: true`; an active
+enrollment keeps `409` and adds `enrolled: true` for dashboard recovery. Allocation
+is serialized per customer/program. Generic checkout and program enrollment use
+the same owned-purchase order writer and purchase lock, so concurrent requests
+persist one payment/order even if unused provider orders were created before the
+second database check. A gateway failure leaves a resumable pending reservation.
+
+Multiple older pending enrollments, a changed selected healer, or inconsistent or
+terminal saved payments require review (`409`) rather than a second charge.
+Zero-price programs remain unsupported by this paid endpoint. The button retains
+the selected program through sign-in, offers Continue checkout after dismissal,
+and requires `{ verified: true }` before reporting success. Program fulfillment
+and appointment scheduling behavior are unchanged and need their separate release
+checks. No schema migration, live provider call or hosting change is required.

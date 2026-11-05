@@ -98,6 +98,13 @@ Implementation present means routes/components exist. It does not establish ever
 
 ## Database ownership and rollout
 
+### Recovery identity and retry follow-up
+
+- Extend the existing recovery flow with unambiguous account selection and current-email binding. A link cannot reset an account whose email changed, including an email update racing confirmation.
+- Failed issuance or delivery releases only its own token and throttle reservation, allowing immediate retry without erasing a newer request. Malformed successful HTTP responses no longer claim delivery or a completed password change.
+- Confirmed settings password changes sign the revoked session out; overlong UTF-8 passwords are rejected consistently. Existing credential-version checks and notification socket revocation remain in place.
+- Extend the existing unit, UI, real-database transaction and browser fixtures. Local and CI results are recorded in the follow-up PR. No additional migration or dependency is part of this patch; no live data or Vercel settings were changed.
+
 The `ganges-healers` and `ganges-healers-preview` Neon projects now belong to `gangeshealers@gmail.com` in Ganges. The production-named project retains four branches and its approved six-hour recovery window; preview retains its separate branch.
 
 A read-only migration-history check on the transferred `ganges-healers` project found no successful entries for these development-line migrations:

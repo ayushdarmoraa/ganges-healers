@@ -12,7 +12,7 @@ let originalHash = ''
 async function link(expires = new Date(Date.now() + 60_000)) {
   const token = randomBytes(32).toString('hex')
   const stored = createHash('sha256').update(token).digest('hex')
-  await prisma.verificationToken.create({ data: { token: stored, identifier: `password-reset:${userId}:${passwordVersion(originalHash)}`, expires } })
+  await prisma.verificationToken.create({ data: { token: stored, identifier: `password-reset:${userId}:${passwordVersion(originalHash)}:${createHash('sha256').update(email.toLowerCase()).digest('hex')}`, expires } })
   return token
 }
 beforeEach(async () => {
@@ -36,7 +36,7 @@ test('concurrent requests send one email with a hashed, short-lived, single-use 
   const token = new URLSearchParams(new URL(sent.link).hash.slice(1)).get('token')!
   expect(await prisma.verificationToken.findUnique({ where: { token } })).toBeNull()
   const saved = await prisma.verificationToken.findUniqueOrThrow({ where: { token: createHash('sha256').update(token).digest('hex') } })
-  expect(saved.identifier).toBe(`password-reset:${userId}:${passwordVersion(originalHash)}`)
+  expect(saved.identifier).toBe(`password-reset:${userId}:${passwordVersion(originalHash)}:${createHash('sha256').update(email.toLowerCase()).digest('hex')}`)
   expect(saved.expires.getTime() - Date.now()).toBeLessThanOrEqual(15 * 60_000)
 })
 
@@ -59,4 +59,32 @@ test('expired links leave the original credential intact', async () => {
   const token = await link(new Date(0))
   await expect(confirmPasswordReset(token, 'Replacement123!')).rejects.toBeInstanceOf(PasswordResetError)
   expect((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).password).toBe(originalHash)
+})
+
+test('changing the account email invalidates a previously issued link', async () => {
+  const token = await link()
+  await prisma.user.update({ where: { id: userId }, data: { email: `changed-${email}` } })
+  await expect(confirmPasswordReset(token, 'Replacement123!')).rejects.toBeInstanceOf(PasswordResetError)
+  expect((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).password).toBe(originalHash)
+})
+
+test('failed delivery can be retried immediately and does not leave an active reset link', async () => {
+  jest.mocked(emailService.sendPasswordReset).mockResolvedValueOnce({ success: false })
+  const log = jest.spyOn(console, 'error').mockImplementation(() => {})
+  try {
+    await requestPasswordReset(email, 'https://example.test', '/dashboard')
+    expect(await prisma.verificationToken.count({ where: { OR: [{ identifier: { startsWith: `password-reset:${userId}:` } }, { identifier: `password-reset-rate:${userId}` }] } })).toBe(0)
+    await requestPasswordReset(email, 'https://example.test', '/dashboard')
+    expect(emailService.sendPasswordReset).toHaveBeenCalledTimes(2)
+    expect(await prisma.verificationToken.count({ where: { identifier: { startsWith: `password-reset:${userId}:` } } })).toBe(1)
+  } finally { log.mockRestore() }
+})
+
+test('case-insensitive collisions in older accounts never select a reset recipient', async () => {
+  const duplicate = await prisma.user.create({ data: { email: email.toUpperCase(), password: originalHash } })
+  try {
+    await requestPasswordReset(email, 'https://example.test', '/dashboard')
+    expect(emailService.sendPasswordReset).not.toHaveBeenCalled()
+    expect(await prisma.verificationToken.count({ where: { identifier: { startsWith: `password-reset:${userId}:` } } })).toBe(0)
+  } finally { await prisma.user.delete({ where: { id: duplicate.id } }) }
 })

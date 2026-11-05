@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import { POST } from '@/app/api/courses/[slug]/enroll/route'
+import { POST as genericCheckout } from '@/app/api/payments/create-order/route'
 import { getRazorpayClient } from '@/lib/razorpay'
 
 let mockActor = ''
@@ -88,4 +89,20 @@ test('an older pending reservation without an order can continue without another
   expect(response.status).toBe(200)
   expect(await response.json()).toMatchObject({ enrollmentId: saved.id, amountPaise: 15000 })
   expect(await prisma.courseEnrollment.count({ where: { userId, courseId: row.id } })).toBe(1)
+})
+
+test('generic payment checkout and course retry cannot persist competing orders for one purchase', async () => {
+  const row = await course()
+  const saved = await prisma.courseEnrollment.create({ data: { userId, courseId: row.id, pricePaise: 15000, status: 'pending_payment' } })
+  const responses = await Promise.all([
+    send(row.slug),
+    genericCheckout(new Request('http://localhost/api/payments/create-order', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'COURSE', metadata: { courseId: row.id, enrollmentId: saved.id } }),
+    })),
+  ])
+  expect(responses.map(response => response.status)).toEqual([200, 200])
+  const bodies = await Promise.all(responses.map(response => response.json()))
+  expect(bodies[0].orderId).toBe(bodies[1].orderId)
+  expect(await prisma.payment.count({ where: { userId, type: 'COURSE', metadata: { path: ['enrollmentId'], equals: saved.id } } })).toBe(1)
 })

@@ -1,8 +1,9 @@
-import { randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { auth } from '@/lib/auth'
 import { lockTransaction } from '@/lib/db/locks'
+import { lockPaymentResource } from '@/lib/payments/resource'
+import { createGatewayReceipt } from '@/lib/payments/receipts'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -26,6 +27,8 @@ export async function POST(_req: Request, { params }: { params: Promise<{ slug: 
       if (enrollment && enrollment.status !== 'pending_payment') {
         return NextResponse.json({ error: 'This enrollment cannot be checked out.', enrollmentId: enrollment.id }, { status: 409 })
       }
+      // Share the purchase lock with generic checkout and fulfillment writers as well as this allocation route.
+      if (enrollment) await lockPaymentResource(tx, 'COURSE', undefined, { enrollmentId: enrollment.id })
       const payment = enrollment ? await tx.payment.findFirst({
         where: { userId, type: 'COURSE', metadata: { path: ['enrollmentId'], equals: enrollment.id } },
         orderBy: { createdAt: 'desc' },
@@ -39,7 +42,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ slug: 
         const metadata = payment.metadata && typeof payment.metadata === 'object' && !Array.isArray(payment.metadata) ? payment.metadata : {}
         const pending = payment.statusEnum === 'PENDING' || (!payment.statusEnum && payment.status === 'pending')
         if (!pending || payment.gateway !== 'razorpay' || !payment.gatewayOrderId ||
-            payment.amountPaise !== amountPaise || (payment.currency ?? 'INR') !== 'INR' ||
+            payment.amountPaise !== amountPaise || payment.currency !== 'INR' ||
             metadata.enrollmentId !== enrollment!.id || metadata.courseId !== course.id || amountPaise === 0) {
           return NextResponse.json({ error: 'This checkout needs review before another payment. Please contact support.', enrollmentId: enrollment!.id }, { status: 409 })
         }
@@ -61,11 +64,14 @@ export async function POST(_req: Request, { params }: { params: Promise<{ slug: 
         if (enrollment!.pricePaise === null) await tx.courseEnrollment.update({ where: { id: enrollment!.id }, data: { pricePaise: amountPaise } })
         return NextResponse.json({ orderId: payment.gatewayOrderId, amountPaise, enrollmentId: enrollment!.id, key: process.env.RAZORPAY_KEY_ID, resumed: true })
       }
-      if (!enrollment) enrollment = await tx.courseEnrollment.create({ data: { userId, courseId: course.id, pricePaise: amountPaise, status: 'pending_payment' } })
+      if (!enrollment) {
+        enrollment = await tx.courseEnrollment.create({ data: { userId, courseId: course.id, pricePaise: amountPaise, status: 'pending_payment' } })
+        await lockPaymentResource(tx, 'COURSE', undefined, { enrollmentId: enrollment.id })
+      }
       else if (enrollment.pricePaise === null) enrollment = await tx.courseEnrollment.update({ where: { id: enrollment.id }, data: { pricePaise: amountPaise } })
       const metadata = { courseId: course.id, enrollmentId: enrollment.id }
       const order: { id: string } = await client.orders.create({
-        amount: amountPaise, currency: 'INR', receipt: `course_${randomUUID().replace(/-/g, '')}`, notes: metadata,
+        amount: amountPaise, currency: 'INR', receipt: createGatewayReceipt('course'), notes: metadata,
       })
       if (typeof order.id !== 'string' || !order.id) throw new Error('Gateway order was not confirmed')
       await tx.payment.create({ data: {

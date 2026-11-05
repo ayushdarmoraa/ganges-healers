@@ -95,6 +95,7 @@ test.each(['active', 'completed'])('an existing %s enrollment cannot create anot
 test.each([
   { ...payment, statusEnum: 'SUCCESS', status: 'success' },
   { ...payment, currency: 'USD' },
+  { ...payment, currency: null },
   { ...payment, amountPaise: 1 },
   { ...payment, metadata: { enrollmentId: 'enrollment', courseId: 'other-course' } },
   { ...payment, gatewayOrderId: null },

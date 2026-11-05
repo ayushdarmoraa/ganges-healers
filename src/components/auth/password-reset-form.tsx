@@ -47,6 +47,9 @@ export default function PasswordResetForm() {
       const result: unknown = await response.json().catch(() => null)
       const body = result && typeof result === 'object' ? result as Record<string, unknown> : null
       if (!response.ok) throw new Error(typeof body?.error === 'string' ? body.error : 'Unable to complete password recovery. Please try again.')
+      if ((token && body?.success !== true) || (!token && (typeof body?.message !== 'string' || !body.message.trim()))) {
+        throw new Error('Unable to confirm password recovery. Please try again.')
+      }
       if (token) { setComplete(true); setToken(null) }
       else setMessage(typeof body?.message === 'string' ? body.message : 'If this email has an account, you will receive a reset link.')
     } catch (cause) {

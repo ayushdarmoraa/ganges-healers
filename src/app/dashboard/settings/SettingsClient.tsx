@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useSession } from "next-auth/react"
+import { signOut, useSession } from "next-auth/react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -219,8 +219,13 @@ function PasswordSection({ passwordExists }: { passwordExists: boolean }) {
         throw new Error(err.error || "Password change failed")
       }
 
-      toast.success("Password changed successfully")
+      const result: unknown = await res.json().catch(() => null)
+      if (!result || typeof result !== 'object' || !('success' in result) || result.success !== true) {
+        throw new Error('Password change could not be confirmed. Please try again.')
+      }
+      toast.success("Password changed. Sign in again with your new password.")
       form.reset()
+      await signOut({ callbackUrl: '/auth/signin' })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Password change failed")
     } finally {

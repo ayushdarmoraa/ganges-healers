@@ -140,7 +140,7 @@ test('a single-use recovery link changes the real password, revokes old sessions
     oldSession = await browser.newContext({ baseURL, storageState: await page.context().storageState() })
     expect((await (await oldSession.request.get('/api/auth/session')).json()).user.id).toBe(user.id)
     // Isolated fixture represents the emailed fragment; no external email or real account is used.
-    await db.verificationToken.create({ data: { token: hash, identifier: `password-reset:${user.id}:${passwordVersion(stored)}`, expires: new Date(Date.now() + 15 * 60_000) } })
+    await db.verificationToken.create({ data: { token: hash, identifier: `password-reset:${user.id}:${passwordVersion(stored)}:${crypto.createHash('sha256').update(email.toLowerCase()).digest('hex')}`, expires: new Date(Date.now() + 15 * 60_000) } })
     await page.goto(`/auth/reset-password?${new URLSearchParams({ callbackUrl: callback })}#token=${recovery}`)
     await expect(page.getByLabel('New password', { exact: true })).toBeVisible({ timeout: 30_000 })
     await expect(page).not.toHaveURL(/#token=/)

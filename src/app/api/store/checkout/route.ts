@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { createGatewayReceipt } from '@/lib/payments/receipts'
 import { z } from 'zod'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
@@ -106,7 +107,7 @@ export async function POST(req: Request) {
     const razorpayOrder = await client.orders.create({
       amount: totalPaise,
       currency: 'INR',
-      receipt: `store_${order.id}_${Date.now()}`,
+      receipt: createGatewayReceipt('store'),
       notes: metadata,
     })
 
