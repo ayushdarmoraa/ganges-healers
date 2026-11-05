@@ -3,8 +3,9 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { RegisterForm } from '@/components/auth/register-form'
 import SignInPage from '@/app/auth/signin/page'
+import RegisterPage from '@/app/register/page'
 
-jest.mock('next/navigation', () => ({ useRouter: jest.fn() }))
+jest.mock('next/navigation', () => ({ useRouter: jest.fn(), useSearchParams: jest.fn() }))
 jest.mock('next-auth/react', () => ({ getProviders: jest.fn(), signIn: jest.fn() }))
 jest.mock('sonner', () => ({ toast: { success: jest.fn(), error: jest.fn() } }))
 
@@ -15,6 +16,7 @@ const toast = jest.requireMock<{ toast: { success: jest.Mock; error: jest.Mock }
 beforeEach(() => {
   jest.clearAllMocks()
   jest.requireMock<{ useRouter: jest.Mock }>('next/navigation').useRouter.mockReturnValue(router)
+  jest.requireMock<{ useSearchParams: jest.Mock }>('next/navigation').useSearchParams.mockReturnValue(new URLSearchParams())
   auth.getProviders.mockResolvedValue({ credentials: { id: 'credentials' } })
   auth.signIn.mockResolvedValue({ error: null })
 })
@@ -105,4 +107,69 @@ test('verified credentials navigate to the customer dashboard', async () => {
   await user.click(screen.getByRole('button', { name: 'Sign In' }))
   await waitFor(() => expect(router.push).toHaveBeenCalledWith('/dashboard'))
   expect(auth.signIn).toHaveBeenCalledWith('credentials', { email: 'customer@example.test', password: 'correct-password', redirect: false })
+})
+
+const selectedBooking = '/services/reiki-healing?openBooking=1&healerId=h_selected&programSlug=foundation'
+function withCallback(value: string) {
+  jest.requireMock<{ useSearchParams: jest.Mock }>('next/navigation').useSearchParams.mockReturnValue(new URLSearchParams({ callbackUrl: value }))
+}
+async function submitSignIn(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByLabelText('Email'), 'customer@example.test')
+  await user.type(screen.getByLabelText('Password'), 'correct-password')
+  await user.click(screen.getByRole('button', { name: 'Sign In' }))
+}
+
+test('credentials return to the chosen healer and registration link carries the same journey', async () => {
+  withCallback(selectedBooking)
+  const user = userEvent.setup()
+  render(<SignInPage />)
+  const register = new URL(screen.getByRole('link', { name: 'Create one' }).getAttribute('href')!, 'https://example.test')
+  expect(register.pathname).toBe('/register')
+  expect(register.searchParams.get('callbackUrl')).toBe(selectedBooking)
+  await submitSignIn(user)
+  await waitFor(() => expect(router.push).toHaveBeenCalledWith(selectedBooking))
+})
+
+test('configured Google sign-in preserves the membership destination', async () => {
+  withCallback('/dashboard/membership')
+  auth.getProviders.mockResolvedValue({ credentials: { id: 'credentials' }, google: { id: 'google' } })
+  const user = userEvent.setup()
+  render(<SignInPage />)
+  await user.click(await screen.findByRole('tab', { name: 'Google' }))
+  await user.click(screen.getByRole('button', { name: 'Continue with Google' }))
+  expect(auth.signIn).toHaveBeenCalledWith('google', { callbackUrl: '/dashboard/membership' })
+})
+
+test.each(['https://evil.example/checkout', '/auth/signin?callbackUrl=/auth/signin'])('unsafe sign-in destinations fall back to the dashboard (%s)', async value => {
+  withCallback(value)
+  const user = userEvent.setup()
+  render(<SignInPage />)
+  await submitSignIn(user)
+  await waitFor(() => expect(router.push).toHaveBeenCalledWith('/dashboard'))
+})
+
+test('ambiguous duplicate callback values use the safe default', async () => {
+  jest.requireMock<{ useSearchParams: jest.Mock }>('next/navigation').useSearchParams.mockReturnValue(new URLSearchParams('callbackUrl=%2Fdashboard%2Fmembership&callbackUrl=%2Fservices%2Freiki'))
+  const user = userEvent.setup()
+  render(<SignInPage />)
+  await submitSignIn(user)
+  await waitFor(() => expect(router.push).toHaveBeenCalledWith('/dashboard'))
+})
+
+test('registration preserves the validated callback when sending a new customer to sign in', async () => {
+  jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ user: { id: 'registered' } }), { status: 201 }))
+  const user = userEvent.setup()
+  render(<RegisterForm callbackUrl={selectedBooking} />)
+  await fillRegistration(user)
+  await user.click(screen.getByRole('button', { name: 'Create Account' }))
+  await waitFor(() => expect(router.push).toHaveBeenCalled())
+  const destination = new URL(router.push.mock.calls[0][0], 'https://example.test')
+  expect(destination.pathname).toBe('/auth/signin')
+  expect(destination.searchParams.get('callbackUrl')).toBe(selectedBooking)
+})
+
+test('the registration page preserves the callback on its existing-account link', async () => {
+  render(await RegisterPage({ searchParams: Promise.resolve({ callbackUrl: selectedBooking }) }))
+  const destination = new URL(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')!, 'https://example.test')
+  expect(destination.searchParams.get('callbackUrl')).toBe(selectedBooking)
 })
