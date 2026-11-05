@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { finalizePayment } from '@/lib/payments/finalize'
 import { z } from 'zod'
 import { createAndStoreInvoicePdf } from '@/lib/invoices'
+import { applyRefundEvent } from '@/lib/payments/refunds'
 
 type RazorpayEvent = {
   event?: string
@@ -21,6 +22,7 @@ type ApplyResult = { applied: boolean; action?: string; reason?: string }
  * Minimal, idempotent side-effects for Razorpay webhooks.
  * - Bound subscription events: transactional ownership, captured payment, and credit fulfillment.
  * - payment.captured: finish the server-owned purchase and invoice it, even if the browser closed.
+ * - Refund lifecycle: reconcile a saved refund intent without submitting money again.
  *
  * Never throws; returns { applied, action?, reason? }.
  */
@@ -37,6 +39,9 @@ export async function applyWebhookSideEffects(evt: unknown): Promise<ApplyResult
       }
       return membershipResult
     }
+
+    const refundResult = await applyRefundEvent(evt)
+    if (refundResult) return refundResult
 
     if (type === 'payment.captured') {
       const gatewayPaymentId =
