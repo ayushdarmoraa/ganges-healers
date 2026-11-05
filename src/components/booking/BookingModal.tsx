@@ -10,6 +10,7 @@ import { openRazorpayCheckout } from '@/lib/payments/openRazorpayCheckout'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { clinicDate, clinicSlotInstant } from '@/lib/bookings/time'
+import { authPathWithCallback } from '@/lib/auth/callback-url'
 
 interface Healer {
   id: string
@@ -45,7 +46,7 @@ export default function BookingModal({
   programSlug,
   productSlug,
 }: BookingModalProps) {
-  const { data: session } = useSession()
+  const { data: session, status: sessionStatus } = useSession()
   const router = useRouter()
   
   const [step, setStep] = useState<'date' | 'time' | 'confirm' | 'processing' | 'success'>('date')
@@ -126,8 +127,13 @@ export default function BookingModal({
 
   const handleBooking = async () => {
     const isTest = (process.env.NEXT_PUBLIC_TEST_MODE === '1' || process.env.TEST_MODE === '1')
-    if (!session && !isTest) {
-      router.push('/auth/signin')
+    if (!session?.user?.id && !isTest) {
+      const params = new URLSearchParams(window.location.search)
+      params.set('openBooking', '1')
+      params.set('healerId', healer.id)
+      if (programSlug) params.set('programSlug', programSlug)
+      if (productSlug) params.set('productSlug', productSlug)
+      router.push(authPathWithCallback('/auth/signin', `${window.location.pathname}?${params}`))
       return
     }
 
@@ -329,7 +335,7 @@ export default function BookingModal({
             <div>
               <h3 className="font-semibold">{healer.user.name}</h3>
               <p className="text-sm text-gray-600">
-                {healer.experienceYears} years experience • ⭐ {healer.rating}
+                {healer.experienceYears} years experience{healer.rating > 0 ? ` • ⭐ ${healer.rating.toFixed(1)}` : ' • No reviews yet'}
               </p>
             </div>
           </div>
@@ -432,7 +438,7 @@ export default function BookingModal({
                 >
                   Back
                 </Button>
-                <Button onClick={handleBooking} disabled={loading} className="flex-1">
+                <Button onClick={handleBooking} disabled={loading || sessionStatus === 'loading'} className="flex-1">
                   {loading ? 'Processing...' : 'Confirm & Pay'}
                 </Button>
               </div>
