@@ -29,7 +29,9 @@ test('a completed session can be reviewed once and its actual rating appears on 
     const card = page.locator('[data-test="booking-card"]').filter({ hasText: service.name })
     await expect(card).toBeVisible({ timeout: 30000 })
     await card.getByRole('button', { name: 'Write a review' }).click()
-    await card.getByRole('radio', { name: '4 stars' }).check()
+    const rating = card.getByRole('radio', { name: '4 stars' })
+    await card.locator('label').filter({ has: rating }).click()
+    await expect(rating).toBeChecked()
     const comment = `Thoughtful guidance ${token}`
     await card.getByLabel('Your review (optional)').fill(comment)
     const saved = page.waitForResponse(response => response.url().endsWith(`/api/bookings/${booking.id}/review`) && response.request().method() === 'POST')
