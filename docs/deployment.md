@@ -56,7 +56,7 @@ Set both `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET` to enable Google. The legacy 
 
 ### Preview payments
 
-Preview uses the separate Preview database and authentication secret. Its Razorpay variables must be test-mode credentials: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, and `NEXT_PUBLIC_RAZORPAY_KEY_ID`. Existing project test credentials were added to Preview on November 4, 2026. Deploy again after environment changes, and configure a test-mode webhook for the Preview hostname before gateway callback verification. A configured key is not proof that a checkout or callback succeeded.
+Preview uses a separate database and authentication secret. Its Razorpay variables must be test-mode credentials: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, and `NEXT_PUBLIC_RAZORPAY_KEY_ID`. Test credentials added to the earlier Vercel workspace on November 4, 2026 do not establish configuration of the new Ganges-owned workspace. Its verified November 5 Preview has only branch-scoped database, authentication and cron secrets. Deploy again after environment changes, and configure a test-mode webhook for the Preview hostname before gateway callback verification. A configured key is not proof that a checkout or callback succeeded.
 
 See `.env.example` for the full list including optional variables.
 
@@ -102,7 +102,8 @@ Security headers (X-Frame-Options, X-Content-Type-Options, etc.) are configured 
 2. Set `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` in environment
 3. Configure webhooks in the Razorpay dashboard:
    - **URL:** `https://your-domain.com/api/payments/webhook`
-   - **Events:** `payment.captured`, `subscription.activated`, `subscription.charged`, `subscription.paused`, `subscription.resumed`, `subscription.pending`, `subscription.halted`, `subscription.cancelled`, `subscription.completed`, `refund.processed`
+   - **Events:** `payment.captured`, `subscription.activated`, `subscription.charged`, `subscription.paused`, `subscription.resumed`, `subscription.pending`, `subscription.halted`, `subscription.cancelled`, `subscription.completed`, `refund.created`, `refund.processed`, `refund.failed`
+   - Refund updates reconcile saved gateway refund IDs; they never submit another refund. Test duplicate and delayed delivery, a partial refund, and full confirmation before enabling production side effects. Keep the same raw-body signature verification. A retryable `apply-error` for a known payment with no bound refund ID requires checking the saved submission response or reviewing an untracked dashboard refund; do not create another refund to clear the error. See `docs/contracts.md`.
    - **Secret:** Use the same value as `RAZORPAY_WEBHOOK_SECRET`
    - **Application:** Enable `PAYMENT_EVENTS_ENABLED=true` only for the environment whose callback has been verified. See `docs/membership-fulfillment.md` for quote binding, single-cycle billing, reconciliation, and retry contracts.
 4. Create subscription plans in the Razorpay dashboard matching the `MembershipPlan` slugs (`vip-monthly`, `vip-yearly`)

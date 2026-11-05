@@ -23,7 +23,44 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 
 ## Public APIs: Contracts to Preserve
 
+### Public marketplace data
+- `GET /api/services/[id]` keeps `{ success, data }`, public catalog fields,
+  `_count.bookings`, `healers`, numeric `averageRating`, and `totalBookings`.
+  `totalReviews` is additive; ratings are computed from actual service reviews
+  rather than averages of practitioner ratings. Unrated responses use zero.
+- The legacy `data.bookings` array contains only `{ healer: <public summary> }`
+  entries, one per active practitioner with a completed booking for the service.
+  Public practitioner summaries expose only ID, bio, experience, rating,
+  specializations, verification flag, and profile name/image.
+- Intentional privacy correction: customer/booking IDs, appointment times,
+  meeting links, financial snapshots, practitioner account IDs, private account
+  fields, and raw availability are no longer returned or queried by this public
+  endpoint. Consumers needing owned appointment details must use the existing
+  authenticated booking APIs. No first-party consumer relies on the removed
+  fields. Existing 404/500 responses and protected admin mutations are preserved.
+- Inactive practitioners are excluded from service booking cards, public healer
+  detail pages and their API. Missing/inactive healer details share the existing
+  not-found result. Public healer profiles/directories link only active services.
+
 ### Booking and availability
+- Healer profile booking links carry `openBooking=1` and the selected `healerId`.
+  Service auto-open selects that exact active practitioner from the service's
+  available healer list. Missing, inactive, unrelated, empty or ambiguous
+  explicit selections show an unavailable message and never open a different
+  healer. Existing service links without a healer selection retain their
+  first-available behavior. A changed selected healer remounts the booking flow.
+- Signed-out booking confirmation reserves no slot and opens sign-in with an
+  internal callback preserving service, practitioner, program and product
+  context. After sign-in, availability is selected afresh; no old slot is
+  promised or held. An incomplete session still requires sign-in, and a loading
+  session cannot trigger booking confirmation.
+- `/auth/signin` honors one validated local `callbackUrl` for credentials and
+  configured Google sign-in, and forwards it to registration. `/register`
+  preserves it on both sign-in links and successful registration. Ordinary
+  visits retain the existing dashboard destination. External/protocol-relative,
+  malformed, control/backslash/double-encoded, overlong, API and authentication
+  loop destinations fall back to `/dashboard`; duplicate callback parameters
+  also use the safe default. Authorization checks on destination pages remain.
 - `GET /api/availability?healerId=...&date=YYYY-MM-DD` uses India time
   (`Asia/Kolkata`) for both dates and slot labels. An optional `serviceId` uses
   that active service's duration; without it the existing 60-minute default
@@ -223,6 +260,31 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
   - No schema, dependency, environment, authentication-provider, or test-mode contract
     changes. See `docs/navigation.md` for behavior, limits, verification, and rollback.
 
+### Completed-session Reviews
+- Path: `POST /api/bookings/[id]/review`
+- Requires an authenticated, nonempty session user ID. The customer must own
+  the booking; missing/foreign bookings both return `404`. A healer cannot
+  review their own session (`403`). Booking status must be `COMPLETED` and its
+  scheduled end must have passed (`409` otherwise).
+- Body: `{ rating: 1..5, comment?: string }`. Rating is an integer; comments
+  are trimmed, at most 2000 characters, and blank comments become null.
+  Unexpected fields, invalid values and malformed JSON return `400`.
+- The server derives customer, healer and service IDs from the saved booking.
+  Review creation and healer rating-average updates share a transaction and
+  the existing healer lock. The existing unique booking key enforces one review.
+- Returns `201 { success: true, data: { id, rating, comment, createdAt },
+  idempotent: false }`. An identical replay returns the same review with `200`
+  and `idempotent: true`; a different second submission returns `409` and does
+  not replace the accepted review. Unexpected transaction failures return a
+  user-safe `500` and log `[booking][review][error]` with the error type only.
+- `GET /api/bookings` adds the owned booking's `review: { id, rating, comment }
+  | null`. Existing envelope and fields remain. My Bookings offers the review
+  form for eligible completed sessions and shows accepted reviews read-only.
+- Ratings and comments are public with the reviewer's profile name, as stated
+  before submission. Comments render as plain text. Service catalog ratings
+  use a single batched aggregate over actual review rows; unrated services
+  show "No reviews yet" rather than a placeholder rating.
+
 ### Payments Webhook (Razorpay)
 - Path: `POST /api/payments/webhook`
 - Behavior:
@@ -231,6 +293,20 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
   - If secret missing: `500 { ok: false, error: 'secret-missing' }`
   - On success: `200 { ok: true }` and a log line: `[webhook] verified` with `{ type, subId, payId }`
   - No database side-effects unless `PAYMENT_EVENTS_ENABLED === 'true'` (gated, idempotent)
+  - `refund.created`, `refund.processed`, and `refund.failed` reconcile an existing
+    gateway-bound refund intent. Provider payment ID, amount and INR currency must
+    match the saved captured payment/refund. Event notes never identify an owner.
+  - Confirmed refunds cannot be downgraded by delayed events or cancellation API
+    responses. Failed refunds cannot regress to pending/unknown. A payment becomes
+    `REFUNDED` only when confirmed refund records total its original amount;
+    partial refunds retain the captured payment status. No refund is submitted by
+    a webhook, and this handler does not reverse purchase entitlements.
+  - An unrelated refund is acknowledged without creating records. A refund for a
+    known payment whose gateway refund ID is not yet saved returns the existing
+    `500 { ok: false, error: 'apply-error' }` retry response. This covers delivery
+    racing the submission response; untracked dashboard refunds require operator
+    reconciliation. Invalid/mismatched payloads and transaction failures use the
+    same retry response. Check `[webhook][skip]` with reason `apply-error`.
 
 ### Membership Plans
 - Path: `GET /api/memberships/plans`
