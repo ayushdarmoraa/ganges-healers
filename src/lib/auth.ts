@@ -72,21 +72,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (typeof u.vip !== 'undefined') token.vip = u.vip
         if (typeof u.freeSessionCredits !== 'undefined') token.freeSessionCredits = u.freeSessionCredits
       }
-      // Refresh entitlements on session reads so expiration never relies on a cached claim. Client updates refresh profile from DB.
-      if (token.id) {
-        const fresh = await prisma.user.findUnique({
-          where: { id: token.id as string },
-          select: { name: true, image: true, vip: true, freeSessionCredits: true, memberships: { select: { status: true, endDate: true } } },
-        })
-        if (fresh) {
-          if (trigger === 'update') {
-            token.name = fresh.name
-            token.picture = fresh.image
-          }
-          token.vip = membershipAccess(fresh.vip, fresh.memberships)
-          token.freeSessionCredits = fresh.freeSessionCredits
-        }
+      // Revalidate identity and privileges on every session read using the existing lookup.
+      // Client updates may refresh profile fields but cannot supply authorization claims.
+      if (typeof token.id !== 'string' || !token.id) return null
+      const fresh = await prisma.user.findUnique({
+        where: { id: token.id },
+        select: { name: true, image: true, role: true, vip: true, freeSessionCredits: true, memberships: { select: { status: true, endDate: true } } },
+      })
+      if (!fresh) return null
+      if (trigger === 'update') {
+        token.name = fresh.name
+        token.picture = fresh.image
       }
+      token.role = fresh.role
+      token.vip = membershipAccess(fresh.vip, fresh.memberships)
+      token.freeSessionCredits = fresh.freeSessionCredits
       return token
     },
     async session({ session, token }) {

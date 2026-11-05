@@ -49,6 +49,14 @@ Use the existing `pnpm dev:test` launcher for local E2E login. Production and
 preview must use normal authentication; this helper cannot log into a production
 server. Database safety for the E2E launcher must be checked separately before use.
 
+### Session revocation
+
+Every authenticated session read refreshes the current database role, membership
+access and credit balance in one user lookup. Removing an administrator or healer
+role takes effect on the next authenticated request. A deleted account or a token
+without a valid account ID is rejected. Client session updates cannot set roles or
+entitlements, and a failed lookup does not fall back to cached privileges.
+
 ### 1. Registration Flow
 - [ ] Visit http://localhost:3000
 - [ ] Click "Register" button in navbar  
@@ -58,7 +66,7 @@ server. Database safety for the E2E launcher must be checked separately before u
 
 ### 2. Sign In Flow  
 - [ ] Use credentials from registration OR admin account
-- [ ] Admin: `admin@ganges-healers.com` / `admin123`
+- [ ] For admin checks, use an administrator account provisioned for the isolated test environment.
 - [ ] Sign in → should redirect to dashboard
 - [ ] Navbar should show user avatar and Sign Out button
 
