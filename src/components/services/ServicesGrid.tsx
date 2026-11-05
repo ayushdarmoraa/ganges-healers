@@ -12,7 +12,7 @@ interface Service {
   duration: number
   image?: string
   category: string
-  averageRating: number
+  averageRating: number | null
   totalSessions: number
   totalReviews: number
 }
@@ -63,8 +63,10 @@ export default function ServicesGrid({ services }: { services: Service[] }) {
                   <span>{service.duration}min</span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Star className="w-4 h-4 text-yellow-400" />
-                  <span>{service.averageRating.toFixed(1)}</span>
+                  {service.averageRating !== null && service.totalReviews > 0 ? <>
+                    <Star className="w-4 h-4 text-yellow-400" aria-hidden="true" />
+                    <span aria-label={`${service.averageRating.toFixed(1)} out of 5 from ${service.totalReviews} ${service.totalReviews === 1 ? 'review' : 'reviews'}`}>{service.averageRating.toFixed(1)} ({service.totalReviews})</span>
+                  </> : <span>No reviews yet</span>}
                 </div>
                 <div className="flex items-center gap-1">
                   <Users className="w-4 h-4" />
