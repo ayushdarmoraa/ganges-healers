@@ -1,7 +1,11 @@
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHmac } from 'node:crypto'
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { DELETE, PATCH } from '@/app/api/bookings/[id]/route'
+import { POST as webhook } from '@/app/api/payments/webhook/route'
+import { recordRefundOutcome } from '@/lib/payments/refunds'
+
+jest.mock('@/lib/invoices', () => ({ createAndStoreInvoicePdf: jest.fn() }))
 
 type RefundArgs = Parameters<typeof import('@/lib/payments/razorpay-refunds').refundPayment>[0]
 type RefundResult = Awaited<ReturnType<typeof import('@/lib/payments/razorpay-refunds').refundPayment>>
@@ -31,6 +35,9 @@ let healerUserId: string
 let healerId: string
 let serviceId: string
 let previousTestMode: string | undefined
+let previousEventsEnabled: string | undefined
+let previousWebhookSecret: string | undefined
+const webhookSecret = 'refund-integration-secret'
 
 async function createPaidBooking() {
   const booking = await prisma.booking.create({
@@ -70,6 +77,10 @@ function cancel(method: 'DELETE' | 'PATCH', bookingId: string) {
 
 beforeAll(async () => {
   previousTestMode = process.env.TEST_MODE
+  previousEventsEnabled = process.env.PAYMENT_EVENTS_ENABLED
+  previousWebhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET
+  process.env.PAYMENT_EVENTS_ENABLED = 'true'
+  process.env.RAZORPAY_WEBHOOK_SECRET = webhookSecret
   delete process.env.TEST_MODE
   const suffix = randomUUID()
   const user = await prisma.user.create({
@@ -98,11 +109,107 @@ beforeAll(async () => {
 afterAll(async () => {
   if (previousTestMode === undefined) delete process.env.TEST_MODE
   else process.env.TEST_MODE = previousTestMode
+  if (previousEventsEnabled === undefined) delete process.env.PAYMENT_EVENTS_ENABLED
+  else process.env.PAYMENT_EVENTS_ENABLED = previousEventsEnabled
+  if (previousWebhookSecret === undefined) delete process.env.RAZORPAY_WEBHOOK_SECRET
+  else process.env.RAZORPAY_WEBHOOK_SECRET = previousWebhookSecret
   delete process.env.REFUND_INTEGRATION_USER_ID
   if (userId) await prisma.user.delete({ where: { id: userId } })
   if (healerUserId) await prisma.user.delete({ where: { id: healerUserId } })
   if (serviceId) await prisma.service.delete({ where: { id: serviceId } })
   await prisma.$disconnect()
+})
+
+async function sendRefund(gatewayRefundId: string, gatewayPaymentId: string, amount: number, status = 'processed', validSignature = true) {
+  const body = JSON.stringify({ event: `refund.${status === 'pending' ? 'created' : status}`, payload: { refund: { entity: {
+    id: gatewayRefundId, payment_id: gatewayPaymentId, amount, currency: 'INR', status,
+  } } } })
+  const signature = createHmac('sha256', webhookSecret).update(body).digest('hex')
+  return webhook(new Request('http://localhost/api/payments/webhook', {
+    method: 'POST', body, headers: { 'x-razorpay-signature': validSignature ? signature : '0'.repeat(64) },
+  }))
+}
+
+describe('verified refund webhook reconciliation', () => {
+  async function pendingRefund(amountPaise = 15000) {
+    const fixture = await createPaidBooking()
+    const refund = await prisma.refund.create({ data: {
+      paymentId: fixture.payment.id, amountPaise, gatewayRefundId: `rfnd_${randomUUID()}`, status: 'PENDING', reason: 'booking-cancellation',
+    } })
+    return { ...fixture, refund }
+  }
+
+  test('signature and disabled-event gates prevent any refund writes', async () => {
+    const { payment, refund } = await pendingRefund()
+    expect((await sendRefund(refund.gatewayRefundId!, payment.gatewayPaymentId!, 15000, 'processed', false)).status).toBe(401)
+    process.env.PAYMENT_EVENTS_ENABLED = 'false'
+    try {
+      expect((await sendRefund(refund.gatewayRefundId!, payment.gatewayPaymentId!, 15000)).status).toBe(200)
+      expect((await prisma.refund.findUniqueOrThrow({ where: { id: refund.id } })).status).toBe('PENDING')
+      expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).statusEnum).toBe('SUCCESS')
+    } finally { process.env.PAYMENT_EVENTS_ENABLED = 'true' }
+  })
+
+  test('concurrent duplicate delivery and a delayed API response preserve one confirmed refund', async () => {
+    const { payment, refund } = await pendingRefund()
+    const responses = await Promise.all([
+      sendRefund(refund.gatewayRefundId!, payment.gatewayPaymentId!, 15000),
+      sendRefund(refund.gatewayRefundId!, payment.gatewayPaymentId!, 15000),
+    ])
+    expect(responses.map(response => response.status)).toEqual([200, 200])
+    await recordRefundOutcome(refund.id, refund.gatewayRefundId, 'PENDING')
+    await sendRefund(refund.gatewayRefundId!, payment.gatewayPaymentId!, 15000, 'failed')
+    expect(await prisma.refund.count({ where: { paymentId: payment.id } })).toBe(1)
+    expect((await prisma.refund.findUniqueOrThrow({ where: { id: refund.id } })).status).toBe('SUCCESS')
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).statusEnum).toBe('REFUNDED')
+    expect(mockRefundPayment).not.toHaveBeenCalled()
+  })
+
+  test('simultaneous partial refunds sum atomically to the full captured amount', async () => {
+    const { payment, refund } = await pendingRefund(7500)
+    const second = await prisma.refund.create({ data: {
+      paymentId: payment.id, amountPaise: 7500, gatewayRefundId: `rfnd_${randomUUID()}`, status: 'PENDING',
+    } })
+    const responses = await Promise.all([refund, second].map(row => sendRefund(row.gatewayRefundId!, payment.gatewayPaymentId!, 7500)))
+    expect(responses.map(response => response.status)).toEqual([200, 200])
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).statusEnum).toBe('REFUNDED')
+    expect(await prisma.refund.count({ where: { paymentId: payment.id, status: 'SUCCESS' } })).toBe(2)
+  })
+
+  test('a partial confirmation leaves the original payment captured', async () => {
+    const { payment, refund } = await pendingRefund(7500)
+    expect((await sendRefund(refund.gatewayRefundId!, payment.gatewayPaymentId!, 7500)).status).toBe(200)
+    expect((await prisma.refund.findUniqueOrThrow({ where: { id: refund.id } })).status).toBe('SUCCESS')
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).statusEnum).toBe('SUCCESS')
+  })
+
+  test.each(['amount', 'payment'] as const)('a signed but mismatched %s leaves both records unchanged', async mismatch => {
+    const { payment, refund } = await pendingRefund()
+    const response = await sendRefund(refund.gatewayRefundId!, mismatch === 'payment' ? 'pay_wrong' : payment.gatewayPaymentId!, mismatch === 'amount' ? 1 : 15000)
+    expect(response.status).toBe(500)
+    expect((await prisma.refund.findUniqueOrThrow({ where: { id: refund.id } })).status).toBe('PENDING')
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).statusEnum).toBe('SUCCESS')
+  })
+
+  test('over-refunding rolls back the rejected confirmation', async () => {
+    const { payment, refund } = await pendingRefund()
+    await prisma.refund.create({ data: { paymentId: payment.id, amountPaise: 1, status: 'SUCCESS', gatewayRefundId: `rfnd_${randomUUID()}` } })
+    expect((await sendRefund(refund.gatewayRefundId!, payment.gatewayPaymentId!, 15000)).status).toBe(500)
+    expect((await prisma.refund.findUniqueOrThrow({ where: { id: refund.id } })).status).toBe('PENDING')
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).statusEnum).toBe('SUCCESS')
+  })
+
+  test('a webhook winning a cancellation status fetch cannot be overwritten by its stale pending result', async () => {
+    const { booking, payment, refund } = await pendingRefund()
+    await prisma.booking.update({ where: { id: booking.id }, data: { status: 'CANCELLED' } })
+    mockFetchRefundStatus.mockImplementationOnce(async refundId => {
+      expect((await sendRefund(refundId, payment.gatewayPaymentId!, 15000)).status).toBe(200)
+      return { gatewayRefundId: refundId, status: 'PENDING', raw: {} }
+    })
+    expect((await (await cancel('DELETE', booking.id)).json()).refund.status).toBe('SUCCESS')
+    expect((await prisma.refund.findUniqueOrThrow({ where: { id: refund.id } })).status).toBe('SUCCESS')
+    expect(mockRefundPayment).not.toHaveBeenCalled()
+  })
 })
 
 beforeEach(() => {

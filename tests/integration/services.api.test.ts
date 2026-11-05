@@ -21,6 +21,8 @@ import { prisma } from '@/lib/prisma'
 import { makeNextRequest, readJSON } from '../helpers/next-handler'
 import * as ServicesCollection from '@/app/api/services/route'
 import * as ServicesById from '@/app/api/services/[id]/route'
+import { getHealerBySlug } from '@/lib/healers/queries'
+import { randomUUID } from 'node:crypto'
 
 type ServicesCollectionModule = {
   GET?: (req: Request) => Promise<Response>
@@ -141,6 +143,33 @@ describe('API /api/services integration', () => {
       expect(res.status).toBe(404)
       const body = await readJSON(res)
       expect(body.error).toMatch(/not found/i)
+    })
+
+    test('public service detail does not export customer appointments, financial snapshots or practitioner account data', async () => {
+      const token = randomUUID()
+      const customer = await prisma.user.create({ data: { email: `private-customer-${token}@example.test` } })
+      const practitioner = await prisma.user.create({ data: { email: `private-healer-${token}@example.test`, name: 'Public Privacy Test Practitioner', role: 'HEALER' } })
+      try {
+        const healer = await prisma.healer.create({ data: { userId: practitioner.id, bio: 'Public biography', availability: { private: 'schedule' } } })
+        const booking = await prisma.booking.create({ data: {
+          userId: customer.id, healerId: healer.id, serviceId: testService.id, status: 'COMPLETED',
+          scheduledAt: new Date(Date.now() - 86400000), durationMin: 60, pricePaise: 12345, meetingLink: 'https://example.test/private-meeting',
+        } })
+        const res = await IdHandlers.GET!(makeNextRequest(`http://localhost/api/services/${testService.id}`), { params: Promise.resolve({ id: testService.id }) })
+        const body = await readJSON(res)
+        expect(res.status).toBe(200)
+        expect(body.data.healers).toEqual(expect.arrayContaining([expect.objectContaining({ id: healer.id, user: { name: 'Public Privacy Test Practitioner', image: null } })]))
+        const serialized = JSON.stringify(body)
+        for (const secret of [customer.id, customer.email, practitioner.id, practitioner.email, booking.id, 'private-meeting']) expect(serialized).not.toContain(secret)
+        for (const key of ['userId', 'scheduledAt', 'meetingLink', 'pricePaise', 'availability', 'email', 'password', 'phone']) expect(serialized).not.toContain(`"${key}":`)
+        await prisma.healer.update({ where: { id: healer.id }, data: { isActive: false } })
+        expect(await getHealerBySlug(healer.id)).toBeNull()
+        const inactiveBody = await readJSON(await IdHandlers.GET!(makeNextRequest(`http://localhost/api/services/${testService.id}`), { params: Promise.resolve({ id: testService.id }) }))
+        expect(inactiveBody.data.healers.some((item: { id: string }) => item.id === healer.id)).toBe(false)
+      } finally {
+        await prisma.user.delete({ where: { id: customer.id } })
+        await prisma.user.delete({ where: { id: practitioner.id } })
+      }
     })
   })
 
