@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic"
 
 const PasswordSchema = z.object({
   currentPassword: z.string().min(1),
-  newPassword: z.string().min(6, "Password must be at least 6 characters"),
+  newPassword: z.string().min(6, "Password must be at least 6 characters").max(72).refine(value => Buffer.byteLength(value, 'utf8') <= 72, 'Password is too long'),
 })
 
 export async function POST(req: Request) {
