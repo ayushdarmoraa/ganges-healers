@@ -63,3 +63,12 @@ test('cancelled reservations expose a calendar update while proposals do not fab
   render(<ProgramWorkspace items={[{ ...row, sessions: [{ ...row.sessions[0], id: 'session', status: 'cancelled', scheduledAt: '2030-01-01T04:30:00.000Z' }] }]} />)
   expect(screen.getByRole('link', { name: 'Download cancellation' })).toHaveAttribute('href', '/api/program-enrollments/enrollment/sessions/1/calendar')
 })
+
+test('an administrator selects a labelled practitioner and confirms assignment', async () => {
+  const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => response({ success: true, data: { id: row.id } }))
+  render(<ProgramWorkspace items={[{ ...row, healer: null, canManage: true, canAssign: true }]} healers={[{ id: 'healer', name: 'Assigned Practitioner' }]} />)
+  await userEvent.selectOptions(screen.getByLabelText('Assign practitioner', { exact: true }), 'healer')
+  await userEvent.click(screen.getByRole('button', { name: 'Assign practitioner' }))
+  await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+  expect(fetch).toHaveBeenCalledWith('/api/program-enrollments/enrollment', expect.objectContaining({ body: JSON.stringify({ action: 'assign', healerId: 'healer' }) }))
+})
