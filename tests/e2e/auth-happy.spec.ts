@@ -54,3 +54,63 @@ test('register without a phone, sign in with the stored password, and sign out',
     }
   }
 })
+
+test('a profile-selected practitioner survives registration and real password sign-in', async ({ page, baseURL }) => {
+  test.setTimeout(120000)
+  const settings = loadTestDatabaseEnvironment()
+  await verifyTestDatabaseConnection(settings)
+  const db = new PrismaClient({ datasources: { db: { url: settings.environment.DATABASE_URL } } })
+  const token = crypto.randomUUID()
+  const email = `booking-return-${token}@example.test`
+  const password = `Test-${crypto.randomUUID()}!`
+  const practitionerUsers: string[] = []
+  let serviceId = ''
+  try {
+    const service = await db.service.create({ data: { slug: `targeted-${token}`, name: `Targeted ${token}`, description: 'A practitioner selection test.', category: 'Test', price: 100, duration: 60 } })
+    serviceId = service.id
+    const healers = []
+    for (const [name, experienceYears] of [['First Ranked Practitioner', 20], ['Chosen Practitioner', 5]] as const) {
+      const user = await db.user.create({ data: { email: `practitioner-${experienceYears}-${token}@example.test`, name, role: 'HEALER' } })
+      practitionerUsers.push(user.id)
+      healers.push(await db.healer.create({ data: { userId: user.id, specializations: [service.name], experienceYears } }))
+    }
+    const selected = healers[1]
+    await page.goto(`/healers/${selected.id}`)
+    await page.getByRole('link', { name: 'Book a session', exact: true }).click()
+    await expect(page).toHaveURL(new URL(`/services/${service.slug}?${new URLSearchParams({ openBooking: '1', healerId: selected.id })}`, baseURL).href, { timeout: 30000 })
+    const destination = new URL(page.url())
+    expect(destination.searchParams.get('healerId')).toBe(selected.id)
+    const dialog = page.getByRole('dialog', { name: `Book ${service.name}`, exact: true })
+    await expect(dialog.getByText('Chosen Practitioner', { exact: true })).toBeVisible({ timeout: 30000 })
+    await expect(dialog.getByText('First Ranked Practitioner', { exact: true })).toHaveCount(0)
+    const callbackUrl = `${destination.pathname}${destination.search}`
+    // The test server intentionally bypasses booking sign-in in TEST_MODE. Exercise the real auth journey directly;
+    // the signed-out modal redirect is separately covered with both test flags disabled in the component suite.
+    await page.goto(`/auth/signin?${new URLSearchParams({ callbackUrl })}`)
+    await page.getByRole('link', { name: 'Create one', exact: true }).click()
+    await expect(page).toHaveURL(/\/register\?callbackUrl=/, { timeout: 30000 })
+    expect(new URL(page.url()).searchParams.get('callbackUrl')).toBe(callbackUrl)
+    await page.getByLabel('Full Name', { exact: true }).fill('Booking Return Customer')
+    await page.getByLabel('Email', { exact: true }).fill(email)
+    await page.getByLabel('Password', { exact: true }).fill(password)
+    await page.getByLabel('Confirm Password', { exact: true }).fill(password)
+    await page.getByRole('button', { name: 'Create Account', exact: true }).click()
+    await expect(page).toHaveURL(/\/auth\/signin\?callbackUrl=/, { timeout: 30000 })
+    await page.getByLabel('Email', { exact: true }).fill(email)
+    await page.getByLabel('Password', { exact: true }).fill(password)
+    await page.getByRole('button', { name: 'Sign In', exact: true }).click()
+    await expect(page).toHaveURL(new URL(callbackUrl, baseURL).href, { timeout: 30000 })
+    await expect(dialog.getByText('Chosen Practitioner', { exact: true })).toBeVisible()
+    const registered = await db.user.findUniqueOrThrow({ where: { email } })
+    expect((await (await page.request.get('/api/auth/session')).json()).user.id).toBe(registered.id)
+    destination.searchParams.set('healerId', 'unavailable-practitioner')
+    await page.goto(`${destination.pathname}${destination.search}`)
+    await expect(page.getByRole('alert')).toContainText('The selected healer is unavailable for this service')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+  } finally {
+    try {
+      await db.user.deleteMany({ where: { OR: [{ email }, { id: { in: practitionerUsers } }] } })
+      if (serviceId) await db.service.delete({ where: { id: serviceId } })
+    } finally { await db.$disconnect() }
+  }
+})
