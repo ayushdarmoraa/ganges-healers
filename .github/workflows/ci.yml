@@ -73,9 +73,22 @@ jobs:
       - name: Verify isolated database rehearsal guards
         run: python3 -m unittest discover -s tests/operations -p 'test_*.py'
 
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Reject critical production dependency advisories
+        run: pnpm audit --prod --audit-level=critical
+
   build:
     runs-on: ubuntu-latest
-    needs: [unit, integration, ui, operations]
+    needs: [unit, integration, ui, operations, security]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

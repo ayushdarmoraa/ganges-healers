@@ -1,10 +1,10 @@
 # Ganges Healers — Implementation and Rollout Status
 
-Reviewed November 5, 2026 against the implementation plan, repository branches, open pull requests, Neon ownership/migration records, and the Ganges-owned Vercel Preview. Implementation and verified release state are recorded separately below.
+Reviewed November 5, 2026 against the implementation plan, repository branches, pull requests, CI and database rehearsal records. Current work excludes Vercel. Earlier Preview checks below are historical and do not establish deployment of the latest source.
 
 ## Current development line
 
-The published release branch is `codex/site-completion-release` in PR #10. It consolidates the earlier community, publishing, notifications, navigation, store/course, authentication, membership, payment-recovery, refund-reconciliation, public-privacy, completed-session-review and booking-return work. The application remains the existing Next.js App Router project. CI run 42066466398 at `0c98850` passed all six jobs: 463 unit, 221 integration, 230 UI, 29 browser and 6 operations checks, plus the production build. Only the existing legacy integration placeholder is skipped. The protected Ganges-owned Preview is ready and its database health check succeeds. Production traffic has not been cut over.
+The published release branch is `codex/site-completion-release` in PR #10. It consolidates the earlier community, publishing, notifications, navigation, store/course, authentication, membership, payment-recovery, refund-reconciliation, public-privacy, completed-session-review and booking-return work. The application remains the existing Next.js App Router project. Recovery hardening (PR #12) and course/program checkout recovery (PR #13) are merged. CI run 42088716885 verified combined source tree `5f6b6f2ebaeebd3171f58c19a9ce12d85549b1d5`: 538 unit, 242 integration, 267 UI, 32 browser and 6 operations checks, plus the production build. Only the existing legacy integration placeholder is skipped. These are isolated CI checks; actual email/payment delivery, deployment of this source, and production cutover are unverified.
 
 | Plan area | Implementation present | Remaining validation or release work |
 | --- | --- | --- |
@@ -144,3 +144,36 @@ awaits its own CI/deployment. No schema, dependency or payment API changes.
 4. Roll out reviewed application/migrations with rollback or roll-forward steps, then check production health, authorization, callbacks, logs, and customer journeys.
 
 See `docs/GUARDRAILS.md`, `docs/contracts.md`, and `docs/deployment.md`. Git Bash update commands for the Windows checkout are in `README.md`.
+
+## Enrollment recovery and release limits (PR #13)
+
+Free course quotes activate enrollment without a gateway/payment row. Dismissed
+paid course/program checkouts reuse the customer's saved enrollment, order and
+quote. Allocation and payment locks coordinate concurrent requests and generic
+checkout; terminal/inconsistent payments and ambiguous legacy program reservations
+require review. Auth return paths, empty course lesson lists and explicit payment
+verification are covered by UI tests. New database tests cover retry/concurrency;
+the browser test enters a free course's gated lesson without provider requests.
+No production database or hosting setting changes were made.
+
+Program purchase activation currently produces schedule JSON; it does not reserve
+actual practitioner appointments. Confirm the included service, practitioner
+selection and scheduling policy before claiming program session delivery. Licensed
+course/audio media and real email/payment/upload providers need separate checks.
+The database rehearsal is an old snapshot; a fresh synchronized production cutover
+remains necessary. See `docs/database-rehearsal.md` and PR #10.
+
+## Dependency security follow-up
+
+Update the existing framework/runtime families and the lockfile after the current
+registry audit: Next.js 15.5.29, Auth.js beta.32 with matching adapter/core, React
+19.1.10, Prisma 6.19.3, Sentry 10.78.0, and compatible runtime dependency fixes.
+Targeted transitive resolutions include patched Sharp/PostCSS/socket/HTTP/validation
+paths. The legacy unused auth adapter is removed, bcryptjs is a runtime dependency,
+and the email CLI is development-only. A CI job rejects critical production
+dependency advisories before the build. No schema or hosting settings change.
+
+The final dependency audit reports 0 critical, 1 high, 2 moderate and 1 low findings.
+The four residual advisories and their dependency paths are documented in
+`docs/ops-checklist.md`; they are not hidden or declared fixed. Application tests
+must pass against the new lockfile before this follow-up is merged.
