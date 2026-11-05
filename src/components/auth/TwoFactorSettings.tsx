@@ -1,16 +1,18 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { signOut } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { authPathWithCallback } from '@/lib/auth/callback-url'
+import { signOutCurrentSession } from '@/lib/auth/client-session'
 
 type Status = { ownerId: string; enabled: boolean; hasPassword: boolean; recoveryCodesRemaining: number }
 type Setup = { secret: string; qrDataUrl: string; expiresAt: string }
 type Outcome = { ownerId: string; enabled: boolean; codes: string[] }
 export default function TwoFactorSettings({ userId, sessionLoading = false }: { userId: string; sessionLoading?: boolean }) {
+  const router = useRouter()
   const owner = useRef(userId)
   const [status, setStatus] = useState<Status | null>(null)
   const [setup, setSetup] = useState<Setup | null>(null)
@@ -59,7 +61,11 @@ export default function TwoFactorSettings({ userId, sessionLoading = false }: { 
   }
   async function finish() {
     setPending(true); setError('')
-    try { await signOut({ callbackUrl: authPathWithCallback('/auth/signin', '/dashboard/settings') }) }
+    try {
+      await signOutCurrentSession('/auth/signin')
+      router.push(authPathWithCallback('/auth/signin', '/dashboard/settings'))
+      router.refresh()
+    }
     catch { setError('Sign out could not be confirmed. Save your codes and try again.') }
     finally { setPending(false) }
   }

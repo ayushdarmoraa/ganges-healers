@@ -3,13 +3,17 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import TwoFactorSettings from '@/components/auth/TwoFactorSettings'
 jest.mock('next-auth/react', () => ({ signOut: jest.fn() }))
+jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush, refresh: mockRefresh }) }))
+const mockPush = jest.fn()
+const mockRefresh = jest.fn()
 const signOut = jest.requireMock<{ signOut: jest.Mock }>('next-auth/react').signOut
 const codes = Array.from({ length: 8 }, (_, i) => `${String(i).padStart(4, 'A')}-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA`)
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
 let fetchMock: jest.SpyInstance
 beforeEach(() => {
   jest.clearAllMocks()
-  fetchMock = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => response({ enabled: false, hasPassword: true, recoveryCodesRemaining: 0 }))
+  signOut.mockResolvedValue({ url: 'http://different-auth-host.example/auth/signin' })
+  fetchMock = jest.spyOn(globalThis, 'fetch').mockImplementation(async (url) => response(url === '/api/auth/session' ? null : { enabled: false, hasPassword: true, recoveryCodesRemaining: 0 }))
 })
 afterEach(() => jest.restoreAllMocks())
 async function start() {
@@ -37,7 +41,9 @@ test('setup remains unconfirmed until a valid server result; recovery codes requ
   expect(finish).toBeDisabled()
   await user.click(screen.getByLabelText('I saved my recovery codes'))
   await user.click(finish)
-  expect(signOut).toHaveBeenCalledWith({ callbackUrl: '/auth/signin?callbackUrl=%2Fdashboard%2Fsettings' })
+  expect(signOut).toHaveBeenCalledWith({ redirect: false, redirectTo: '/auth/signin' })
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/auth/signin?callbackUrl=%2Fdashboard%2Fsettings'))
+  expect(mockRefresh).toHaveBeenCalled()
 })
 test('a malformed successful response cannot display enabled status or discard the setup', async () => {
   const user = await start()
