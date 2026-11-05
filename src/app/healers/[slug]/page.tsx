@@ -41,7 +41,7 @@ export default async function HealerDetailPage({ params }: { params: Promise<{ s
       <div className="text-sm text-muted-foreground">{h.title || 'Healer'} • {h.yearsExperience} yrs • ⭐ {h.ratingAvg.toFixed(1)}</div>
       {primaryService ? (
         <div>
-          <Link href={`/services/${primaryService.slug}?openBooking=1`} className="border rounded px-3 py-2 inline-block">Book a session</Link>
+          <Link href={`/services/${primaryService.slug}?${new URLSearchParams({ openBooking: '1', healerId: h.id })}`} className="border rounded px-3 py-2 inline-block">Book a session</Link>
         </div>
       ) : null}
       <section>
