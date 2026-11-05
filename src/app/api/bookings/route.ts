@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
     const bookings = await prisma.booking.findMany({
       where,
       include: {
+        review: { select: { id: true, rating: true, comment: true } },
         healer: {
           include: {
             user: {
