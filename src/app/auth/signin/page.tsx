@@ -1,8 +1,8 @@
 "use client"
 
 import { getProviders, signIn } from "next-auth/react"
-import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { Suspense, useEffect, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -10,11 +10,19 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
+import { authPathWithCallback, safeCallbackUrl } from '@/lib/auth/callback-url'
 
 export default function SignInPage() {
+  return <Suspense fallback={<div className="container mx-auto max-w-md px-4 py-16">Loading sign-in…</div>}><SignInContent /></Suspense>
+}
+
+function SignInContent() {
   const [isLoading, setIsLoading] = useState(false)
   const [googleEnabled, setGoogleEnabled] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const callbacks = searchParams.getAll('callbackUrl')
+  const callbackUrl = safeCallbackUrl(callbacks.length === 1 ? callbacks[0] : undefined)
 
   useEffect(() => {
     let active = true
@@ -43,7 +51,7 @@ export default function SignInPage() {
         toast.error("Invalid credentials")
       } else {
         toast.success("Signed in successfully")
-        router.push("/dashboard")
+        router.push(callbackUrl)
       }
     } catch {
       toast.error("Something went wrong")
@@ -56,7 +64,7 @@ export default function SignInPage() {
     if (!googleEnabled || isLoading) return
     setIsLoading(true)
     try {
-      await signIn("google", { callbackUrl: "/dashboard" })
+      await signIn("google", { callbackUrl })
     } catch {
       toast.error("Something went wrong")
     } finally {
@@ -122,7 +130,7 @@ export default function SignInPage() {
             <p className="text-sm text-muted-foreground">
               Don&apos;t have an account?{" "}
               <Link 
-                href="/register" 
+                href={authPathWithCallback('/register', callbackUrl)}
                 className="font-medium text-primary hover:underline"
               >
                 Create one
