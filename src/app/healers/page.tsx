@@ -53,7 +53,7 @@ export default async function HealersPage({ searchParams }: { searchParams?: Pro
           {items.map(h => (
             <div key={h.id} className="border rounded p-4">
               <div className="font-medium text-lg"><Link href={`/healers/${h.slug}`}>{h.name}</Link></div>
-              <div className="text-sm text-muted-foreground">{h.title || 'Healer'} • {h.yearsExperience} yrs • ⭐ {h.ratingAvg.toFixed(1)}</div>
+              <div className="text-sm text-muted-foreground">{h.title || 'Healer'} • {h.yearsExperience} yrs • {h.reviewCount > 0 ? `⭐ ${h.ratingAvg.toFixed(1)} (${h.reviewCount} ${h.reviewCount === 1 ? 'review' : 'reviews'})` : 'No reviews yet'}</div>
               <div className="mt-2 text-sm line-clamp-3">{h.shortBio}</div>
               {h.services?.length ? (
                 <div className="mt-2 flex flex-wrap gap-2">

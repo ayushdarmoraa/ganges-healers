@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import { POST } from '@/app/api/bookings/[id]/review/route'
+import { getHealerBySlug, getHealerReviewSummaries } from '@/lib/healers/queries'
 
 let mockActorId = ''
 jest.mock('@/lib/auth', () => ({ auth: async () => ({ user: { id: mockActorId } }) }))
@@ -72,4 +73,15 @@ test('foreign ownership, cancelled sessions and sessions not yet ended cannot re
   await prisma.booking.update({ where: { id: booking.id }, data: { status: 'COMPLETED', scheduledAt: new Date(Date.now() - 1800000) } })
   expect((await send(booking.id)).status).toBe(409)
   expect(await prisma.review.count({ where: { bookingId: booking.id } })).toBe(0)
+})
+
+test('public practitioner ratings ignore stale stored values and count accepted session reviews', async () => {
+  await prisma.healer.update({ where: { id: healerId }, data: { rating: 4.9 } })
+  expect(await getHealerBySlug(healerId)).toMatchObject({ ratingAvg: 0, reviewCount: 0 })
+  const [first, second] = await Promise.all([completedBooking(), completedBooking()])
+  expect((await send(first.id, 2)).status).toBe(201)
+  expect((await send(second.id, 5)).status).toBe(201)
+  await prisma.healer.update({ where: { id: healerId }, data: { rating: 4.9 } })
+  expect((await getHealerReviewSummaries([healerId])).get(healerId)).toEqual({ ratingAvg: 3.5, reviewCount: 2 })
+  expect(await getHealerBySlug(healerId)).toMatchObject({ ratingAvg: 3.5, reviewCount: 2 })
 })

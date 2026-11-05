@@ -1,13 +1,13 @@
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { GET } from '@/app/api/services/[id]/route'
-import { getHealerBySlug, listHealers } from '@/lib/healers/queries'
+import { getHealerBySlug, getHealerReviewSummaries, listHealers } from '@/lib/healers/queries'
 import { requireAdmin } from '@/lib/rbac'
 
 jest.mock('@/lib/rbac', () => ({ requireAdmin: jest.fn() }))
 jest.mock('@/lib/prisma', () => ({ prisma: {
   service: { findUnique: jest.fn(), findMany: jest.fn(async () => []) },
-  review: { aggregate: jest.fn() },
+  review: { aggregate: jest.fn(), groupBy: jest.fn(async () => []) },
   healer: { findUnique: jest.fn(), findMany: jest.fn(async () => []) },
 } }))
 const getService = jest.mocked(prisma.service.findUnique)
@@ -33,6 +33,8 @@ beforeEach(() => {
   getService.mockResolvedValue(fixture() as never)
   aggregate.mockResolvedValue({ _avg: { rating: 2.5 }, _count: { rating: 3 } } as never)
   jest.mocked(prisma.healer.findUnique).mockResolvedValue(null)
+  jest.mocked(prisma.review.groupBy).mockResolvedValue([])
+  jest.mocked(prisma.healer.findMany).mockResolvedValue([])
 })
 
 test('anonymous service detail retains its envelope and public catalog/practitioner fields', async () => {
@@ -111,4 +113,35 @@ test('public healer detail only queries active practitioners', async () => {
 test('public healer discovery only links active services', async () => {
   await listHealers()
   expect(prisma.service.findMany).toHaveBeenCalledWith({ where: { isActive: true }, select: { slug: true, name: true } })
+})
+
+test('empty healer results do not query ratings', async () => {
+  await expect(getHealerReviewSummaries([])).resolves.toEqual(new Map())
+  expect(prisma.review.groupBy).not.toHaveBeenCalled()
+})
+
+test('healer summaries use one bounded aggregate and deduplicate selected IDs', async () => {
+  jest.mocked(prisma.review.groupBy).mockResolvedValue([{ healerId: 'rated', _avg: { rating: 3.5 }, _count: { rating: 2 } }] as never)
+  expect(await getHealerReviewSummaries(['rated', 'new', 'rated'])).toEqual(new Map([['rated', { ratingAvg: 3.5, reviewCount: 2 }]]))
+  expect(prisma.review.groupBy).toHaveBeenCalledWith({ by: ['healerId'], where: { healerId: { in: ['rated', 'new'] } }, _avg: { rating: true }, _count: { rating: true } })
+})
+
+test('healer discovery ignores old stored ratings without accepted reviews', async () => {
+  jest.mocked(prisma.healer.findMany).mockResolvedValue([{ id: 'new', rating: 4.9, specializations: [], user: { name: 'New Practitioner' } }] as never)
+  expect((await listHealers()).items).toMatchObject([{ id: 'new', ratingAvg: 0, reviewCount: 0 }])
+})
+
+test('healer profile uses actual review values rather than a stored rating', async () => {
+  jest.mocked(prisma.healer.findUnique).mockResolvedValue({ id: 'rated', rating: 4.9, specializations: [], user: { name: 'Reviewed Practitioner' } } as never)
+  jest.mocked(prisma.review.groupBy).mockResolvedValue([{ healerId: 'rated', _avg: { rating: 3.5 }, _count: { rating: 2 } }] as never)
+  expect(await getHealerBySlug('rated')).toMatchObject({ ratingAvg: 3.5, reviewCount: 2 })
+})
+
+test.each([
+  { stored: [' RYT-200 ', { name: 'Reiki Master', year: 2015 }, { name: 'RYT-200' }], expected: ['RYT-200', 'Reiki Master'] },
+  { stored: [null, 123, { privateId: 'not-public' }, { name: 7 }, { name: ' ' }, ['nested']], expected: [] },
+  { stored: null, expected: [] },
+])('public certification labels support saved names without rendering arbitrary objects', async ({ stored, expected }) => {
+  jest.mocked(prisma.healer.findUnique).mockResolvedValue({ id: 'healer', specializations: [], certifications: stored, user: { name: 'Practitioner' } } as never)
+  expect((await getHealerBySlug('healer'))?.certifications).toEqual(expected)
 })

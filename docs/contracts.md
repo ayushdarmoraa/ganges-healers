@@ -41,6 +41,16 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 - Inactive practitioners are excluded from service booking cards, public healer
   detail pages and their API. Missing/inactive healer details share the existing
   not-found result. Public healer profiles/directories link only active services.
+- `GET /api/healers` preserves its envelope, pagination and numeric `ratingAvg`;
+  `reviewCount` is additive. Directory/profile/homepage ratings use actual
+  accepted session reviews, with one bounded aggregate for the displayed
+  practitioner IDs and no review-body/customer export. An unrated practitioner
+  has numeric zero/count zero in data and “No reviews yet” in the UI, regardless
+  of any legacy stored rating. Homepage featured practitioners remain active and
+  verified and are ordered by review count with a stable ID tie-breaker.
+- Public healer `certifications` remain an array of plain names. Both legacy
+  strings and saved `{ name, ... }` objects are supported; blank/malformed
+  entries and duplicate names are omitted instead of rendering arbitrary objects.
 
 ### Booking and availability
 - Healer profile booking links carry `openBooking=1` and the selected `healerId`.
