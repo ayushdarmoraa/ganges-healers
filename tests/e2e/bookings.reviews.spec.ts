@@ -30,7 +30,7 @@ test('a completed session can be reviewed once and its actual rating appears on 
     await expect(card).toBeVisible({ timeout: 30000 })
     await card.getByRole('button', { name: 'Write a review' }).click()
     const rating = card.getByRole('radio', { name: '4 stars' })
-    await card.locator('label').filter({ has: rating }).click()
+    await card.locator('label').filter({ has: page.getByRole('radio', { name: '4 stars', exact: true }) }).click()
     await expect(rating).toBeChecked()
     const comment = `Thoughtful guidance ${token}`
     await card.getByLabel('Your review (optional)').fill(comment)
