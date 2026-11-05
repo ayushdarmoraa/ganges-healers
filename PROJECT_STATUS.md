@@ -117,13 +117,19 @@ GitHub ownership is now `gangeshealers/ganges-healers`, and the new Ganges-owned
 
 ## Release sequence
 
-Current release validation: `06048cb` passed all six CI jobs in run
-`42075979526`, including the real desktop/mobile sign-out checks. Its Vercel
-Preview is ready. The password-recovery follow-up adds the missing request/reset
-screens and API flow, hashed expiring links, transactional replay protection and
-credential-bound session revocation. Local validation passed 511 unit tests,
-237 UI tests, TypeScript, focused lint and E2E discovery. Its new real-database
-and browser cases await CI; configured email delivery remains unverified.
+Current release validation: password-recovery commit `ab7d435` passed all six CI
+jobs in run `42078234321`: 511 unit, 225 integration, 237 UI and 30 browser
+tests, operations checks and the production build. One existing integration
+placeholder remains skipped. Its protected Vercel Preview is ready and database
+health passed. Recovery adds the missing request/reset screens and API flow,
+hashed expiring links, transactional replay protection and credential-bound
+session revocation; configured email delivery remains unverified.
+
+The service-discovery follow-up fixes a reproduced homepage dead end, derives
+category filters from the active catalog, preserves URL state, validates price
+bounds and makes all empty filtered results recoverable. Local validation passed
+248 UI tests, TypeScript and focused lint; the new real-browser catalog journey
+awaits its own CI/deployment. No schema, dependency or payment API changes.
 
 1. Finish combined-branch CI and address failures without weakening flow assertions.
 2. Review stacked pull requests and reconcile database prerequisites on an isolated copy.

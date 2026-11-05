@@ -54,6 +54,13 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
   password, token or recovery URL. No schema migration or dependency is added.
 
 ### Public marketplace data
+- Service discovery links use the supported text-search parameter instead of
+  nonexistent category constants. Category choices come from distinct active
+  catalog values. Filter state remounts on a changed URL, including browser
+  back/forward and cleared filters; legacy `q` searches remain supported.
+  Invalid/repeated numeric filters are not passed to Prisma as NaN/infinity;
+  zero is a valid price bound. Every empty filtered result offers a link to
+  clear all catalog filters. Existing service/booking JSON APIs are unchanged.
 - `GET /api/services/[id]` keeps `{ success, data }`, public catalog fields,
   `_count.bookings`, `healers`, numeric `averageRating`, and `totalBookings`.
   `totalReviews` is additive; ratings are computed from actual service reviews

@@ -5,7 +5,6 @@ import ServicesGrid from '@/components/services/ServicesGrid'
 import EmptyState from '@/components/empty/EmptyState'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import { clearSearchParams } from '@/lib/utils'
 import ServicesFilter from '@/components/services/ServicesFilter'
 import { Metadata } from 'next'
 import { canonicalOf } from '@/config/site'
@@ -51,7 +50,16 @@ interface UiService {
 }
 
 async function getServices(params: Record<string, string | string[] | undefined>): Promise<UiService[]> {
-  const { category, minPrice, maxPrice, search, q } = params
+  const single = (value: string | string[] | undefined) => typeof value === 'string' ? value.trim() : ''
+  const category = single(params.category)
+  const text = (single(params.search) || single(params.q)).slice(0, 200)
+  const priceValue = (value: string | string[] | undefined) => {
+    const raw = single(value)
+    const parsed = raw ? Number(raw) : NaN
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined
+  }
+  const minPrice = priceValue(params.minPrice)
+  const maxPrice = priceValue(params.maxPrice)
 
   const where: {
     isActive: true
@@ -60,18 +68,17 @@ async function getServices(params: Record<string, string | string[] | undefined>
     OR?: Array<{ name?: { contains: string; mode: 'insensitive' }; description?: { contains: string; mode: 'insensitive' } }>
   } = { isActive: true }
 
-  if (category) where.category = String(category)
+  if (category) where.category = category
 
-  if (minPrice || maxPrice) {
+  if (minPrice !== undefined || maxPrice !== undefined) {
     const priceFilter: { gte?: number; lte?: number } = {}
-    if (minPrice) priceFilter.gte = Number(minPrice)
-    if (maxPrice) priceFilter.lte = Number(maxPrice)
+    if (minPrice !== undefined) priceFilter.gte = minPrice
+    if (maxPrice !== undefined) priceFilter.lte = maxPrice
     if (Object.keys(priceFilter).length) {
       where.price = priceFilter
     }
   }
 
-  const text = (search || q) && String(search || q)
   if (text) {
     where.OR = [
       { name: { contains: text, mode: 'insensitive' } },
@@ -122,7 +129,13 @@ export default async function ServicesPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const params = await searchParams
-  const services = await getServices(params)
+  const [services, categoryRows] = await Promise.all([
+    getServices(params),
+    prisma.service.findMany({ where: { isActive: true }, select: { category: true }, distinct: ['category'], orderBy: { category: 'asc' } }),
+  ])
+  const categories = categoryRows.map(row => row.category).filter(Boolean)
+  const filterKeys = ['category', 'search', 'q', 'minPrice', 'maxPrice'] as const
+  const hasFilters = filterKeys.some(key => Boolean(params[key]))
   
   return (
     <div className="min-h-screen bg-gray-50">
@@ -148,7 +161,7 @@ export default async function ServicesPage({
           {/* Filters Sidebar */}
           <aside className="lg:w-64">
             <Suspense fallback={<div>Loading filters...</div>}>
-              <ServicesFilter />
+              <ServicesFilter key={JSON.stringify(filterKeys.map(key => params[key]))} categories={categories} />
             </Suspense>
           </aside>
           
@@ -156,17 +169,9 @@ export default async function ServicesPage({
           <main className="flex-1">
             {services.length === 0 ? (
               <EmptyState
-                title="No services yet"
-                subtitle="Check back soon."
-                action={(() => {
-                  const hasFilters = Boolean(params?.q)
-                  if (!hasFilters) return null
-                  const sp = new URLSearchParams(Object.entries(params).flatMap(([k,v]) => Array.isArray(v) ? v.map((vv) => [k, String(vv)]) : v ? [[k, String(v)]] : []))
-                  const href = clearSearchParams('/services' + (sp.toString() ? `?${sp.toString()}` : ''), ['q'])
-                  return (
-                    <Link href={href}><Button variant="secondary">Clear filters</Button></Link>
-                  )
-                })()}
+                title={hasFilters ? 'No matching services' : 'No services yet'}
+                subtitle={hasFilters ? 'Try another search or clear the filters to see all available services.' : 'Check back soon.'}
+                action={hasFilters ? <Link href="/services"><Button variant="secondary">Clear filters</Button></Link> : null}
               />
             ) : (
               <>
