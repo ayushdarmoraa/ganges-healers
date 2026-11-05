@@ -522,3 +522,32 @@ Rollback:
   - `docs/invoices.md`
   - `docs/GUARDRAILS.md`
 - Update this doc together with tests whenever a contract must evolve.
+
+## Course enrollment and checkout recovery
+
+`POST /api/courses/[slug]/enroll` keeps its paid-checkout fields (`orderId`,
+`amountPaise`, `enrollmentId`, `key`) and ignores client-selected prices or owners.
+An existing pending checkout returns the saved order and agreed quote with
+`resumed: true`. A saved quote survives catalog price changes; older pending
+reservations without an order can continue rather than blocking retries.
+
+A zero-price server quote returns `{ enrolled: true, enrollmentId, amountPaise: 0 }`
+and grants active access without a gateway or payment row. An already active or
+completed enrollment retains `409` and `error: 'Already enrolled'`, adding
+`enrolled: true` so the client can continue learning. Course enrollment and order
+allocation are serialized per customer/course. Missing gateway configuration and
+failed order creation do not persist a new reservation that would block retry.
+Receipts remain within the gateway's 40-character limit.
+
+An existing terminal or inconsistent payment is not replaced by a new checkout;
+it returns `409` for review. Retrying an unpaid persisted order does not create
+another enrollment or replace its quoted amount. Provider orders created before a
+failed database commit can remain unused at the gateway; no success link is
+returned for them, and a later request may create a fresh order.
+
+The button preserves the course destination through sign-in, grants free access
+without opening checkout, and requires the existing `{ verified: true }` response
+before reporting a paid purchase. Courses without lessons return to My Courses
+instead of constructing an undefined lesson URL. Course data, licensed media and
+real gateway delivery still need their separate release checks. No migration or
+provider configuration change is introduced by this patch.
