@@ -1,5 +1,6 @@
 "use client"
 
+import Link from 'next/link'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { useSession } from 'next-auth/react'
@@ -11,7 +12,7 @@ interface Plan { slug: string; title: string; pricePaise: number; interval: stri
 interface MembershipResp { membership: { id: string; status: string; isExpired?: boolean; startDate?: string; nextBillingAt?: string; plan?: { title: string; pricePaise: number; interval: string } } | null; credits: { total: number } }
 
 export default function MembershipPage() {
-  const { update } = useSession()
+  const { update, status } = useSession()
   // NextAuth replaces update() when session/loading changes. Keep the fetch callback stable.
   const updateSession = useRef(update)
   useEffect(() => { updateSession.current = update }, [update])
@@ -137,9 +138,13 @@ export default function MembershipPage() {
           {(() => {
             const busy = !!submitting[p.slug]
             return (
-              <Button
+              status === 'unauthenticated' ? (
+                <Button asChild className="mt-4">
+                  <Link href={{ pathname: '/auth/signin', query: { callbackUrl: '/dashboard/membership' } }}>Sign in to subscribe</Link>
+                </Button>
+              ) : <Button
                 data-cy={p.slug === 'vip-monthly' ? 'subscribe-monthly' : p.slug === 'vip-yearly' ? 'subscribe-yearly' : undefined}
-                disabled={busy}
+                disabled={busy || status === 'loading'}
                 className="mt-4"
                 onClick={() => handleSubscribe(p)}
               >

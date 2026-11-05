@@ -13,3 +13,9 @@ Webhook signatures use timing-safe comparison. Existing success `{ ok: true }`, 
 Before enabling production payments, configure the matching Razorpay mode and webhook URL, subscribe to the subscription lifecycle events, and verify a test charge, replay, cancellation, and invoice through the deployed handler. Keep old subscriptions and unmatched/extra charges on a reconciliation list. Booking credits, premium audio, community access, and refreshed sessions check current membership status and expiry rather than trusting a cached VIP flag. Manual VIP accounts without subscriptions retain their existing access.
 
 No database migration is required. Code rollback is a revert; keep any already-recorded payments, membership quotes, and credit grants for reconciliation rather than deleting payment history.
+
+## Lost browser callback recovery
+
+The same gated, signed `payment.captured` handler now finalizes server-owned booking, program, course, and store purchases using the existing transactional finalizer. It validates the captured amount and currency inside the fulfillment transaction and resolves ownership from the saved payment or its booking, never webhook notes. Unknown gateway orders are acknowledged without creating guessed records. Membership charges stay on the subscription-specific path.
+
+Browser verification and webhook delivery can race safely: one payment ID fulfills once, counted inventory decrements once, and invoice failures retry after commit without repeating purchase effects. A webhook does not save its event signature as a browser callback signature. The legacy identifier-only invoice event retains its response and does not grant purchase access. Stock, payment, and ownership failures remain retryable through the enabled webhook's documented 500 response and require operational reconciliation where appropriate.
