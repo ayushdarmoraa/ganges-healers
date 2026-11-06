@@ -15,12 +15,14 @@ import { stampFirstTouch } from '@/lib/analytics/first-touch'
  */
 export async function POST(req: Request) {
   try {
-    const body = await req.json()
-    const { type, metadata, source, chakra, email } = body
+    const body: unknown = await req.json().catch(() => null)
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Invalid event payload' }, { status: 400 })
+    const { type, metadata, source, chakra, email } = body as Record<string, unknown>
 
     if (!type || typeof type !== 'string' || !CLIENT_ALLOWED_EVENTS.has(type as EventType)) {
       return NextResponse.json({ error: 'Invalid event type' }, { status: 400 })
     }
+    if (email != null && typeof email !== 'string' || metadata != null && (typeof metadata !== 'object' || Array.isArray(metadata))) return NextResponse.json({ error: 'Invalid event payload' }, { status: 400 })
 
     // Resolve context from cookies / session
     const [rawSessionId, variants, session] = await Promise.all([
@@ -46,7 +48,7 @@ export async function POST(req: Request) {
       experimentVariant,
       source: typeof source === 'string' ? source : null,
       chakra: typeof chakra === 'string' ? chakra : null,
-      metadata: metadata && typeof metadata === 'object' ? metadata : undefined,
+      metadata: metadata && typeof metadata === 'object' ? metadata as Record<string, unknown> : undefined,
     })
 
     // Stamp first-touch attribution (no-op if already stamped)

@@ -23,6 +23,15 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 
 ## Public APIs: Contracts to Preserve
 
+### Client analytics request bodies
+- `POST /api/events/track` returns 400 `Invalid event payload` for malformed,
+  empty or non-object JSON before resolving cookies/accounts or writing events.
+  Optional email must be a string/null, and metadata must be an object/null;
+  malformed field shapes receive the same validation error.
+  Existing allowed event types, the 400 `Invalid event type` response, the
+  `{ ok: true }` acknowledgement, attribution and server-only event exclusions
+  remain unchanged. Unexpected processing errors retain their existing 500.
+
 ### Healer profile bio
 - `PATCH /api/healer/profile` accepts `bio: null`, matching the existing healer
   editor's clear-bio payload. Omitting the field retains the saved bio, and the
