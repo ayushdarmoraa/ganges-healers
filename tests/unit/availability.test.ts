@@ -52,7 +52,10 @@ beforeAll(() => {
   clock = FakeTimers.install({ now: new Date('2025-09-25T03:30:00.000Z') })
 })
 afterAll(() => clock.uninstall())
-beforeEach(() => { bookings.splice(0, bookings.length); jest.clearAllMocks() })
+beforeEach(() => {
+  bookings.splice(0, bookings.length); jest.clearAllMocks()
+  for (const day of Object.keys(availability)) availability[day] = { start: '10:00', end: '20:00' }
+})
 
 // ------------------ Tests ------------------
 describe('getHealerAvailability', () => {
@@ -65,15 +68,33 @@ describe('getHealerAvailability', () => {
     expect(res.slots.filter(s => !s.available).map(s => s.time)).toEqual(['19:30'])
   })
 
-  it('no availability => all slots marked unavailable', async () => {
+  it('a day off has no offered starts', async () => {
     const res = await getHealerAvailability('no-availability', '2025-09-29')
-    expect(res.slots).toHaveLength(20)
-    expect(res.slots.every(s => !s.available)).toBe(true)
+    expect(res.slots).toEqual([])
   })
 
   it('inactive healer returns []', async () => {
     const res = await getHealerAvailability('inactive', '2025-09-29')
     expect(res.slots).toEqual([])
+  })
+
+  it('offers saved early and late hours and excludes passed starts in India time', async () => {
+    availability.thursday = { start: '08:00', end: '23:00' }
+    const today = await getHealerAvailability('healer-1', '2025-09-25')
+    expect(today.slots[0].time).toBe('08:00')
+    expect(today.slots.find(slot => slot.time === '09:00')?.available).toBe(false)
+    expect(today.slots.find(slot => slot.time === '09:30')?.available).toBe(true)
+    expect(today.slots.find(slot => slot.time === '21:00')?.available).toBe(true)
+    expect(today.slots.find(slot => slot.time === '22:30')?.available).toBe(false)
+  })
+
+  it('supports midnight closing, legacy minute windows, and fails closed on corrupt rules', async () => {
+    availability.monday = { start: '21:15', end: '24:00' }
+    const evening = await getHealerAvailability('healer-1', '2025-09-29', 30)
+    expect(evening.slots[0]).toEqual({ time: '21:30', available: true })
+    expect(evening.slots.at(-1)).toEqual({ time: '23:30', available: true })
+    availability.monday = { start: 'nonsense', end: '24:00' }
+    expect((await getHealerAvailability('healer-1', '2025-09-29')).slots).toEqual([])
   })
 
   it('conflicting booking marks slot unavailable', async () => {

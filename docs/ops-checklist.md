@@ -101,3 +101,15 @@ Do not invent a fixed version or remove the finding from audit results. Track an
 upstream patch. The audit threshold is not a complete security review or evidence
 of a production deployment. Roll back the dependency resolutions and lockfile
 together if compatibility fails; doing so restores the earlier package findings.
+
+
+## Browser CI setup
+
+The configured browser project is Chromium. CI installs Chromium and its system
+dependencies instead of also downloading unused Firefox/WebKit runtimes. Keep
+this installer aligned if another project is added to `playwright.config.ts`.
+All browser scenarios remain enabled. Installation has a ten-minute step limit;
+the suite has a fifteen-minute Playwright global timeout so reporters can finish,
+and the overall browser job has a thirty-minute limit. A setup timeout is a
+failed check, never evidence that application journeys passed. These bounds
+require no provider credentials or hosting change.

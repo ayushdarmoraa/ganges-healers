@@ -2,6 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: 'tests/e2e',
+  globalTimeout: 15 * 60_000, // Bound a stalled suite while allowing Playwright to write failure reports.
   timeout: 30_000,
   workers: 1, // run serially for deterministic server load (analytics endpoints are heavy)
   use: {

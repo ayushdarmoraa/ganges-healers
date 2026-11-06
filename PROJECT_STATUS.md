@@ -216,3 +216,20 @@ and UI failure tests accompany the implementation. See `docs/contracts.md` for
 the deployment order and key/rollback constraints. Hosting, production migration,
 provider setup, real email delivery and live charges are outside the current
 credential-free work scope. No Vercel action is part of this follow-up.
+
+
+## Availability manager completion
+
+Implementation-plan Sprint 3 Day 30 now uses shared weekly-hour validation in
+the healer editor and reservation engine. Saved hours before 10:00 or after
+20:00 are reflected in customer slot selection, appointment duration must fit
+before closing, and passed starts/days off are unavailable. Existing appointments
+retain their reserved times when hours change.
+
+Private schedule snapshots and conditional saves prevent stale edits from
+silently overwriting another session. Saves share the reservation advisory lock
+and recheck ownership/current role. Failed loads cannot save blank schedules;
+failed/conflicted saves preserve the draft, and account changes clear it. The
+GET schedule endpoint, additive response version, legacy minute-window handling,
+API compatibility and rollback are documented in `docs/contracts.md`. No schema
+change, dependency, provider credential or Vercel operation is included.
