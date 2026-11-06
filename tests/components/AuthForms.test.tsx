@@ -8,8 +8,10 @@ import PasswordResetForm from '@/components/auth/password-reset-form'
 import SettingsClient from '@/app/dashboard/settings/SettingsClient'
 
 jest.mock('next/navigation', () => ({ useRouter: jest.fn(), useSearchParams: jest.fn() }))
-jest.mock('next-auth/react', () => ({ getProviders: jest.fn(), signIn: jest.fn(), signOut: jest.fn(), useSession: () => ({ update: jest.fn() }) }))
+jest.mock('next-auth/react', () => ({ getProviders: jest.fn(), signIn: jest.fn(), signOut: jest.fn(), useSession: () => ({ update: jest.fn(), data: { user: { id: 'settings-user' } }, status: 'authenticated' }) }))
 jest.mock('@/components/dashboard/AvatarUpload', () => ({ __esModule: true, default: () => null }))
+jest.mock('@/components/auth/EmailVerificationSettings', () => ({ __esModule: true, default: () => null }))
+jest.mock('@/components/auth/TwoFactorSettings', () => ({ __esModule: true, default: () => null }))
 jest.mock('sonner', () => ({ toast: { success: jest.fn(), error: jest.fn() } }))
 
 const router = { push: jest.fn(), refresh: jest.fn() }
@@ -332,7 +334,7 @@ test('a malformed request response does not promise unconfirmed delivery', async
   expect(screen.queryByRole('status')).not.toBeInTheDocument()
 })
 
-const settingsUser = { name: 'Customer', email: 'customer@example.test', phone: '', image: '', passwordExists: true }
+const settingsUser = { id: 'settings-user', profileVersion: 'a'.repeat(64), name: 'Customer', email: 'customer@example.test', phone: '', image: '', passwordExists: true }
 async function submitSettingsPassword(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByPlaceholderText('Enter current password'), 'Original123!')
   await user.type(screen.getByPlaceholderText('Enter new password'), 'Replacement123!')

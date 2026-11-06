@@ -23,6 +23,31 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 
 ## Public APIs: Contracts to Preserve
 
+### Customer profile edits
+- `GET /api/users/me` retains its private owner-only `user` projection and adds
+  an opaque `profileVersion`. GET/PATCH responses are private/no-store.
+- The updated settings form sends `X-Account-Id` and a quoted `If-Match`
+  profile version on PATCH. A changed session returns 409 `SESSION_CHANGED`;
+  a stale profile returns 409 `PROFILE_CHANGED`. Conditional metadata must be
+  supplied as a valid pair (400 otherwise). Existing JSON callers without both
+  headers retain their request format; they do not receive draft-version checks.
+- PATCH still accepts only name, phone and image changes and retains the `user`
+  response. `profileVersion` is additive. JSON writes are required (415),
+  cross-site writes are refused (403), and malformed JSON is a validation error.
+  Phone uniqueness conflicts, including concurrent claims, return the existing
+  409 message. Unexpected errors keep their logging namespaces without raw PII.
+- The version binds the account's saved name/phone, not unrelated credits,
+  credentials or avatar activity. A transaction and atomic conditional update
+  prevent a writer committing between read and write from being overwritten.
+  Only requested editable fields change; roles, credentials, balances, purchases,
+  verification and MFA remain intact. No schema or dependency change is needed.
+- Settings hide old account details and remount drafts when the session owner
+  changes. Failed saves and failed reloads retain the draft. Discard/reload is
+  explicit, replies must match owner/values/version before reporting success,
+  and duplicate submissions are blocked. Failed session-menu refresh does not
+  turn a confirmed save into a claimed failure. Avatar provider behavior is
+  outside this profile-edit follow-up.
+
 ### Account email verification
 - `GET /api/users/me/email-verification` requires a current authenticated owner
   and returns only `{ ownerId, email, verifiedAt }` with private/no-store headers.
