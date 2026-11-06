@@ -23,6 +23,35 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 
 ## Public APIs: Contracts to Preserve
 
+### Account email verification
+- `GET /api/users/me/email-verification` requires a current authenticated owner
+  and returns only `{ ownerId, email, verifiedAt }` with private/no-store headers.
+  POST accepts the displayed `{ ownerId, email }` snapshot and rejects changed
+  owners/addresses with 409 `SESSION_CHANGED`. The recipient is loaded from the
+  database, never selected from request input. Cross-site and non-JSON writes
+  are refused; unavailable mail/origin configuration returns 503.
+- Authenticated requests schedule delivery through the existing Resend service.
+  The existing account advisory lock and `VerificationToken` table provide a
+  shared five-minute delivery cooldown. Failed delivery deletes only that
+  attempt's token and throttle reservation, permitting retry without erasing a
+  newer reservation. Logs never contain an address, raw token or link.
+- Links expire in 30 minutes and store only a SHA-256 token hash. They bind the
+  account ID, normalized current email and security version. The shared trusted
+  origin helper preserves password-reset configuration/exports and ignores
+  incoming Host headers. Tokens travel in fragments, are cleared on opening,
+  and are not consumed by page load or link previews. The page remains outside
+  advertising scripts and uses no-referrer/no-index metadata.
+- `POST /api/auth/email-verification/confirm` accepts only `{ token }`, verifies
+  the still-current email/security version and atomically consumes the token
+  before marking `emailVerified`. Expired, replayed, changed-account and
+  wrong-purpose links return 400. Concurrent confirmation has one winner.
+  Successful confirmation clears other verification links for that account.
+- Verification does not create a session, change a password/role/security
+  version, remove an authenticator, consume recovery codes or impose a new
+  sign-in requirement on existing accounts. Settings display only responses
+  matching their current owner, preserve errors and refresh after returning to
+  the tab. No schema migration, dependency or external credential is added.
+
 ### Password recovery
 - `POST /api/auth/password-reset` accepts `{ email, callbackUrl? }`. Configured
   deployments return one generic `{ message }` before account lookup/delivery

@@ -173,3 +173,51 @@ test('a single-use recovery link changes the real password, revokes old sessions
     } finally { await db.$disconnect() }
   }
 })
+
+test('a verification link confirms the actual account email once without consuming it on page load or changing sign-in', async ({ page }) => {
+  test.setTimeout(120_000)
+  const settings = loadTestDatabaseEnvironment()
+  await verifyTestDatabaseConnection(settings)
+  const db = new PrismaClient({ datasources: { db: { url: settings.environment.DATABASE_URL } } })
+  const email = `email-verification-${crypto.randomUUID()}@example.test`
+  const password = `Test-${crypto.randomUUID()}!`
+  const stored = await bcrypt.hash(password, 4)
+  const user = await db.user.create({ data: { email, password: stored } })
+  const token = crypto.randomBytes(32).toString('hex')
+  const hash = (value: string) => crypto.createHash('sha256').update(value).digest('hex')
+  try {
+    await page.goto('/auth/signin')
+    await page.getByLabel('Email', { exact: true }).fill(email)
+    await page.getByLabel('Password', { exact: true }).fill(password)
+    await page.getByRole('button', { name: 'Sign In', exact: true }).click()
+    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 30_000 })
+    await page.goto('/dashboard/settings')
+    await expect(page.getByRole('button', { name: 'Send verification link', exact: true })).toBeVisible({ timeout: 30_000 })
+    const status = await (await page.request.get('/api/users/me/email-verification')).json()
+    expect(status).toEqual({ ownerId: user.id, email, verifiedAt: null })
+    // A synthetic isolated email fixture exercises the real browser/API/database path without sending mail.
+    await db.verificationToken.create({ data: { token: hash(token), identifier: `email-verification:${user.id}:${hash(email)}:${user.securityVersion}`, expires: new Date(Date.now() + 600_000) } })
+    await page.goto(`/auth/verify-email#token=${token}`)
+    await expect(page.getByRole('button', { name: 'Verify email', exact: true })).toBeVisible({ timeout: 30_000 })
+    await expect(page).not.toHaveURL(/#token=/)
+    expect(await db.verificationToken.findUnique({ where: { token: hash(token) } })).not.toBeNull()
+    expect((await db.user.findUniqueOrThrow({ where: { id: user.id } })).emailVerified).toBeNull()
+    await page.getByRole('button', { name: 'Verify email', exact: true }).click()
+    await expect(page.getByText('Email verified', { exact: true })).toBeVisible({ timeout: 30_000 })
+    const verified = await db.user.findUniqueOrThrow({ where: { id: user.id } })
+    expect(verified.emailVerified).not.toBeNull()
+    expect(verified).toMatchObject({ password: stored, securityVersion: user.securityVersion, role: 'USER' })
+    const replay = await page.request.post('/api/auth/email-verification/confirm', { data: { token } })
+    expect(replay.status()).toBe(400)
+    expect(replay.headers()['set-cookie']).toBeUndefined()
+    await page.getByRole('link', { name: 'Return to account settings', exact: true }).click()
+    await expect(page.getByText('Email verified.', { exact: true })).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByRole('button', { name: 'Send verification link', exact: true })).toHaveCount(0)
+    expect((await (await page.request.get('/api/auth/session')).json()).user.id).toBe(user.id)
+  } finally {
+    try {
+      await db.verificationToken.deleteMany({ where: { OR: [{ identifier: { startsWith: `email-verification:${user.id}:` } }, { identifier: `email-verification-rate:${user.id}` }] } })
+      await db.user.delete({ where: { id: user.id } })
+    } finally { await db.$disconnect() }
+  }
+})

@@ -19,6 +19,23 @@ export const emailService = {
     return !disabled
   },
 
+  async sendEmailVerification(data: { to: string; link: string }) {
+    if (disabled || !resend) return { success: false, disabled: true }
+    try {
+      const href = data.link.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+      const result = await resend.emails.send({
+        from: 'Ganges Healers <noreply@gangeshealers.com>',
+        to: data.to,
+        subject: 'Verify your Ganges Healers email',
+        html: `<h2>Verify your email</h2><p>Confirm this email address for your Ganges Healers account.</p><p><a href="${href}">Verify email</a></p><p>This link expires in 30 minutes and can be used once. If you did not request this, you can ignore this email.</p>`,
+      })
+      return { success: !result.error && Boolean(result.data?.id) }
+    } catch {
+      console.error('[auth][email-verification][email-error]')
+      return { success: false }
+    }
+  },
+
   async sendPasswordReset(data: { to: string; link: string }) {
     if (disabled || !resend) return { success: false, disabled: true }
     try {
