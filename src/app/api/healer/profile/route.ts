@@ -4,7 +4,7 @@ import { requireHealer } from '@/lib/auth/requireHealer'
 import { z } from 'zod'
 
 const profileUpdateSchema = z.object({
-  bio: z.string().max(2000).optional(),
+  bio: z.string().max(2000).nullable().optional(),
   experienceYears: z.number().int().min(0).max(100).optional(),
   certifications: z.array(z.record(z.string(), z.unknown())).optional(),
   specializations: z.array(z.string().max(100)).max(20).optional(),

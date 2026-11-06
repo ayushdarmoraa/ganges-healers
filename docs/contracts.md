@@ -23,6 +23,11 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 
 ## Public APIs: Contracts to Preserve
 
+### Healer profile bio
+- `PATCH /api/healer/profile` accepts `bio: null`, matching the existing healer
+  editor's clear-bio payload. Omitting the field retains the saved bio, and the
+  2,000-character limit and existing owner/current-role checks remain in force.
+
 ### Customer profile edits
 - `GET /api/users/me` retains its private owner-only `user` projection and adds
   an opaque `profileVersion`. GET/PATCH responses are private/no-store.
