@@ -105,21 +105,29 @@ test('desktop and mobile header search real content and retain a working cart', 
   }
 })
 
-test('account navigation follows real session roles and signs out through Auth.js on desktop and mobile', async ({ page }) => {
+test('account navigation follows real session roles and signs out through Auth.js on desktop and mobile', async ({ page, browser, baseURL }) => {
   test.setTimeout(240_000)
   const token = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
   for (const role of ['USER', 'HEALER', 'ADMIN']) {
     const email = `nav-${role.toLowerCase()}-${token}@example.test`
-    expect((await page.goto(`/api/test/login?role=${role}&email=${email}`))?.ok()).toBeTruthy()
-    await page.goto('/')
-    await page.getByRole('button', { name: 'Open user menu', exact: true }).click()
-    const account = page.getByRole('dialog', { name: 'Your account' })
-    await expect(account.getByText(email, { exact: true })).toBeVisible({ timeout: 30_000 })
-    const label = role === 'ADMIN' ? 'Admin dashboard' : role === 'HEALER' ? 'Healer dashboard' : 'Dashboard'
-    await expect(account.getByRole('link', { name: label, exact: true })).toHaveAttribute('href', role === 'ADMIN' ? '/admin' : role === 'HEALER' ? '/healer' : '/dashboard')
-    if (role !== 'ADMIN') await expect(account.getByRole('link', { name: 'Admin dashboard' })).toHaveCount(0)
-    await page.keyboard.press('Escape')
-    await expect(account).not.toBeVisible()
+    // Direct fixture logins are independent sessions. Replacing cookies in a live
+    // Auth.js session can race an older session response that rotates its token.
+    const isolated = role === 'ADMIN' ? null : await browser.newContext({ baseURL })
+    const rolePage = isolated ? await isolated.newPage() : page
+    try {
+      expect((await rolePage.goto(`/api/test/login?role=${role}&email=${email}`))?.ok()).toBeTruthy()
+      await rolePage.goto('/')
+      await rolePage.getByRole('button', { name: 'Open user menu', exact: true }).click()
+      const account = rolePage.getByRole('dialog', { name: 'Your account' })
+      await expect(account.getByText(email, { exact: true })).toBeVisible({ timeout: 30_000 })
+      const label = role === 'ADMIN' ? 'Admin dashboard' : role === 'HEALER' ? 'Healer dashboard' : 'Dashboard'
+      await expect(account.getByRole('link', { name: label, exact: true })).toHaveAttribute('href', role === 'ADMIN' ? '/admin' : role === 'HEALER' ? '/healer' : '/dashboard')
+      if (role !== 'ADMIN') await expect(account.getByRole('link', { name: 'Admin dashboard' })).toHaveCount(0)
+      await rolePage.keyboard.press('Escape')
+      await expect(account).not.toBeVisible()
+    } finally {
+      await isolated?.close()
+    }
   }
   await page.getByRole('button', { name: 'Open user menu', exact: true }).click()
   const signedOut = page.waitForResponse(response => response.url().endsWith('/api/auth/signout') && response.request().method() === 'POST')
