@@ -49,7 +49,20 @@ export function UserMenu({
     { title: 'Get started', items: [{ label: 'Sign in', href: '/auth/signin' }, { label: 'Create account', href: '/register' }] },
     { title: 'Explore', items: [{ label: 'Services', href: '/services' }, { label: 'Store', href: '/store' }, { label: 'Blog', href: '/blog' }] },
   ] : [
-    ...(mode === 'admin' ? [{ title: 'Admin', items: [{ label: 'Admin dashboard', href: '/admin' }, { label: 'Program enrollments', href: '/admin/program-enrollments' }, { label: 'Community moderation', href: '/admin/community' }, { label: 'Manage articles', href: '/admin/blog' }, { label: 'Payments', href: '/admin/payments' }, { label: 'Analytics', href: '/admin/analytics' }] }] : mode === 'healer' ? [{ title: 'Healer workspace', items: [{ label: 'Healer dashboard', href: '/healer' }, { label: 'Healer bookings', href: '/healer/bookings' }, { label: 'Assigned programs', href: '/healer/programs' }, { label: 'Availability', href: '/healer/availability' }, { label: 'Healer profile', href: '/healer/profile' }] }] : []),
+    ...(mode === 'admin' ? [{ title: 'Admin', items: [
+      { label: 'Admin dashboard', href: '/admin' },
+      { label: 'Manage services', href: '/admin/services' },
+      { label: 'Manage healers', href: '/admin/healers' },
+      { label: 'Manage courses', href: '/admin/courses' },
+      { label: 'Manage audio', href: '/admin/audio' },
+      { label: 'Manage products', href: '/admin/products' },
+      { label: 'Manage programs', href: '/admin/programs' },
+      { label: 'Program enrollments', href: '/admin/program-enrollments' },
+      { label: 'Community moderation', href: '/admin/community' },
+      { label: 'Manage articles', href: '/admin/blog' },
+      { label: 'Payments', href: '/admin/payments' },
+      { label: 'Analytics', href: '/admin/analytics' },
+    ] }] : mode === 'healer' ? [{ title: 'Healer workspace', items: [{ label: 'Healer dashboard', href: '/healer' }, { label: 'Healer bookings', href: '/healer/bookings' }, { label: 'Assigned programs', href: '/healer/programs' }, { label: 'Availability', href: '/healer/availability' }, { label: 'Healer profile', href: '/healer/profile' }] }] : []),
     { title: 'My account', items: [{ label: 'Dashboard', href: '/dashboard' }, { label: 'My bookings', href: '/dashboard/bookings' }, { label: 'My programs', href: '/dashboard/programs' }, { label: 'Orders', href: '/dashboard/orders' }, { label: 'Membership', href: '/dashboard/membership' }, { label: 'Notifications', href: '/dashboard/notifications' }, { label: 'My discussions', href: '/community/mine' }, { label: 'Settings', href: '/dashboard/settings' }] },
   ];
   return <Dialog open={open} onOpenChange={onOpenChange}>
