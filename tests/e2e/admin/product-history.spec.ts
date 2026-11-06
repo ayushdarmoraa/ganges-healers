@@ -34,6 +34,8 @@ test('store administrators deactivate purchased products and confirm deletion on
     expect(await db.product.count({ where: { id: products[1] } })).toBe(1)
     await unused.getByRole('button', { name: 'Delete', exact: true }).click()
     await page.getByRole('dialog').getByRole('button', { name: 'Delete product permanently', exact: true }).click()
+    // Modal background content is aria-hidden while submission is pending.
+    await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: 30000 })
     await expect(unused).toHaveCount(0, { timeout: 30000 })
     expect(await db.product.count({ where: { id: products[1] } })).toBe(0)
     expect(await db.activityLog.count({ where: { userId: users[0], entityId: products[1], action: 'product_deleted' } })).toBe(1)
