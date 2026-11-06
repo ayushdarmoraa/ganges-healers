@@ -1,0 +1,123 @@
+import { act, render, screen, waitFor } from '@testing-library/react'
+import { StrictMode } from 'react'
+import userEvent from '@testing-library/user-event'
+import EmailVerificationSettings from '@/components/auth/EmailVerificationSettings'
+import EmailVerificationForm from '@/components/auth/EmailVerificationForm'
+const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
+const status = { ownerId: 'owner', email: 'owner@example.test', verifiedAt: null }
+let fetch: jest.SpyInstance
+beforeEach(() => { fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(response(status)); window.history.replaceState(null, '', '/') })
+afterEach(() => { jest.restoreAllMocks(); window.history.replaceState(null, '', '/') })
+
+test('resend is bound to the loaded account and never claims verification from delivery acceptance', async () => {
+  const user = userEvent.setup()
+  render(<EmailVerificationSettings userId="owner" />)
+  await screen.findByText(status.email)
+  fetch.mockResolvedValueOnce(response({ ownerId: 'owner', status: 'queued', message: 'Verification requested. Check your inbox.' }))
+  await user.click(screen.getByRole('button', { name: 'Send verification link' }))
+  expect(await screen.findByText('Verification requested. Check your inbox.')).toBeVisible()
+  expect(fetch).toHaveBeenLastCalledWith('/api/users/me/email-verification', expect.objectContaining({ body: JSON.stringify({ ownerId: 'owner', email: status.email }) }))
+  expect(screen.queryByText('Email verified.')).not.toBeInTheDocument()
+})
+test('disabled delivery and malformed successful responses show an error instead of success', async () => {
+  const user = userEvent.setup()
+  render(<EmailVerificationSettings userId="owner" />)
+  await screen.findByText(status.email)
+  fetch.mockResolvedValueOnce(response({ error: 'Email verification is temporarily unavailable.' }, 503))
+  await user.click(screen.getByRole('button', { name: 'Send verification link' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('temporarily unavailable')
+  fetch.mockResolvedValueOnce(response({ success: true }))
+  await user.click(screen.getByRole('button', { name: 'Send verification link' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('could not be confirmed')
+})
+test('failed status loads can retry and cannot send without a confirmed recipient', async () => {
+  fetch.mockResolvedValueOnce(response({}, 500))
+  const user = userEvent.setup()
+  render(<EmailVerificationSettings userId="owner" />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load')
+  expect(screen.queryByRole('button', { name: 'Send verification link' })).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Refresh verification status' }))
+  expect(await screen.findByText(status.email)).toBeVisible()
+})
+test('an account change hides the old address and ignores an in-flight delivery result', async () => {
+  const user = userEvent.setup()
+  const view = render(<EmailVerificationSettings userId="owner" />)
+  await screen.findByText(status.email)
+  let finish!: (value: Response) => void
+  fetch.mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve }))
+  await user.click(screen.getByRole('button', { name: 'Send verification link' }))
+  fetch.mockResolvedValueOnce(response({ ownerId: 'other', email: 'other@example.test', verifiedAt: null }))
+  view.rerender(<EmailVerificationSettings userId="other" />)
+  expect(screen.queryByText(status.email)).not.toBeInTheDocument()
+  await screen.findByText('other@example.test')
+  await act(async () => { finish(response({ ownerId: 'owner', status: 'queued', message: 'Old private result' })) })
+  expect(screen.queryByText('Old private result')).not.toBeInTheDocument()
+})
+test('returning focus refreshes a verified status without another delivery', async () => {
+  render(<EmailVerificationSettings userId="owner" />)
+  await screen.findByText(status.email)
+  fetch.mockResolvedValueOnce(response({ ...status, verifiedAt: new Date().toISOString() }))
+  act(() => { window.dispatchEvent(new Event('focus')) })
+  expect(await screen.findByText('Email verified.')).toBeVisible()
+  expect(screen.queryByRole('button', { name: 'Send verification link' })).not.toBeInTheDocument()
+})
+test('opening a link strips the token without consuming it until the customer confirms', async () => {
+  const token = 'a'.repeat(64)
+  window.history.replaceState(null, '', `/auth/verify-email#token=${token}`)
+  const user = userEvent.setup()
+  render(<EmailVerificationForm />)
+  expect(window.location.hash).toBe('')
+  expect(fetch).not.toHaveBeenCalled()
+  fetch.mockResolvedValueOnce(response({ success: true }))
+  await user.click(await screen.findByRole('button', { name: 'Verify email' }))
+  expect(await screen.findByText('Email verified')).toBeVisible()
+  expect(fetch).toHaveBeenCalledWith('/api/auth/email-verification/confirm', expect.objectContaining({ body: JSON.stringify({ token }) }))
+  expect(screen.getByRole('link', { name: 'Return to account settings' })).toHaveAttribute('href', '/dashboard/settings')
+})
+test('invalid, expired and malformed successful confirmations never show verified status', async () => {
+  window.history.replaceState(null, '', `/auth/verify-email#token=${'b'.repeat(64)}`)
+  const user = userEvent.setup()
+  render(<EmailVerificationForm />)
+  fetch.mockResolvedValueOnce(response({ error: 'This verification link has expired.' }, 400))
+  await user.click(await screen.findByRole('button', { name: 'Verify email' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('expired')
+  fetch.mockResolvedValueOnce(response({ message: 'not verified' }))
+  await user.click(screen.getByRole('button', { name: 'Verify email' }))
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('could not be confirmed'))
+  expect(screen.queryByText('Email verified')).not.toBeInTheDocument()
+})
+test('missing or repeated fragment tokens offer settings recovery without submitting', async () => {
+  window.history.replaceState(null, '', `/auth/verify-email#token=${'a'.repeat(64)}&token=${'b'.repeat(64)}`)
+  render(<EmailVerificationForm />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('request a new link')
+  expect(screen.queryByRole('button', { name: 'Verify email' })).not.toBeInTheDocument()
+  expect(fetch).not.toHaveBeenCalled()
+})
+
+test('development effect replay preserves the captured token without showing a false invalid-link error', async () => {
+  window.history.replaceState(null, '', `/auth/verify-email#token=${'c'.repeat(64)}`)
+  render(<StrictMode><EmailVerificationForm /></StrictMode>)
+  expect(await screen.findByRole('button', { name: 'Verify email' })).toBeEnabled()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(window.location.hash).toBe('')
+})
+
+test('opening a newer link ignores an older in-flight confirmation result', async () => {
+  window.history.replaceState(null, '', `/auth/verify-email#token=${'c'.repeat(64)}`)
+  let finish!: (value: Response) => void
+  fetch.mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve }))
+  const user = userEvent.setup()
+  render(<EmailVerificationForm />)
+  await user.click(await screen.findByRole('button', { name: 'Verify email' }))
+  act(() => {
+    window.history.replaceState(null, '', `/auth/verify-email#token=${'d'.repeat(64)}`)
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+  })
+  await act(async () => { finish(response({ success: true })) })
+  expect(screen.queryByText('Email verified')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Verify email' })).toBeEnabled()
+  fetch.mockResolvedValueOnce(response({ success: true }))
+  await user.click(screen.getByRole('button', { name: 'Verify email' }))
+  expect(fetch).toHaveBeenLastCalledWith('/api/auth/email-verification/confirm', expect.objectContaining({ body: JSON.stringify({ token: 'd'.repeat(64) }) }))
+  expect(await screen.findByText('Email verified')).toBeVisible()
+})

@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 import AvatarUpload from "@/components/dashboard/AvatarUpload"
 import TwoFactorSettings from "@/components/auth/TwoFactorSettings"
+import EmailVerificationSettings from "@/components/auth/EmailVerificationSettings"
 import { signOutCurrentSession } from '@/lib/auth/client-session'
 
 // --- Schemas ---
@@ -58,6 +59,7 @@ export default function SettingsClient({ user }: Props) {
       <ProfileSection user={user} onSessionRefresh={updateSession} />
 
       <PasswordSection passwordExists={user.passwordExists} />
+      <EmailVerificationSettings userId={session?.user?.id ?? ""} sessionLoading={status === "loading"} />
       <TwoFactorSettings userId={session?.user?.id ?? ""} sessionLoading={status === "loading"} />
 
       <Card>

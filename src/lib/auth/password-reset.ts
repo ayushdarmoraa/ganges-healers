@@ -13,18 +13,7 @@ export const RESET_MESSAGE = 'If an account with a password uses that email, you
 
 export class PasswordResetError extends Error {}
 
-/** Recovery destinations come only from server configuration, never an incoming Host header. */
-export function passwordResetBaseUrl(environment: NodeJS.ProcessEnv = process.env): string | null {
-  const configured = environment.AUTH_URL || environment.NEXTAUTH_URL || environment.NEXT_PUBLIC_SITE_URL ||
-    (environment.VERCEL_URL ? `https://${environment.VERCEL_URL}` : undefined)
-  if (!configured) return null
-  try {
-    const url = new URL(configured)
-    const localDevelopment = environment.NODE_ENV !== 'production' && ['localhost', '127.0.0.1'].includes(url.hostname)
-    if (url.username || url.password || url.search || url.hash || (url.protocol !== 'https:' && !(localDevelopment && url.protocol === 'http:'))) return null
-    return url.origin
-  } catch { return null }
-}
+export { trustedAuthEmailOrigin as passwordResetBaseUrl } from './email-links'
 
 /** Run after the generic HTTP response so account lookup and mail timing cannot enumerate users. */
 export async function requestPasswordReset(email: string, baseUrl: string, callbackUrl: unknown) {
