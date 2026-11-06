@@ -8,6 +8,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { CreateProductForm } from '@/components/admin/create-product-form'
 import { productImageFields } from '@/config/images'
+import { requireCurrentAdmin } from '@/lib/admin/auth'
+import { deleteProductSchema, deleteUnreferencedProduct, productDeleteVersion, ProductAdminError } from '@/lib/store/admin'
+import { DeleteProductForm, type ProductDeleteResult } from '@/components/admin/delete-product-form'
 
 async function guardAdmin() {
   const session = await auth()
@@ -85,22 +88,31 @@ async function toggleProduct(formData: FormData) {
   revalidatePath('/admin/products')
 }
 
-async function deleteProduct(formData: FormData) {
+async function deleteProduct(formData: FormData): Promise<ProductDeleteResult> {
   'use server'
-  await guardAdmin()
-  const id = String(formData.get('id'))
-  await prisma.product.delete({ where: { id } })
-  revalidatePath('/admin/products')
+  try {
+    const actor = await requireCurrentAdmin()
+    const parsed = deleteProductSchema.safeParse({ id: formData.get('id'), version: formData.get('version') })
+    if (!parsed.success) return { success: false, error: 'Reload the product list before deleting.', code: 'INVALID_PRODUCT_VERSION' }
+    const deleted = await deleteUnreferencedProduct(actor.id, parsed.data)
+    revalidatePath('/admin/products'); revalidatePath('/store'); revalidatePath(`/store/${deleted.slug}`)
+    return { success: true }
+  } catch (error) {
+    if (error instanceof ProductAdminError) return { success: false, error: error.message, code: error.code }
+    if ((error as { status?: number })?.status === 403) return { success: false, error: 'Administrator access is required.', code: 'FORBIDDEN' }
+    console.error('[admin][products][delete_error]', { type: error instanceof Error ? error.name : 'unknown' })
+    return { success: false, error: 'The product could not be deleted. Please try again.' }
+  }
 }
 
 export default async function AdminProductsPage() {
-  await guardAdmin()
+  const session = await guardAdmin()
 
   const products = await prisma.product.findMany({
     orderBy: { createdAt: 'desc' },
     include: {
       category: { select: { title: true } },
-      _count: { select: { orderItems: true } },
+      _count: { select: { orderItems: true, bundleItems: true } },
     },
   })
 
@@ -113,18 +125,18 @@ export default async function AdminProductsPage() {
       <Card>
         <CardContent className="p-0 divide-y">
           {products.map((p) => (
-            <div key={p.id} className="p-4 space-y-3">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="font-medium">
+            <article key={p.id} aria-label={`Product ${p.title}`} className="p-4 space-y-3">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 flex-1">
+                  <h2 className="font-medium">
                     {p.title}
                     {!p.isActive && <span className="ml-2 text-xs text-muted-foreground">(Inactive)</span>}
-                  </div>
+                  </h2>
                   <div className="text-sm text-muted-foreground">
                     /{p.slug} · ₹{(p.pricePaise / 100).toFixed(2)} · {p.stockStatus} · {p.category?.title || 'No category'} · {p._count.orderItems} orders
                   </div>
                 </div>
-                <div className="flex gap-2 shrink-0">
+                <div className="flex flex-wrap items-start gap-2">
                   <form action={toggleProduct}>
                     <input type="hidden" name="id" value={p.id} />
                     <input type="hidden" name="isActive" value={String(p.isActive)} />
@@ -132,10 +144,7 @@ export default async function AdminProductsPage() {
                       {p.isActive ? 'Deactivate' : 'Activate'}
                     </Button>
                   </form>
-                  <form action={deleteProduct}>
-                    <input type="hidden" name="id" value={p.id} />
-                    <Button type="submit" variant="destructive" size="sm">Delete</Button>
-                  </form>
+                  <DeleteProductForm id={p.id} title={p.title} version={productDeleteVersion(p)} ownerId={session.user.id} protectedHistory={p._count.orderItems > 0 || p._count.bundleItems > 0} action={deleteProduct} />
                 </div>
               </div>
               <details className="text-sm">
@@ -175,7 +184,7 @@ export default async function AdminProductsPage() {
                   </div>
                 </form>
               </details>
-            </div>
+            </article>
           ))}
           {products.length === 0 && (
             <div className="p-4 text-center text-muted-foreground">No products yet.</div>

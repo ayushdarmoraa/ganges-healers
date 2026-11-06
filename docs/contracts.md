@@ -870,3 +870,33 @@ unmount the editor and abort pending requests so late responses cannot populate
 another account. Removing an image from the draft does not delete storage objects
 that another saved product might use. Revert form, route and shared image policy
 together; no schema rollback is needed. Retain any already saved storage objects.
+
+
+## Store product deletion and purchase-history preservation
+
+The private administrator delete action no longer calls an unguarded product
+cascade. The Products page disables deletion for any order-item or bundle-item
+reference and explains the existing Deactivate option. Unreferenced products
+require explicit permanent-deletion confirmation. A canonical SHA-256 version of
+all product scalar fields rejects changed records, including same-timestamp edits.
+Account/version changes invalidate open confirmations, while failures retain the
+confirmation and offer a list refresh. Responsive product cards retain visible
+controls on narrow screens.
+
+The server locks the Product row FOR UPDATE in a Read Committed transaction,
+rechecks the current administrator role and saved version after waiting, then
+checks indexed order/bundle references before deletion. PostgreSQL foreign-key
+inserts hold a conflicting key-share lock: an in-flight order that commits before
+the deletion decision is retained and prevents deletion. This coordinates with
+existing nested checkout writes without changing payment or checkout contracts.
+See the [PostgreSQL row-lock documentation](https://www.postgresql.org/docs/16/explicit-locking.html#LOCKING-ROWS).
+
+Deletion and a non-sensitive product_deleted audit commit together. All order
+statuses protect the product, including pending and cancelled orders; prices,
+totals, payment bindings and bundle composition remain intact. Domain failures
+PRODUCT_IN_USE, PRODUCT_CHANGED, PRODUCT_NOT_FOUND and FORBIDDEN are returned as
+safe private action results. Public APIs and database schema stay unchanged.
+The two new runtime modules separate transactional store writes from the
+interactive confirmation; the existing read-query and creation modules remain
+focused. For rollback, disable deletion while repairing it; do not restore the
+unguarded cascading action. No schema or historical-data rollback is needed.

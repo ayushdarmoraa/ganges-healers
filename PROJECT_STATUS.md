@@ -305,3 +305,14 @@ unless separately configured. No database migration or payment change is needed.
 Validation and actual provider-provisioning/deployment status are recorded in the
 follow-up pull request. The domain purchase and production configuration are later
 launch steps; they do not block this website implementation and Preview testing.
+
+
+## Store purchase-history protection
+
+Administrator product deletion now protects order and bundle records instead of
+cascading away purchase history. Confirmation uses the currently reviewed product
+version; role changes, stale confirmations and new purchases are rechecked under
+a database row lock before deletion. Purchased/bundled products keep the existing
+Deactivate option. Safe deletion and its audit are atomic, failures are explicit,
+and mobile product cards keep controls visible. Exact results are recorded in the
+follow-up pull request; no schema, provider or payment-flow changes are required.
