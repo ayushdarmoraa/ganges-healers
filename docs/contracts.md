@@ -742,3 +742,52 @@ retry action and cannot overwrite saved hours. All controls have distinct
 accessible day/time labels. No dependency, schema migration, hosting change or
 new credential is required. Roll back the application commit if needed; stored
 JSON retains the same shape and appointments remain intact.
+
+
+## Course authoring and archival
+
+`/admin/courses` uses the private, current-database-admin guarded
+`/api/admin/courses` API. GET accepts `id`, or bounded `q`, `status`
+(`all|draft|published`), `limit` (1–100, default 25) and cursor filters. Lists
+contain course metadata and counts, never lesson text/media or student records.
+Opening an editor returns its lessons and a SHA-256 saved version. Every response
+is private/no-store. Metadata/lesson mutations and their audit record commit
+together; role and saved-version checks run again under the course catalog lock.
+
+POST creates an unpublished course using validated title, stable normalized slug,
+description, integer nonnegative price in paise, and an optional cover URL from
+the existing image-host configuration. PATCH requires `{ id, version, change }`.
+Supported `change.action` values are `details`, `publish`, `archive`, `add_lesson`,
+`edit_lesson`, `delete_lesson`, and `reorder_lessons`. Lesson fields are title,
+plain text and optional HTTPS video/embed URL; at least text or video is required.
+Arbitrary HTML is rendered as text. Unknown action/field inputs and malformed JSON
+return 400. Saved-version conflicts return 409 `COURSE_CHANGED`; drafts survive
+until the administrator explicitly reloads. New lessons append after existing
+orders, and reordering requires an exact permutation of all saved IDs.
+
+Publication requires valid metadata and at least one complete lesson with unique
+nonnegative order values. Drafts permit up to 200 lessons. The URL slug does not
+change after creation. Before any deletion, adding/removing/reordering lessons,
+the service checks all enrollment states and course-bound payment metadata. Any
+such record returns 409 `PURCHASES_PROTECTED`, preserving saved quotes, payments,
+progress and lesson identities. Existing lesson content may be corrected without
+changing its order. DELETE requires `{ id, version }` and removes only an archived,
+unpurchased draft after the UI's explicit confirmation.
+
+The enrollment allocator takes the same `course`/`catalog:<id>` advisory lock
+before its existing per-customer purchase locks, then rereads active state and
+price. Existing enrollment/payment price snapshots still govern checkout retries.
+No payment-provider call, activation contract, receipt field or webhook changes.
+
+Archive means no public catalog/search listing and no new enrollment. Existing
+active/completed students retain private course detail, lesson and progress access,
+including through My Courses. Pending-payment and unrelated users do not receive
+archived lesson content. Public course responses still omit lesson text/media.
+Course search publication state and the public course list are read freshly;
+archival does not depend on invalidating another serverless instance's memory
+cache. The stored progress watermark remains unchanged.
+
+No schema or dependency change is required. Prefer a compatible application fix
+for rollback after archival; reverting to older course-access code would hide
+archived curricula from existing students. Media ownership, private storage and
+expiring delivery of licensed assets remain separate provider/content tasks.

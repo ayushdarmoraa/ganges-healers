@@ -1,8 +1,10 @@
-import { prisma } from '@/lib/prisma'
+import { readCourseForViewer } from '@/lib/courses/access'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import Image from 'next/image'
 import CourseEnrollButton from '@/components/courses/CourseEnrollButton'
+
+export const dynamic = 'force-dynamic'
 
 interface Props {
   params: Promise<{ slug: string }>
@@ -10,9 +12,7 @@ interface Props {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
-  const course = await prisma.course.findFirst({
-    where: { OR: [{ id: slug }, { slug }], isActive: true },
-  })
+  const course = await readCourseForViewer(slug)
   if (!course) return { title: 'Course Not Found' }
   return {
     title: `${course.title} | Courses | Ganges Healers`,
@@ -23,13 +23,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function CourseDetailPage({ params }: Props) {
   const { slug } = await params
 
-  const course = await prisma.course.findFirst({
-    where: { OR: [{ id: slug }, { slug }], isActive: true },
-    include: {
-      lessons: { orderBy: { order: 'asc' }, select: { id: true, title: true, order: true } },
-      _count: { select: { enrollments: true } },
-    },
-  })
+  const course = await readCourseForViewer(slug)
 
   if (!course) notFound()
 
@@ -45,6 +39,7 @@ export default async function CourseDetailPage({ params }: Props) {
         />
       )}
       <h1 className="text-3xl font-bold mb-2">{course.title}</h1>
+      {!course.isActive && <p className="mb-4 text-sm text-muted-foreground">This course is archived. Your existing lesson access is preserved.</p>}
       <p className="text-muted-foreground mb-4">
         {course._count.enrollments} student{course._count.enrollments !== 1 ? 's' : ''} enrolled
         {' · '}
