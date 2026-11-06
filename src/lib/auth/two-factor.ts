@@ -44,7 +44,7 @@ async function consumeFactor(tx: Prisma.TransactionClient, row: TwoFactorCredent
 export async function verifyTwoFactorLogin(input: { userId: string; passwordHash: string; securityVersion: number; code: string }) {
   return prisma.$transaction(async tx => {
     await lockTransaction(tx, 'account', input.userId)
-    const user = await tx.user.findUnique({ where: { id: input.userId }, select: { password: true, securityVersion: true } })
+    const user = await tx.user.findUnique({ where: { id: input.userId, closedAt: null }, select: { password: true, securityVersion: true } })
     if (!user || user.password !== input.passwordHash || user.securityVersion !== input.securityVersion) return false
     const row = await tx.twoFactorCredential.findUnique({ where: { userId: input.userId } })
     if (!row?.enabled) return true
@@ -57,7 +57,7 @@ export async function verifyTwoFactorLogin(input: { userId: string; passwordHash
 }
 
 export async function twoFactorStatus(userId: string) {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { password: true, twoFactorCredential: { select: { enabled: true, recoveryHashes: true } } } })
+  const user = await prisma.user.findUnique({ where: { id: userId, closedAt: null }, select: { password: true, twoFactorCredential: { select: { enabled: true, recoveryHashes: true } } } })
   if (!user) throw new TwoFactorError('Unauthorized', 401)
   return { enabled: user.twoFactorCredential?.enabled ?? false, hasPassword: !!user.password, recoveryCodesRemaining: user.twoFactorCredential?.enabled ? user.twoFactorCredential.recoveryHashes.length : 0 }
 }
@@ -66,7 +66,7 @@ export async function twoFactorStatus(userId: string) {
 export async function changeTwoFactor(userId: string, action: z.infer<typeof twoFactorAction>) {
   const result = await prisma.$transaction<Outcome | Failure>(async tx => {
     await lockTransaction(tx, 'account', userId)
-    const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true, email: true, password: true, securityVersion: true } })
+    const user = await tx.user.findUnique({ where: { id: userId, closedAt: null }, select: { id: true, email: true, password: true, securityVersion: true } })
     if (!user?.password) return { error: { message: 'A password is required before enabling authenticator protection.', status: 409 } }
     const row = await tx.twoFactorCredential.upsert({ where: { userId }, create: { userId }, update: {} })
     const now = new Date(), retry = retryAfter(row, now)

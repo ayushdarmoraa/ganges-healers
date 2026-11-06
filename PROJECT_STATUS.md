@@ -9,7 +9,7 @@ The release candidate is `codex/site-completion-release` in [PR #10](https://git
 | Plan area | Credential-free implementation in this candidate | Outside the current work scope |
 | --- | --- | --- |
 | Foundation | Additive migrations, exact SQL/data-preservation rehearsals, guarded disposable test databases, CI, health route, structured logs | Fresh production-data cutover, provider configuration and deployed verification |
-| Accounts and profiles | Registration, password sign-in/recovery, role guards, profiles and availability; owner-enabled authenticator protection and single-use recovery codes; email-verification follow-up adds owner status/resend and single-use confirmation | Google credentials/callback setup; actual email delivery; phone/OTP verification and SMS delivery |
+| Accounts and profiles | Registration, password sign-in/recovery, role guards, profiles and availability; authenticator protection; email and phone verification; reviewed closure with recent sign-in, commitment checks, retained history and session revocation | Google credentials/callback setup; actual email/SMS delivery; deployed acceptance |
 | Marketplace and bookings | Discovery, capacity checks shared with programs, creation/rescheduling/cancellation, credit confirmation, calendar downloads | Live payment/refund delivery and deployed smoke checks |
 | Payments and memberships | Server-priced owned checkout, verified webhooks, idempotent fulfillment, invoice/access checks, immutable membership/program quotes and retry recovery | Gateway credentials, real checkout and webhook delivery |
 | Programs and courses | Catalogs, paid/free enrollment rules, owned lesson progress; program practitioner assignment, reservations, cancellation, guarded completion/progress and pause/resume | Remote meeting provisioning and live purchase delivery |
@@ -52,9 +52,18 @@ Local verification passed 792 unit and 395 UI tests, TypeScript, focused lint,
 browser discovery and six operational checks. Full database/browser CI and
 release-Preview migration application must be recorded in the follow-up PR.
 
-Remaining code work includes the account-closure
-lifecycle specified by the system-design API, plus further regression review of
-older staff forms. Operational acceptance still needs actual gateway checkout /
+The account-closure follow-up implements the system-design API as a reviewed,
+history-preserving access closure. It requires a recent normal sign-in and
+explicit confirmation, rechecks current commitments, refuses staff/practitioner
+self-closure, and atomically revokes sessions/recovery while auditing the
+change. Closed accounts cannot regain access through password, Google,
+authenticator, recovery or socket paths. This does not claim data erasure,
+cancellation, refunds or actual provider delivery. Its nullable `closedAt`
+migration must be rehearsed/applied before matching code. The follow-up PR
+records current CI, migration and exact-source evidence.
+
+Further regression review of older staff forms remains possible; it is not a
+separate specified feature. Operational acceptance still needs actual gateway checkout /
 webhook / refund delivery, email/SMS, configured Google login, final licensed
 course/audio media, automated remote meetings where required, worker/monitoring
 checks, load/Core Web Vitals measurements and backup recovery drills. A fresh

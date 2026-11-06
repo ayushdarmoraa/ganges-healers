@@ -1,5 +1,18 @@
 # NextAuth Implementation - Testing Guide
 
+## Account closure
+
+Settings provides a private review and explicit closure confirmation. The last
+normal sign-in must be within five minutes; refreshes cannot extend that window.
+Use the existing sign-in flow and MFA where enabled. Staff/practitioner accounts
+must transfer responsibilities through an administrator; outstanding commitments
+must be resolved first. Closing disables sign-in, revokes existing sessions and
+recovery, and retains purchase/billing records and identity reservations. It is
+not data erasure. See `docs/contracts.md` for API, race and repair behavior.
+
+Do not restore authentication code that ignores `closedAt` after closures exist.
+Disable the closure writer for repair while retaining closed-account guards.
+
 ## 🎯 Features Implemented
 
 ✅ **Complete NextAuth Setup**
