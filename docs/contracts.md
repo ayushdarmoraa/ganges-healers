@@ -1052,6 +1052,29 @@ that another saved product might use. Revert form, route and shared image policy
 together; no schema rollback is needed. Retain any already saved storage objects.
 
 
+## Store order fulfillment
+
+- Administrators can open `/admin/orders` from either admin menu. The queue
+  separates paid, shipped, and delivered orders, and shows saved addresses
+  only on the individual order page. The delivered queue includes older
+  `fulfilled` orders.
+- Staff record shipment with a carrier and tracking number. Paid orders
+  require a matching captured store payment and an address. If an older
+  order has no complete saved address, staff enter the verified address
+  used for the shipment. Existing complete addresses are kept.
+- Shipment waits for refund review when the payment has a refund that has
+  not failed. Staff explicitly confirm delivery for shipped orders, including
+  older shipments without tracking. Each transition checks the current order
+  version, then writes its status, tracking and private audit together.
+- Customers see saved tracking in My Orders. The owned
+  `GET /api/store/orders/[id]` response optionally includes validated
+  `order.tracking`. It never returns the raw tracking record or staff audit.
+  The staff records reflect manual shipment and delivery confirmation.
+- Apply `20261106210000_store_fulfillment` before deploying the new code.
+  Its nullable column preserves older orders and its index supports the
+  staff queues. To roll back the feature, revert the code and retain the
+  column and saved shipment history.
+
 ## Store product deletion and purchase-history preservation
 
 The private administrator delete action no longer calls an unguarded product

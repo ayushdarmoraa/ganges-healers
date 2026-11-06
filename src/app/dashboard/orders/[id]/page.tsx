@@ -1,24 +1,14 @@
 import { notFound, redirect } from "next/navigation"
 import Link from "next/link"
 import Image from "next/image"
-import { z } from "zod"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { readOrderTracking, shippingAddressSchema } from "@/lib/store/order-shipping"
 
 export const dynamic = "force-dynamic"
-
-const shippingAddressSchema = z.object({
-  name: z.string(),
-  line1: z.string(),
-  line2: z.string().optional(),
-  city: z.string(),
-  state: z.string(),
-  postalCode: z.string(),
-  phone: z.string().optional(),
-})
 
 const statusLabels: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   pending_payment: { label: "Pending Payment", variant: "outline" },
@@ -53,6 +43,7 @@ export default async function OrderDetailsPage({ params }: { params: Promise<{ i
       totalPaise: true,
       createdAt: true,
       shippingAddress: true,
+      trackingInfo: true,
       items: {
         select: {
           id: true,
@@ -67,6 +58,7 @@ export default async function OrderDetailsPage({ params }: { params: Promise<{ i
   if (!order) notFound()
   const addressResult = shippingAddressSchema.safeParse(order.shippingAddress)
   const address = addressResult.success ? addressResult.data : null
+  const tracking = readOrderTracking(order.status, order.trackingInfo)
   const status = statusLabels[order.status] ?? { label: order.status, variant: "outline" as const }
   const currentStage = orderStages.findIndex(stage => stage.status === order.status)
 
@@ -112,10 +104,25 @@ export default async function OrderDetailsPage({ params }: { params: Promise<{ i
         ) : (
           <p className="text-sm text-muted-foreground">Progress steps are unavailable for this status.</p>
         )}
-        <p className="text-xs text-muted-foreground">
-          These steps reflect the current order status, not courier tracking or estimated delivery dates.
-        </p>
       </Card>
+
+      {(order.status === "shipped" || order.status === "delivered" || tracking) && (
+        <Card className="space-y-2 p-5">
+          <h2 className="text-lg font-semibold">Shipment tracking</h2>
+          {tracking?.shipment ? (
+            <dl className="space-y-1 text-sm">
+              <div><dt className="inline font-medium">Carrier </dt><dd className="inline">{tracking.shipment.carrier}</dd></div>
+              <div><dt className="inline font-medium">Tracking number </dt><dd className="inline break-all">{tracking.shipment.trackingNumber}</dd></div>
+              <div><dt className="inline font-medium">Shipment recorded </dt><dd className="inline">{new Date(tracking.shipment.shippedAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}</dd></div>
+            </dl>
+          ) : (
+            <p className="text-sm text-muted-foreground">No tracking number was recorded for this shipment.</p>
+          )}
+          {tracking?.deliveredAt && (
+            <p className="text-sm">Delivery recorded {new Date(tracking.deliveredAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}.</p>
+          )}
+        </Card>
+      )}
 
       <Card className="space-y-4 p-5">
         <h2 className="text-lg font-semibold">Items</h2>

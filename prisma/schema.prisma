@@ -571,6 +571,7 @@ model Order {
   totalPaise        Int
   paymentId         String?     @unique
   shippingAddress   Json?
+  trackingInfo      Json?
   source            String?
   chakra            String?
   intention         String?
@@ -581,6 +582,7 @@ model Order {
   items             OrderItem[]
 
   @@index([userId, createdAt(sort: Desc)])
+  @@index([status, createdAt, id])
 }
 
 model OrderItem {
