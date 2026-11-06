@@ -16,6 +16,11 @@ export function audioAdminDetail(row: AudioTrack): AudioDetail {
 async function currentAdmin(tx: Prisma.TransactionClient, actorId: string) {
   if ((await tx.user.findUnique({ where: { id: actorId }, select: { role: true } }))?.role !== 'ADMIN') throw new AudioAdminError('Administrator access is required.', 403, 'FORBIDDEN')
 }
+async function indexAudio(tx: Prisma.TransactionClient, id: string) {
+  // Keep publication/search consistent even in development databases without SQL triggers.
+  const vector = Prisma.sql`to_tsvector('english', coalesce("title", '') || ' ' || coalesce("description", '') || ' ' || coalesce("category", ''))`
+  await tx.$executeRaw(Prisma.sql`UPDATE "AudioTrack" SET "searchVector" = ${vector} WHERE "id" = ${id} AND "searchVector" IS DISTINCT FROM ${vector}`)
+}
 /** Bounded administration reads never cache media URLs or draft metadata. */
 export async function listManagedAudio(raw: z.infer<typeof audioQuerySchema>) {
   const query = audioQuerySchema.parse(raw)
@@ -37,6 +42,7 @@ export async function createManagedAudio(actorId: string, raw: z.infer<typeof cr
       await lockTransaction(tx, 'audio', `slug:${input.slug}`); await currentAdmin(tx, actorId)
       if (await tx.audioTrack.findFirst({ where: { OR: [{ slug: { equals: input.slug, mode: 'insensitive' } }, { id: input.slug }] }, select: { id: true } })) throw new AudioAdminError('This URL slug is already in use. Choose another.', 409, 'SLUG_UNAVAILABLE')
       const row = await tx.audioTrack.create({ data: { ...input, description: input.description || null, isPublished: false } })
+      await indexAudio(tx, row.id)
       await tx.activityLog.create({ data: { userId: actorId, action: 'audio_draft_created', entityType: 'audio', entityId: row.id, metadata: { slug: row.slug } } })
       return { data: audioAdminDetail(row) }
     })
@@ -60,6 +66,7 @@ export async function changeManagedAudio(actorId: string, raw: z.infer<typeof ch
       if (!valid.success || !valid.data.audioUrl) throw new AudioAdminError('Save valid track details and an HTTPS audio URL before publishing.', 400, 'INVALID_PUBLICATION')
     }
     const updated = await tx.audioTrack.update({ where: { id: row.id }, data: change.action === 'details' ? { ...change.fields, description: change.fields.description || null } : { isPublished: change.action === 'publish' } })
+    await indexAudio(tx, row.id)
     await tx.activityLog.create({ data: { userId: actorId, action: change.action === 'details' ? 'audio_updated' : change.action === 'publish' ? 'audio_published' : 'audio_withdrawn', entityType: 'audio', entityId: row.id, metadata: { slug: row.slug, isPublished: updated.isPublished, isPremium: updated.isPremium } } })
     return { data: audioAdminDetail(updated) }
   })
