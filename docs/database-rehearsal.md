@@ -41,3 +41,17 @@ The helper copies data only. Re-generate and review the schema diff for each fre
 5. Keep the old database and deployment available for recovery. A rollback after new writes requires reconciliation of those writes; changing a connection URL alone is not a lossless rollback.
 
 The isolated rehearsal database is a snapshot. It does not continuously receive subsequent production writes. Do not promote it as current production data without a fresh synchronized cutover.
+
+## Audio publication rehearsal (November 6, 2026)
+
+The exact additive migration `20261106103000_audio_publication` was applied and
+recorded transactionally on `codex-audio-publishing-20261106`
+(`br-solitary-dream-ad3xhc2b`), forked from the existing release Preview branch
+`br-winter-sun-ado4pted` in project `holy-block-51695227`.
+Its SHA-256 checksum is
+`38adb9069a5532f47d93423a5c053e01ba11f68c505de70254de46b8df694172`.
+A legacy-shaped rehearsal fixture retained the same original-field fingerprint
+and received isPublished=true. The schema comparison shows only the new boolean
+and its publication/date index. Production is unchanged. The follow-up PR records
+CI, preservation checks and application to the release Preview; this rehearsal
+record alone does not claim that deployment is complete.

@@ -13,7 +13,7 @@ function formatDuration(seconds: number) {
 
 export default async function FreeAudioExperience() {
   const tracks = await prisma.audioTrack.findMany({
-    where: { isPremium: false },
+    where: { isPremium: false, isPublished: true },
     orderBy: { createdAt: "desc" },
     take: 3,
     select: {

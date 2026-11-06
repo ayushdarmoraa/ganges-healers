@@ -477,11 +477,13 @@ model AudioTrack {
   audioUrl     String
   duration     Int
   isPremium    Boolean                  @default(false)
+  isPublished  Boolean                  @default(true)
   searchVector Unsupported("tsvector")?
   createdAt    DateTime                 @default(now())
 
   @@index([category])
   @@index([isPremium])
+  @@index([isPublished, createdAt(sort: Desc)])
 }
 
 model BlogPost {

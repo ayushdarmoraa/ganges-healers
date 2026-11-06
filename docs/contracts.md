@@ -963,3 +963,39 @@ session changes and ignores late responses. Internal server-action results are
 now explicit success/error objects; no public HTTP API changes. No migration,
 dependency or environment changes. Revert page/form/helper together for repair;
 do not silently restore stale balance overwrites.
+
+## Managed audio publication and playback
+
+`/api/admin/audio` provides private/no-store current-administrator GET/POST/PATCH
+operations. Lists are bounded (25 default, 100 maximum), with status/search and
+stable cursor pagination; summaries omit media URLs and long descriptions.
+Creation always produces a private draft. Slugs are normalized and immutable;
+case-insensitive slug/id collisions are refused. Details, publish and withdraw
+require the saved content version and a fresh administrator role after the audio
+transaction lock. Metadata/publication changes and their activity audit commit
+together. There is no permanent deletion operation.
+
+The additive `20261106103000_audio_publication` migration adds
+AudioTrack.isPublished (default true) and a publication/date index. Existing
+tracks keep their visibility; the admin creation path explicitly writes false.
+Publishing requires valid fields and a nonempty credential-free HTTPS media URL.
+Durations are whole seconds from 1 through 86,400. Draft media URLs may be empty.
+Withdrawn rows and their stable identities remain available to administrators.
+
+Public list/detail response shapes and premium eligibility are retained: current
+VIP access or an active program/course enrollment can unlock premium audio.
+Drafts/withdrawn tracks are absent from playback, metadata, catalogs, free home
+previews, published counts, service links, search and sitemaps. Public audio reads
+use current publication/premium state; old instance-local list caches are not
+trusted after edits. Audio search joins the existing fresh-publication groups,
+while unrelated result caching is retained. Catalog responses are no-store;
+detail responses are private/no-store, and premium catalog URLs remain redacted.
+
+Admin and player requests abort on account/selection changes and ignore late
+responses. A changed listener immediately loses the previous media element while
+fresh access loads. Admin save failures retain drafts, conflicts require an
+explicit saved-version reload, and pending/dirty edits cannot publish silently.
+No payment, membership, invoice, existing logging namespace or test-mode rule is
+changed. Apply the additive migration before deploying the matching code; retain
+its column/rows during repair. A rollback to code without publication filtering
+would expose drafts, so repair compatibly rather than removing the gate.

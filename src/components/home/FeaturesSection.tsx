@@ -7,7 +7,7 @@ export default async function SocialProofSection() {
     await Promise.all([
       prisma.healer.count({ where: { isActive: true, isVerified: true } }),
       prisma.service.count({ where: { isActive: true } }),
-      prisma.audioTrack.count(),
+      prisma.audioTrack.count({ where: { isPublished: true } }),
       prisma.communityPost.count({ where: { deletedAt: null } }),
     ])
 

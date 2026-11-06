@@ -27,7 +27,7 @@ export default async function AudioLibraryPage({
 }) {
   const { category, q, sort } = await searchParams
 
-  const where: Record<string, unknown> = {}
+  const where: Record<string, unknown> = { isPublished: true }
   if (category) where.category = category
   if (q) {
     where.OR = [
@@ -46,6 +46,7 @@ export default async function AudioLibraryPage({
   const [tracks, categoriesRaw] = await Promise.all([
     prisma.audioTrack.findMany({ where, orderBy }),
     prisma.audioTrack.findMany({
+      where: { isPublished: true },
       select: { category: true },
       distinct: ['category'],
       orderBy: { category: 'asc' },
