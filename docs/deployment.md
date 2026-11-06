@@ -152,10 +152,20 @@ Source maps are uploaded automatically during build when `SENTRY_ORG` and `SENTR
 
 ## 8. Blob Storage (Optional)
 
-For avatar uploads and invoice PDF storage:
+Product photos use a public Vercel Blob store and the server-only
+`PRODUCT_IMAGES_BLOB_READ_WRITE_TOKEN`. Scope Preview credentials to the release
+branch; use a separate store/value for a later production rollout. Uploads accept
+JPEG, PNG and WebP up to 4 MiB each, with format-signature validation and generated
+object names. The gallery permits eight images. This leaves multipart overhead
+below Vercel's request limit. A missing credential returns 503 and keeps the draft.
 
-1. Enable Vercel Blob in your project dashboard
-2. Set `BLOB_READ_WRITE_TOKEN` in environment variables
+`BLOB_READ_WRITE_TOKEN` remains the legacy product-upload fallback and controls
+existing invoice PDF uploads. Do not set that shared key merely to enable product
+photos: the current invoice hosting/redirect contract needs a separate privacy
+review. A dedicated product-photo key does not enable invoice uploads. No upload
+credential belongs in a `NEXT_PUBLIC_` variable or Git. Native store provisioning
+may return credentials; save them directly as scoped Vercel Secrets without
+printing or persisting them locally.
 
 ---
 

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { CreateProductForm } from '@/components/admin/create-product-form'
+import { productImageFields } from '@/config/images'
 
 async function guardAdmin() {
   const session = await auth()
@@ -23,18 +24,14 @@ async function createProduct(formData: FormData) {
   const shortDescription = String(formData.get('shortDescription') || '')
   const longDescription = String(formData.get('longDescription') || '')
   const pricePaise = parseInt(String(formData.get('pricePaise') || '0'), 10)
-  const imageUrl = String(formData.get('imageUrl') || '') || null
+  const imageValue = String(formData.get('imageUrl') || '')
   const stockStatus = String(formData.get('stockStatus') || 'IN_STOCK')
   const chakra = String(formData.get('chakra') || '') || null
   const consecrationStory = String(formData.get('consecrationStory') || '') || null
   const isConsecrated = formData.get('isConsecrated') === 'true'
 
   const galleryRaw = String(formData.get('gallery') || '[]')
-  let gallery: string[] | undefined
-  try {
-    const parsed = JSON.parse(galleryRaw)
-    if (Array.isArray(parsed) && parsed.length > 0) gallery = parsed
-  } catch { /* ignore invalid JSON */ }
+  const { imageUrl, gallery } = productImageFields(imageValue, JSON.parse(galleryRaw))
 
   const benefitsRaw = String(formData.get('spiritualBenefits') || '')
   const spiritualBenefits = benefitsRaw
@@ -49,7 +46,7 @@ async function createProduct(formData: FormData) {
   await prisma.product.create({
     data: {
       title, slug, shortDescription, longDescription, pricePaise,
-      imageUrl, gallery: gallery ?? undefined, stockStatus, chakra,
+      imageUrl, gallery: gallery.length ? gallery : undefined, stockStatus, chakra,
       consecrationStory, isConsecrated,
       spiritualBenefits: spiritualBenefits ?? undefined,
       ritualUse: ritualUse ?? undefined,
@@ -66,7 +63,10 @@ async function updateProduct(formData: FormData) {
   const shortDescription = String(formData.get('shortDescription') || '')
   const longDescription = String(formData.get('longDescription') || '')
   const pricePaise = parseInt(String(formData.get('pricePaise') || '0'), 10)
-  const imageUrl = String(formData.get('imageUrl') || '') || null
+  const imageValue = String(formData.get('imageUrl') || '')
+  const saved = await prisma.product.findUnique({ where: { id }, select: { imageUrl: true } })
+  // Keep unchanged legacy image locations when editing unrelated product details.
+  const imageUrl = imageValue === (saved?.imageUrl ?? '') ? saved?.imageUrl ?? null : productImageFields(imageValue, []).imageUrl
   const stockStatus = String(formData.get('stockStatus') || 'IN_STOCK')
 
   await prisma.product.update({

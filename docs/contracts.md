@@ -841,3 +841,32 @@ contact data.
 No migration or dependency is required. Roll back the UI/API/helper changes
 together if needed; retain existing stored links. Prefer a compatible fix rather
 than restoring the earlier premature completion or funded-cancellation behavior.
+
+
+## Product-photo uploads and draft recovery
+
+`POST /api/admin/upload-product-image` retains `{ url }` success and `{ error }`
+failure envelopes and the `[admin][upload-product-image]` logging namespace.
+It now requires a current database administrator, returns private/no-store, and
+checks nonempty JPEG/PNG/WebP metadata and format signatures before storage.
+Signatures are not a full image decode. Files are limited to 4 MiB (previously
+5 MiB, which exceeded the platform request limit with multipart framing).
+Oversized declared bodies return 413; invalid files remain 400. Missing storage
+returns 503, while storage failures remain 500. Paths contain random UUIDs and no
+original filename; provider exception text and credentials are not logged.
+
+The server prefers PRODUCT_IMAGES_BLOB_READ_WRITE_TOKEN, with the old
+BLOB_READ_WRITE_TOKEN fallback retained for compatibility. New product-photo
+provisioning uses only the dedicated key, leaving invoice storage configuration
+unchanged. No database fields, purchase totals, payment endpoints or test-mode
+gates change.
+
+The existing create-product form keeps successful gallery images when a later
+upload fails, retries only failed files, and limits new galleries to eight images.
+Create/update server actions also validate new or changed image URLs against configured HTTPS hosts; unchanged legacy image locations remain editable alongside unrelated product details, and new galleries cannot exceed eight entries. Creation waits for uploads/content generation, blocks duplicate submissions and
+requires failed images to be retried or explicitly discarded. Failed product
+creation retains the draft; successful creation clears it. Account/role changes
+unmount the editor and abort pending requests so late responses cannot populate
+another account. Removing an image from the draft does not delete storage objects
+that another saved product might use. Revert form, route and shared image policy
+together; no schema rollback is needed. Retain any already saved storage objects.
