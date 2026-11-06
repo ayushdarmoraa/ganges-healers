@@ -1,8 +1,9 @@
-import { isTestMode } from '@/lib/test-mode'
 // src/app/api/services/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/rbac'
+import { updateServiceSchema } from '@/lib/services/catalog-schema'
 
 export async function GET(
   request: NextRequest,
@@ -83,28 +84,21 @@ export async function PUT(
     }
 
     const { id } = await params
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- admin body spread into Prisma update
-    let body: any
-    if (isTestMode()) {
-      const raw = await request.text().catch(() => '')
-      console.debug('[TEST_MODE] /api/services/[id] PUT raw body:', raw || '(none)')
-      try {
-        body = raw ? JSON.parse(raw) : {}
-      } catch (err) {
-        console.error('[TEST_MODE] JSON parse failed for /api/services/[id] PUT', err, 'raw:', raw)
-        return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
-      }
-    } else {
-      body = await request.json()
-    }
+    const body: unknown = await request.json().catch(() => undefined)
+    if (body === undefined) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+    const fields = updateServiceSchema.safeParse(body)
+    if (!fields.success) return NextResponse.json({ error: 'Invalid service fields' }, { status: 400 })
 
     const service = await prisma.service.update({
       where: { id },
-      data: { ...body, updatedAt: new Date() }
+      data: { ...fields.data, updatedAt: new Date() }
     })
 
     return NextResponse.json({ success: true, data: service })
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return NextResponse.json({ error: 'Service already exists' }, { status: 409 })
+    }
     console.error('Service update error:', error)
     return NextResponse.json({ error: 'Failed to update service' }, { status: 500 })
   }

@@ -68,3 +68,49 @@ test('deactivating a service and healer retains appointments, billing records an
     } finally { await db.$disconnect() }
   }
 })
+
+test('service editors retain a duplicate draft and save corrected catalog fields', async ({ page }) => {
+  test.setTimeout(120000)
+  const settings = loadTestDatabaseEnvironment()
+  await verifyTestDatabaseConnection(settings)
+  const db = new PrismaClient({ datasources: { db: { url: settings.environment.DATABASE_URL } } })
+  const suffix = randomUUID()
+  const existingSlug = `existing-service-${suffix}`
+  const newSlug = `new-service-${suffix}`
+  const email = `catalog-editor-${suffix}@example.test`
+  const name = `New service ${suffix}`
+  try {
+    await db.user.create({ data: { email, name: 'Catalog editor', role: 'ADMIN' } })
+    await db.service.create({ data: {
+      name: 'Existing catalog service', slug: existingSlug, description: 'Fixture', category: 'Test', price: 20, duration: 60,
+    } })
+    await page.context().setExtraHTTPHeaders({ 'x-forwarded-for': '192.0.2.95' })
+    expect((await page.request.get(`/api/test/login?${new URLSearchParams({ role: 'ADMIN', email })}`)).status()).toBe(200)
+    await page.goto('/admin/services')
+    const create = page.locator('form').filter({ has: page.getByLabel('Slug', { exact: true }) })
+    await create.getByLabel('Name', { exact: true }).fill(name)
+    await create.getByLabel('Slug', { exact: true }).fill(existingSlug)
+    await create.getByLabel('Category', { exact: true }).fill('Wellness')
+    await create.getByLabel('Price (₹)', { exact: true }).fill('0')
+    await create.getByLabel('Description', { exact: true }).fill('A service description')
+    await create.getByRole('button', { name: 'Create', exact: true }).click()
+    await expect(create.getByRole('alert')).toHaveText('That URL slug is already in use. Choose another.')
+    await expect(create.getByLabel('Name', { exact: true })).toHaveValue(name)
+    await create.getByLabel('Slug', { exact: true }).fill(newSlug)
+    await create.getByRole('button', { name: 'Create', exact: true }).click()
+    await expect(create.getByRole('status')).toHaveText('Service created.')
+    await expect(create.getByLabel('Name', { exact: true })).toHaveValue('')
+    const saved = page.getByRole('article', { name: `Service ${name}`, exact: true })
+    await saved.getByText('Edit', { exact: true }).click()
+    await saved.getByLabel('Price (₹)', { exact: true }).fill('34.50')
+    await saved.getByLabel('Duration (min)', { exact: true }).fill('45')
+    await saved.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(saved.getByRole('status')).toHaveText('Service saved.')
+    expect(await db.service.findUnique({ where: { slug: newSlug } })).toMatchObject({ price: 34.5, duration: 45 })
+  } finally {
+    try {
+      await db.service.deleteMany({ where: { slug: { in: [existingSlug, newSlug] } } })
+      await db.user.deleteMany({ where: { email } })
+    } finally { await db.$disconnect() }
+  }
+})
