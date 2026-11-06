@@ -12,6 +12,11 @@ test('authorized playback uses a fresh private read', async () => {
   const { container } = render(<AudioPlayer slug="quiet" />); await screen.findByText('Quiet listening')
   expect(container.querySelector('audio')).toHaveAttribute('src', row.audioUrl); expect(fetchMock).toHaveBeenCalledWith('/api/audio/quiet', expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) }))
 })
+test('Strict Mode effect replay restores the media source after its cleanup', async () => {
+  const { container } = render(<React.StrictMode><AudioPlayer slug="quiet" /></React.StrictMode>)
+  await screen.findByText('Quiet listening')
+  expect(container.querySelector('audio')).toHaveAttribute('src', row.audioUrl)
+})
 test('sign-out immediately removes the old media source and reloads access', async () => {
   const { container, rerender } = render(<AudioPlayer slug="quiet" />); await screen.findByText('Quiet listening')
   fetchMock.mockImplementation(async () => json({ ...row, locked: true, audioUrl: null, reason: 'Sign in to access premium content' }))

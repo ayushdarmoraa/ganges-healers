@@ -133,6 +133,8 @@ function AudioElement({ url }: { url: string }) {
   const media = useRef<HTMLAudioElement>(null)
   useEffect(() => {
     const element = media.current
+    // Strict Mode replays setup after cleanup; restore the source cleared by that cleanup.
+    if (element && element.getAttribute('src') !== url) element.setAttribute('src', url)
     return () => { if (element) { element.pause(); element.removeAttribute('src'); element.load() } }
   }, [url])
   return <audio ref={media} controls src={url} className="w-full" preload="metadata">Your browser does not support the audio element.</audio>
