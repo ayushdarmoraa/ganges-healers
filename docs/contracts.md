@@ -855,11 +855,18 @@ Oversized declared bodies return 413; invalid files remain 400. Missing storage
 returns 503, while storage failures remain 500. Paths contain random UUIDs and no
 original filename; provider exception text and credentials are not logged.
 
-The server prefers PRODUCT_IMAGES_BLOB_READ_WRITE_TOKEN, with the old
-BLOB_READ_WRITE_TOKEN fallback retained for compatibility. New product-photo
-provisioning uses only the dedicated key, leaving invoice storage configuration
-unchanged. No database fields, purchase totals, payment endpoints or test-mode
-gates change.
+With PRODUCT_IMAGES_BLOB_STORE_ID configured, the server obtains a refreshed
+short-lived Vercel identity for each validated, authorized upload and explicitly
+passes both identity and dedicated store ID to Blob. It never lets the SDK fall
+back to shared invoice storage when identity is unavailable. An explicit
+PRODUCT_IMAGES_BLOB_READ_WRITE_TOKEN remains a supported dedicated fallback.
+Without a dedicated store ID, that token and the legacy BLOB_READ_WRITE_TOKEN
+retain their existing precedence. Missing usable authentication remains 503;
+provider upload failures remain 500, without retries against another store.
+New Preview provisioning uses the dedicated OIDC connection only, leaving invoice
+storage configuration unchanged. @vercel/oidc is a direct dependency at the same
+version already resolved by @vercel/blob; no new package resolution is introduced.
+No database fields, purchase totals, payment endpoints or test-mode gates change.
 
 The existing create-product form keeps successful gallery images when a later
 upload fails, retries only failed files, and limits new galleries to eight images.
