@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { RegisterForm } from '@/components/auth/register-form'
 import SignInPage from '@/app/auth/signin/page'
@@ -100,7 +100,54 @@ test('invalid credentials keep the visitor on the sign-in screen', async () => {
   await user.type(screen.getByLabelText('Password'), 'incorrect')
   await user.click(screen.getByRole('button', { name: 'Sign In' }))
   await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Invalid credentials'))
+  expect(screen.getByRole('alert')).toHaveTextContent('Check your Ganges Healers email, password, and authenticator code if enabled.')
+  expect(screen.getByLabelText('Email')).toHaveValue('customer@example.test')
+  expect(screen.getByLabelText('Password')).toHaveValue('')
   expect(router.push).not.toHaveBeenCalled()
+})
+
+test('a failed sign-in clears one-use codes while preserving recovery and registration links', async () => {
+  auth.signIn.mockResolvedValue({ error: 'CredentialsSignin', ok: false })
+  const user = userEvent.setup(); render(<SignInPage />)
+  await user.type(screen.getByLabelText('Email'), 'customer@example.test')
+  await user.type(screen.getByLabelText('Password'), 'incorrect')
+  await user.type(screen.getByLabelText('Authenticator or recovery code (if enabled)'), '123456')
+  await user.click(screen.getByRole('button', { name: 'Sign In' }))
+  expect(await screen.findByRole('alert')).toBeVisible()
+  expect(screen.getByLabelText('Authenticator or recovery code (if enabled)')).toHaveValue('')
+  expect(screen.getByRole('link', { name: 'Forgot your password?' })).toHaveAttribute('href', '/auth/reset-password')
+  expect(screen.getByRole('link', { name: 'Create one' })).toHaveAttribute('href', '/register')
+})
+
+test('a network failure stays visible without exposing provider errors or losing the email', async () => {
+  auth.signIn.mockRejectedValue(new Error('private-provider-details'))
+  const user = userEvent.setup(); render(<SignInPage />)
+  await user.type(screen.getByLabelText('Email'), 'customer@example.test')
+  await user.type(screen.getByLabelText('Password'), 'password')
+  await user.click(screen.getByRole('button', { name: 'Sign In' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Sign-in is temporarily unavailable. Please try again.')
+  expect(document.body).not.toHaveTextContent('private-provider-details')
+  expect(screen.getByLabelText('Email')).toHaveValue('customer@example.test')
+  expect(router.push).not.toHaveBeenCalled()
+})
+
+test('pending sign-in rejects duplicate submissions and clears the old error when retry begins', async () => {
+  const user = userEvent.setup(); render(<SignInPage />)
+  auth.signIn.mockResolvedValueOnce({ error: 'CredentialsSignin', ok: false })
+  await user.type(screen.getByLabelText('Email'), 'customer@example.test')
+  await user.type(screen.getByLabelText('Password'), 'incorrect')
+  await user.click(screen.getByRole('button', { name: 'Sign In' }))
+  expect(await screen.findByRole('alert')).toBeVisible()
+  let finish: (value: unknown) => void = () => {}
+  auth.signIn.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  await user.type(screen.getByLabelText('Password'), 'correct-password')
+  const form = screen.getByRole('form', { name: 'Sign in' })
+  fireEvent.submit(form); fireEvent.submit(form)
+  expect(auth.signIn).toHaveBeenCalledTimes(2)
+  expect(form).toHaveAttribute('aria-busy', 'true')
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  await act(async () => finish({ ok: true, error: null }))
+  expect(router.push).toHaveBeenCalledWith('/dashboard')
 })
 
 test('verified credentials navigate to the customer dashboard', async () => {

@@ -32,6 +32,10 @@ test('register without a phone, sign in with the stored password, and sign out',
     await page.getByRole('button', { name: 'Sign In', exact: true }).click()
     await expect(page.getByText('Invalid credentials', { exact: true })).toBeVisible({ timeout: 30_000 })
     expect(await (await page.request.get('/api/auth/session')).json()).toBeNull()
+    await expect(page.getByLabel('Password', { exact: true })).toHaveValue('')
+    await expect(page.getByLabel('Email', { exact: true })).toHaveValue(email)
+    await expect(page.getByText('Invalid credentials', { exact: true })).toHaveCount(0, { timeout: 15000 })
+    await expect(page.getByRole('form', { name: 'Sign in' }).getByRole('alert')).toContainText('Check your Ganges Healers email')
 
     await page.getByLabel('Password', { exact: true }).fill(password)
     await page.getByRole('button', { name: 'Sign In', exact: true }).click()

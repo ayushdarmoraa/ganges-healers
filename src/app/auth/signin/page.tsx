@@ -1,7 +1,7 @@
 "use client"
 
 import { getProviders, signIn } from "next-auth/react"
-import { Suspense, useEffect, useState } from "react"
+import { Suspense, useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -19,6 +19,8 @@ export default function SignInPage() {
 function SignInContent() {
   const [isLoading, setIsLoading] = useState(false)
   const [googleEnabled, setGoogleEnabled] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const submitting = useRef(false)
   const router = useRouter()
   const searchParams = useSearchParams()
   const callbacks = searchParams.getAll('callbackUrl')
@@ -34,9 +36,13 @@ function SignInContent() {
 
   const handleCredentialsSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    if (submitting.current) return
+    submitting.current = true
+    setError(null)
     setIsLoading(true)
 
-    const formData = new FormData(e.currentTarget)
+    const form = e.currentTarget
+    const formData = new FormData(form)
     const email = formData.get("email") as string
     const password = formData.get("password") as string
 
@@ -49,26 +55,38 @@ function SignInContent() {
       })
 
       if (result?.error || result?.ok !== true) {
+        setError('We couldn’t sign you in. Check your Ganges Healers email, password, and authenticator code if enabled.')
         toast.error("Invalid credentials")
       } else {
         toast.success("Signed in successfully")
         router.push(callbackUrl)
       }
     } catch {
+      setError('Sign-in is temporarily unavailable. Please try again.')
       toast.error("Something went wrong")
     } finally {
+      // Keep the email for retry, but do not leave password or one-use codes in the page.
+      for (const name of ['password', 'twoFactorCode']) {
+        const field = form.elements.namedItem(name)
+        if (field instanceof HTMLInputElement) field.value = ''
+      }
+      submitting.current = false
       setIsLoading(false)
     }
   }
 
   const handleGoogleSignIn = async () => {
-    if (!googleEnabled || isLoading) return
+    if (!googleEnabled || submitting.current) return
+    submitting.current = true
+    setError(null)
     setIsLoading(true)
     try {
       await signIn("google", { callbackUrl })
     } catch {
+      setError('Google sign-in is temporarily unavailable. Please try again.')
       toast.error("Something went wrong")
     } finally {
+      submitting.current = false
       setIsLoading(false)
     }
   }
@@ -78,7 +96,7 @@ function SignInContent() {
       <Card>
         <CardHeader className="text-center">
           <CardTitle>Welcome to Ganges Healers</CardTitle>
-          <CardDescription>Sign in to manage your healing journey</CardDescription>
+          <CardDescription>Use the email and password you registered with Ganges Healers.</CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="credentials" className="w-full">
@@ -88,13 +106,16 @@ function SignInContent() {
             </TabsList>}
 
             <TabsContent value="credentials">
-              <form onSubmit={handleCredentialsSignIn} className="space-y-4">
+              <form aria-label="Sign in" aria-busy={isLoading} onSubmit={handleCredentialsSignIn} className="space-y-4">
+                {error && <p id="sign-in-error" role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
                 <div>
                   <Label htmlFor="email">Email</Label>
                   <Input
                     id="email"
                     name="email"
                     type="email"
+                    autoComplete="username"
+                    aria-describedby={error ? 'sign-in-error' : undefined}
                     placeholder="you@example.com"
                     required
                     disabled={isLoading}
@@ -106,6 +127,8 @@ function SignInContent() {
                     id="password"
                     name="password"
                     type="password"
+                    autoComplete="current-password"
+                    aria-describedby={error ? 'sign-in-error' : undefined}
                     placeholder="Enter your password"
                     required
                     disabled={isLoading}
@@ -120,6 +143,7 @@ function SignInContent() {
             </TabsContent>
 
             {googleEnabled && <TabsContent value="oauth">
+              {error && <p role="alert" className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
               <Button onClick={handleGoogleSignIn} variant="outline" className="w-full" disabled={isLoading}>
                 Continue with Google
               </Button>
