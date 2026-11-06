@@ -300,8 +300,13 @@ the editor and abort pending uploads. Shared file rules align browser/server
 validation below the platform request limit; server checks format signatures and
 current administrator roles, uses generated paths and avoids provider-secret logs.
 
-Product-photo storage uses its own credential so invoice PDF uploads stay disabled
-unless separately configured. No database migration or payment change is needed.
+The public `ganges-product-photos-preview` Blob store is connected to the existing
+Vercel project with OIDC, Preview only. Its prefixed metadata variables are scoped
+to the release branch; no long-lived token was added. The upload route refreshes
+identity per request and explicitly selects that dedicated store. Missing identity
+cannot redirect uploads into shared invoice storage; existing dedicated-token and
+unbound legacy-token deployments remain compatible. Invoice PDF uploads stay
+disabled unless separately configured. No database migration or payment change is needed.
 Validation and actual provider-provisioning/deployment status are recorded in the
 follow-up pull request. The domain purchase and production configuration are later
 launch steps; they do not block this website implementation and Preview testing.

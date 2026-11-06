@@ -43,6 +43,7 @@
     "@react-email/components": "^0.5.7",
     "@sentry/nextjs": "^10.78.0",
     "@vercel/blob": "^2.8.2",
+    "@vercel/oidc": "3.8.10",
     "axios": "^1.21.0",
     "bcryptjs": "^3.0.2",
     "bullmq": "^5.71.0",

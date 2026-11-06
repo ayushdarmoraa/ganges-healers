@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireCurrentAdmin } from '@/lib/admin/auth'
 import { put } from '@vercel/blob'
+import { getVercelOidcToken } from '@vercel/oidc'
 import { randomUUID } from 'node:crypto'
 import { hasProductImageSignature, isAllowedArticleImage, productImageError, PRODUCT_IMAGE_MAX_BYTES } from '@/config/images'
 
@@ -29,14 +30,26 @@ export async function POST(req: Request) {
     if (validationError) return NextResponse.json({ error: validationError }, { status: 400, headers })
     const bytes = new Uint8Array(await file.arrayBuffer())
     if (!hasProductImageSignature(bytes, file.type)) return NextResponse.json({ error: 'The file contents do not match its image format. Choose another image.' }, { status: 400, headers })
-    // A dedicated product-photo credential does not activate invoice PDF uploads.
-    const token = process.env.PRODUCT_IMAGES_BLOB_READ_WRITE_TOKEN?.trim() || process.env.BLOB_READ_WRITE_TOKEN?.trim()
-    if (!token) return NextResponse.json({ error: 'Image uploads are temporarily unavailable. Please try again later.' }, { status: 503, headers })
+    // Resolve identity on each request; never let a dedicated store silently use invoice credentials.
+    const storeId = process.env.PRODUCT_IMAGES_BLOB_STORE_ID?.trim()
+    const dedicatedToken = process.env.PRODUCT_IMAGES_BLOB_READ_WRITE_TOKEN?.trim()
+    let storageAuth: { storeId: string; oidcToken: string } | { token: string } | undefined
+    if (storeId) {
+      try {
+        const oidcToken = (await getVercelOidcToken()).trim()
+        if (oidcToken) storageAuth = { storeId, oidcToken }
+      } catch { /* A missing identity is recoverable without exposing provider details. */ }
+      if (!storageAuth && dedicatedToken) storageAuth = { token: dedicatedToken }
+    } else {
+      const token = dedicatedToken || process.env.BLOB_READ_WRITE_TOKEN?.trim()
+      if (token) storageAuth = { token }
+    }
+    if (!storageAuth) return NextResponse.json({ error: 'Image uploads are temporarily unavailable. Please try again later.' }, { status: 503, headers })
     const ext = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/png' ? 'png' : 'webp'
     const pathname = `products/${randomUUID()}.${ext}`
     const blob = await put(pathname, Buffer.from(bytes), {
       access: 'public',
-      token,
+      ...storageAuth,
       contentType: file.type,
       addRandomSuffix: false,
       allowOverwrite: false,

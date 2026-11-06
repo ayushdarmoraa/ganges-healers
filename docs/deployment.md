@@ -152,17 +152,26 @@ Source maps are uploaded automatically during build when `SENTRY_ORG` and `SENTR
 
 ## 8. Blob Storage (Optional)
 
-Product photos use a public Vercel Blob store and the server-only
-`PRODUCT_IMAGES_BLOB_READ_WRITE_TOKEN`. Scope Preview credentials to the release
-branch; use a separate store/value for a later production rollout. Uploads accept
+Product photos use a public Vercel Blob store. Connect the existing store to the
+project with OIDC, Preview only, and custom prefix `PRODUCT_IMAGES_BLOB`; leave
+the read-write-token option unchecked. Scope the generated
+`PRODUCT_IMAGES_BLOB_STORE_ID` and `PRODUCT_IMAGES_BLOB_WEBHOOK_PUBLIC_KEY` variables
+to `codex/site-completion-release`. The upload route explicitly uses the dedicated
+store ID and obtains a refreshed short-lived identity with `@vercel/oidc` for each
+request. The webhook public key is connection metadata; this route does not need
+a webhook. Use a separate connection for a later production rollout. Uploads accept
 JPEG, PNG and WebP up to 4 MiB each, with format-signature validation and generated
 object names. The gallery permits eight images. This leaves multipart overhead
-below Vercel's request limit. A missing credential returns 503 and keeps the draft.
+below Vercel's request limit. A missing binding/identity returns 503 and keeps the draft.
 
-`BLOB_READ_WRITE_TOKEN` remains the legacy product-upload fallback and controls
-existing invoice PDF uploads. Do not set that shared key merely to enable product
+An explicit server-only `PRODUCT_IMAGES_BLOB_READ_WRITE_TOKEN` remains supported
+for token-based deployments or when dedicated OIDC identity is unavailable.
+`BLOB_READ_WRITE_TOKEN` remains a legacy product-upload fallback only when no
+dedicated store ID is configured, and controls existing invoice PDF uploads.
+A configured dedicated store never falls back to that shared invoice token.
+Do not set the shared key merely to enable product
 photos: the current invoice hosting/redirect contract needs a separate privacy
-review. A dedicated product-photo key does not enable invoice uploads. No upload
+review. A dedicated product-photo connection does not enable invoice uploads. No upload
 credential belongs in a `NEXT_PUBLIC_` variable or Git. Native store provisioning
 may return credentials; save them directly as scoped Vercel Secrets without
 printing or persisting them locally.
