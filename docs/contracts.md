@@ -692,3 +692,53 @@ fix for rollback. Preserve the authentication secret across releases: changing i
 invalidates cookies and makes old encrypted TOTP keys unreadable. Saved recovery
 codes still permit login, authenticated disable, and fresh enrollment with the
 new key. There is no email-only or administrative factor-bypass endpoint.
+
+
+## Weekly availability editing (implementation-plan Sprint 3, Day 30)
+
+`GET /api/healer/availability` returns the current healer's normalized weekly
+schedule in the existing `{ success, data }` envelope and an owner-bound strong
+ETag. Reads and writes are authenticated and private/no-store. The healer role
+is verified against the current database account; PUT checks ownership and role
+again after acquiring the same healer advisory lock as service and program
+reservation writers. An inactive healer may edit their hours; inactive accounts
+are still unavailable for booking.
+
+`PUT` keeps the existing raw weekly object: lowercase weekday keys map to
+`{ start, end }` or `null`. Omitted days become days off as before. New writes
+require ordered, half-hour-aligned times; `24:00` is permitted only as an end
+boundary. Unknown fields, reversed/equal windows and malformed JSON return 400.
+Existing valid minute-based windows remain readable and their offered starts
+remain aligned; the editor displays their exact stored values and requires
+alignment before a new save. Unreadable schedules fail closed and the editor
+never substitutes a silently editable empty schedule.
+
+The editor sends the loaded ETag in `If-Match`; a stale or foreign snapshot
+returns 412 without changing the database. Wildcard and matching strong tag
+lists are accepted; weak tags do not match. Legacy clients may omit the
+precondition, preserving their existing unconditional-write contract. The PUT
+response retains `{ success, data }` and adds the new `version` token in JSON;
+the editor uses it for the next save. GET supplies the HTTP ETag; PUT does not
+supply an HTTP validator for a potentially normalized request representation.
+See [HTTP conditional request semantics](https://www.rfc-editor.org/rfc/rfc9110.html#name-if-match).
+
+An edit changes the weekly rules for new reservations; it never moves, cancels
+or deletes an existing appointment, including a confirmed appointment outside
+the new window. Concurrent booking and schedule writers serialize on the same
+lock, so each new reservation checks the rules committed before it. Changing
+hours does not issue a refund, consume credits, or contact a provider.
+
+Public and owned-rescheduling availability keep their existing response fields,
+actual purchased/service durations, and shared overlap checks. The slot list is
+now generated from the saved working window, including hours before 10:00 and
+after 20:00. A session must finish before closing; a day off returns no starts,
+and passed starts today are unavailable. Times remain in Asia/Kolkata. Public
+slot responses contain no reservation IDs and are no-store.
+
+The editor loads only its own schedule, clears state across account changes,
+keeps drafts after failed saves, requires explicit server success plus a valid
+version, and offers a deliberate reload after a conflict. Failed loads have a
+retry action and cannot overwrite saved hours. All controls have distinct
+accessible day/time labels. No dependency, schema migration, hosting change or
+new credential is required. Roll back the application commit if needed; stored
+JSON retains the same shape and appointments remain intact.

@@ -3,6 +3,7 @@ import { isTestMode } from '@/lib/test-mode'
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@prisma/client'
 import { BOOKING_TIME_ZONE, clinicSlotInstant } from '@/lib/bookings/time'
+import { fitsWorkingWindow, readWeeklyAvailability, workingWindowSlots, type WeekDay } from '@/lib/bookings/availability-rules'
 
 export interface TimeSlot {
   time: string // "HH:MM" format
@@ -13,57 +14,6 @@ export interface TimeSlot {
 export interface AvailabilityDay {
   date: string // YYYY-MM-DD
   slots: TimeSlot[]
-}
-
-/**
- * Generate 30-minute time slots for a day
- * Default hours: 10:00 - 20:00 IST (20 slots)
- */
-function generateDaySlots(startHour = 10, endHour = 20): string[] {
-  const slots: string[] = []
-  
-  for (let hour = startHour; hour < endHour; hour++) {
-    slots.push(`${hour.toString().padStart(2, '0')}:00`)
-    slots.push(`${hour.toString().padStart(2, '0')}:30`)
-  }
-  
-  return slots
-}
-
-/**
- * Check if a time falls within healer's availability window
- */
-interface DayWindow { start?: string; end?: string }
-type AvailabilityShape = Record<string, DayWindow>
-
-function isTimeInAvailability(
-  time: string,
-  dayName: string,
-  availability: AvailabilityShape | null | undefined,
-  durationMin = 60
-): boolean {
-  if (!availability || !availability[dayName.toLowerCase()]) {
-    return false
-  }
-  
-  const dayAvailability = availability[dayName.toLowerCase()]
-  if (!dayAvailability.start || !dayAvailability.end) {
-    return false
-  }
-  
-  const timeMinutes = timeToMinutes(time)
-  const startMinutes = timeToMinutes(dayAvailability.start)
-  const endMinutes = timeToMinutes(dayAvailability.end)
-  
-  return timeMinutes >= startMinutes && timeMinutes + durationMin <= endMinutes
-}
-
-/**
- * Convert HH:MM to minutes since midnight
- */
-function timeToMinutes(time: string): number {
-  const [hours, minutes] = time.split(':').map(Number)
-  return hours * 60 + minutes
 }
 
 // Availability rules and displayed slot labels use the clinic's India timezone.
@@ -132,7 +82,9 @@ export async function getHealerAvailability(
   const dayName = clinicTime(targetDate).day
   
   // Generate all possible slots
-  const allSlots = generateDaySlots()
+  const window = readWeeklyAvailability(healer.availability)?.[dayName as WeekDay]
+  const allSlots = workingWindowSlots(window)
+  if (!allSlots.length || !Number.isSafeInteger(durationMin) || durationMin <= 0) return { date, slots: [] }
   
   // Get existing bookings for this healer on this date
   const startOfDay = new Date(date + 'T00:00:00+05:30')
@@ -140,12 +92,10 @@ export async function getHealerAvailability(
   const existingBookings = await overlappingBookings(prisma, healerId, startOfDay, endOfDay, excludeBookingId, excludeProgramSessionId)
 
   // Check each slot
-  const rawAvail = healer.availability as unknown
-  const availObj: AvailabilityShape | null = (typeof rawAvail === 'object' && rawAvail !== null) ? rawAvail as AvailabilityShape : null
-
+  const now = Date.now()
   const slots: TimeSlot[] = allSlots.map(time => {
     // Check if time is within healer's availability
-    const inAvailability = isTimeInAvailability(time, dayName, availObj, durationMin)
+    const inAvailability = fitsWorkingWindow(window, time, durationMin)
     
     if (!inAvailability) {
       return {
@@ -155,7 +105,8 @@ export async function getHealerAvailability(
     }
     
     // Compare the same absolute instant used when creating a booking.
-    const conflict = hasBookingConflict(clinicSlotInstant(date, time), durationMin, existingBookings)
+    const instant = clinicSlotInstant(date, time)
+    const conflict = instant.getTime() <= now || hasBookingConflict(instant, durationMin, existingBookings)
     
     return {
       time,
@@ -217,9 +168,8 @@ async function validateReservationSlot(
   const durationMin = options.durationMin ?? service?.duration ?? 0
   if (!Number.isSafeInteger(durationMin) || durationMin <= 0) return { valid: false, error: 'Invalid service duration' }
   
-  const healerAvailRaw = healer.availability as unknown
-  const healerAvail: AvailabilityShape | null = (typeof healerAvailRaw === 'object' && healerAvailRaw !== null) ? healerAvailRaw as AvailabilityShape : null
-  if (!isTest && !isTimeInAvailability(timeStr, dayName, healerAvail, durationMin)) {
+  const window = readWeeklyAvailability(healer.availability)?.[dayName as WeekDay]
+  if (!isTest && !fitsWorkingWindow(window, timeStr, durationMin)) {
     return { valid: false, error: 'Healer not available at this time' }
   }
   

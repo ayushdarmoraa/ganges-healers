@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: availability
-    })
+    }, { headers: { 'Cache-Control': 'no-store' } })
     
   } catch (error) {
     console.error('Availability API error:', error)
