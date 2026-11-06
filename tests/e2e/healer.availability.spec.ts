@@ -36,7 +36,7 @@ test('a healer publishes early hours, stale edits cannot overwrite them, and a c
     await stale.getByLabel('Monday end', { exact: true }).selectOption('16:00')
     const conflict = stale.waitForResponse(response => response.url().endsWith('/api/healer/availability') && response.request().method() === 'PUT')
     await stale.getByRole('button', { name: 'Save Availability', exact: true }).click(); expect((await conflict).status()).toBe(412)
-    await expect(stale.getByRole('alert')).toContainText('another session')
+    await expect(stale.getByRole('alert').filter({ hasText: 'another session' })).toContainText('another session')
     await expect(stale.getByLabel('Monday end', { exact: true })).toHaveValue('16:00')
     await stale.getByRole('button', { name: 'Reload saved hours', exact: true }).click()
     await expect(stale.getByLabel('Monday end', { exact: true })).toHaveValue('14:00', { timeout: 30000 })
