@@ -2,6 +2,22 @@
 
 Verified on November 4, 2026. This is a rehearsal record, not a completed production cutover.
 
+## Account closure rehearsal (November 6, 2026)
+
+`20261106190000_account_closure` adds only a nullable `User.closedAt` column.
+Its exact SHA-256 is
+`9e5603d181e94519cd3db87962acf64c7916c36f5dcb8436f25b2e66587a83a9`.
+It was rehearsed on `br-patient-term-adpfp17j`
+(`codex-account-closure-20261106`), copied from the existing release Preview
+`br-winter-sun-ado4pted` in `holy-block-51695227`.
+Repeatable-read checks inside the migration transaction preserved all 47
+original application-table counts/original-field fingerprints and all 26
+earlier migration records. The rehearsal has 27 complete migrations, a nullable
+column and no closed accounts. The follow-up PR records application to the
+development release Preview before matching code is merged. No production
+migration, account closure, connection change or data deletion is part of this
+rehearsal.
+
 ## Phone verification rehearsal (November 6, 2026)
 
 The additive `20261106142000_phone_verification` migration was rehearsed on
@@ -13,9 +29,10 @@ The schema diff contains only two nullable User fields and a new per-account
 challenge table with its primary/foreign keys. All 46 original application-table
 counts and original-field fingerprints match the parent; all 25 earlier
 migration records are unchanged. The 26th migration is recorded, the challenge
-table is empty and no legacy phone was marked verified. This records the isolated
-rehearsal only; follow-up PR verification must establish application to the
-release Preview before matching code is merged. Production is unchanged.
+table is empty and no legacy phone was marked verified. PR #33 records the
+subsequent exact transactional application to the development release Preview,
+with all 46 original tables and 25 earlier migration records preserved and an
+empty schema comparison against the rehearsal. Production is unchanged.
 
 ## Database mapping
 

@@ -26,7 +26,7 @@ test('profile status is private and has an opaque version of editable values onl
   const response = await GET()
   expect(response.headers.get('cache-control')).toBe('private, no-store')
   expect(await response.json()).toEqual({ user: current, profileVersion: version })
-  expect(db.user.findUnique).toHaveBeenCalledWith({ where: { id: 'owner' }, select: { id: true, name: true, email: true, phone: true, image: true, role: true, vip: true, createdAt: true } })
+  expect(db.user.findUnique).toHaveBeenCalledWith({ where: { id: 'owner', closedAt: null }, select: { id: true, name: true, email: true, phone: true, image: true, role: true, vip: true, createdAt: true } })
   const unrelated = { ...current, image: 'https://example.test/new.png', freeSessionCredits: 12 }
   expect(profileVersion(unrelated)).toBe(version)
   expect(profileVersion({ ...current, phone: '9876543210' })).not.toBe(version)
@@ -67,11 +67,11 @@ test('saving uses only allowed changes and returns the actual saved profile/vers
   const response = await PATCH(request({ name: 'Updated', phone: null, role: 'ADMIN', freeSessionCredits: 50 }, guarded))
   expect(response.status).toBe(200)
   expect(await response.json()).toEqual({ user: { ...current, name: 'Updated' }, profileVersion: profileVersion({ ...current, name: 'Updated' }) })
-  expect(db.user.updateMany).toHaveBeenCalledWith({ where: { id: 'owner', name: current.name, phone: null }, data: { name: 'Updated', phone: null } })
+  expect(db.user.updateMany).toHaveBeenCalledWith({ where: { id: 'owner', name: current.name, phone: null, closedAt: null }, data: { name: 'Updated', phone: null } })
 })
 test('existing JSON callers can still save without conditional headers', async () => {
   expect((await PATCH(request({ image: 'https://example.test/avatar.png' }))).status).toBe(200)
-  expect(db.user.updateMany).toHaveBeenCalledWith({ where: { id: 'owner', name: current.name, phone: null, image: null }, data: { image: 'https://example.test/avatar.png' } })
+  expect(db.user.updateMany).toHaveBeenCalledWith({ where: { id: 'owner', name: current.name, phone: null, image: null, closedAt: null }, data: { image: 'https://example.test/avatar.png' } })
 })
 test('a phone uniqueness race returns the existing conflict without logging the number', async () => {
   const log = jest.spyOn(console, 'error').mockImplementation(() => {})

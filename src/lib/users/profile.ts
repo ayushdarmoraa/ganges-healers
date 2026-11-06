@@ -20,11 +20,11 @@ const selection = { id: true, name: true, email: true, phone: true, image: true 
 export async function updateOwnProfile(userId: string, changes: ProfileChanges, expectedVersion?: string) {
   try {
     return await prisma.$transaction(async tx => {
-      const current = await tx.user.findUnique({ where: { id: userId }, select: selection })
+      const current = await tx.user.findUnique({ where: { id: userId, closedAt: null }, select: selection })
       if (!current) throw new ProfileUpdateError('User not found', 404)
       if (expectedVersion && profileVersion(current) !== expectedVersion) throw new ProfileUpdateError('Your saved profile changed. Discard the draft and reload before saving again.', 409, 'PROFILE_CHANGED')
       const changed = await tx.user.updateMany({
-        where: { id: userId, name: current.name, phone: current.phone, ...(changes.image !== undefined ? { image: current.image } : {}) },
+        where: { id: userId, closedAt: null, name: current.name, phone: current.phone, ...(changes.image !== undefined ? { image: current.image } : {}) },
         data: { ...changes, ...(changes.phone !== undefined && changes.phone !== current.phone ? { phoneVerifiedAt: null, phoneVerifiedHash: null } : {}) },
       })
       if (changed.count !== 1) throw new ProfileUpdateError('Your saved profile changed. Discard the draft and reload before saving again.', 409, 'PROFILE_CHANGED')

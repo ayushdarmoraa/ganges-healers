@@ -17,6 +17,7 @@ import EmailVerificationSettings from "@/components/auth/EmailVerificationSettin
 import PhoneVerificationSettings, { PROFILE_UPDATED_EVENT } from '@/components/auth/PhoneVerificationSettings'
 import { isInternationalPhone } from '@/config/phone'
 import { signOutCurrentSession } from '@/lib/auth/client-session'
+import AccountClosureSettings from '@/components/auth/AccountClosureSettings'
 
 // --- Schemas ---
 
@@ -90,6 +91,7 @@ export default function SettingsClient({ user }: Props) {
           </p>
         </CardContent>
       </Card>
+      <AccountClosureSettings userId={session?.user?.id ?? ''} authenticationAt={session?.user?.recentAuthentication?.issuedAt} sessionLoading={status === 'loading'} />
     </div>
   )
 }

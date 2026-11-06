@@ -19,13 +19,13 @@ export { trustedAuthEmailOrigin as passwordResetBaseUrl } from './email-links'
 export async function requestPasswordReset(email: string, baseUrl: string, callbackUrl: unknown) {
   const matches = await prisma.user.findMany({
     where: { email: { equals: email.trim().toLowerCase(), mode: 'insensitive' } },
-    select: { id: true, email: true, password: true },
+    select: { id: true, email: true, password: true, closedAt: true },
     take: 2,
   })
   // Older mixed-case accounts can collide under an insensitive lookup; never choose one arbitrarily.
   if (matches.length !== 1) return
   const user = matches[0]
-  if (!user?.password) return
+  if (!user?.password || user.closedAt) return
   const now = new Date()
   const rateToken = digest(`password-reset-rate:${user.id}`)
   const rateIdentifier = `password-reset-rate:${user.id}`
@@ -70,12 +70,12 @@ export async function confirmPasswordReset(token: string, newPassword: string) {
   const parts = record?.identifier.split(':')
   if (!record || record.expires <= now || parts?.length !== 4 || parts[0] !== 'password-reset') throw new PasswordResetError('This reset link is invalid or has expired. Request a new link.')
   const userId = parts[1]
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true, password: true } })
-  if (!user?.password || parts[2] !== passwordVersion(user.password) || parts[3] !== digest(user.email.trim().toLowerCase())) throw new PasswordResetError('This reset link is invalid or has expired. Request a new link.')
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true, password: true, closedAt: true } })
+  if (!user?.password || user.closedAt || parts[2] !== passwordVersion(user.password) || parts[3] !== digest(user.email.trim().toLowerCase())) throw new PasswordResetError('This reset link is invalid or has expired. Request a new link.')
   const hashed = await bcrypt.hash(newPassword, 12)
   await prisma.$transaction(async tx => {
     // Lock the account before token rows, so different concurrent links cannot deadlock each other.
-    const changed = await tx.user.updateMany({ where: { id: userId, email: user.email, password: user.password }, data: { password: hashed } })
+    const changed = await tx.user.updateMany({ where: { id: userId, email: user.email, password: user.password, closedAt: null }, data: { password: hashed } })
     if (changed.count !== 1) throw new PasswordResetError('This reset link is invalid or has expired. Request a new link.')
     const consumed = await tx.verificationToken.deleteMany({ where: { token: tokenHash, identifier: record.identifier, expires: { gt: new Date() } } })
     if (consumed.count !== 1) throw new PasswordResetError('This reset link is invalid or has expired. Request a new link.')

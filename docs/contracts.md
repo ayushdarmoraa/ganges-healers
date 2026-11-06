@@ -23,6 +23,44 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 
 ## Public APIs: Contracts to Preserve
 
+### Account closure
+- `GET /api/users/account` is an owner-only, private/no-store closure review.
+  `DELETE` requires JSON, same-origin input, the displayed owner and review
+  version, explicit retained-record acknowledgement and `CLOSE MY ACCOUNT`.
+  A receipt is returned only after the transaction commits. This is account
+  closure, not personal-data erasure or a cancellation/refund request.
+- Normal sign-in issues an HMAC-bound, five-minute recent-authentication proof
+  tied to the account and current password/factor version. Ordinary JWT refresh
+  and client session updates cannot renew it. Closure rechecks it under the
+  account lock. Existing sessions without this proof must sign in again, using
+  their existing credentials/Google and authenticator rules. No new provider,
+  password bypass or MFA exception is introduced.
+- Current staff roles or any linked practitioner record block self-closure.
+  Upcoming/ongoing open bookings, non-cancelled membership subscriptions,
+  active/paused programs, nonterminal store orders and processing payments
+  must be resolved first. A final review rechecks these conditions; an account
+  edit or changed blockers requires an explicit review refresh.
+- A shared account advisory lock and User row lock serialize confirmation.
+  `closedAt`, security-version increment, database-session/recovery-link
+  revocation, phone-challenge expiration and a non-sensitive `account_closed`
+  audit commit atomically. Audit failure rolls everything back. Replays fail.
+  Password, email, phone, OAuth/factor records, roles, credits, purchases,
+  bookings, invoices, payments and refund history remain stored. Email/phone
+  identities stay reserved. Existing in-flight transactions/provider callbacks
+  can settle against retained records; closure does not undo fulfillment.
+- Closed accounts cannot pass password/OAuth sign-in, JWT issuance or refresh,
+  notification reconnect/revalidation, recovery or verification. Conditional
+  profile/password writes also refuse closed accounts. No public reopen or
+  hard-delete endpoint is supplied. Existing payment callbacks remain intact.
+- The settings card validates receipts, ignores obsolete owner replies,
+  blocks duplicate confirmation, keeps failed drafts and requires explicit
+  refresh after conflicts. Sign-out cleanup can be retried after a confirmed
+  closure without sending DELETE again.
+- Migration `20261106190000_account_closure` adds one nullable User field with
+  no backfill or data deletion. Apply schema before code. For repair, disable
+  new closures while retaining all closed-account authentication guards and
+  the additive column; restoring pre-closure auth would reopen closed users.
+
 ### Account phone verification
 - `GET /api/users/me/phone-verification` is authenticated, owner-only and
   private/no-store. It returns the saved phone, matching verification date,

@@ -8,7 +8,7 @@ import { isInternationalPhone, phoneSms, SmsVerificationError } from '@/lib/auth
 const HOUR = 60 * 60_000, LIFETIME = 10 * 60_000, COOLDOWN = 60_000, LEASE = 20_000
 const MAX_SENDS = 3, MAX_ATTEMPTS = 5
 const hash = (phone: string) => createHash('sha256').update(phone).digest('hex')
-const userSelect = { id: true, phone: true, password: true, securityVersion: true, phoneVerifiedAt: true, phoneVerifiedHash: true } as const
+const userSelect = { id: true, phone: true, password: true, securityVersion: true, closedAt: true, phoneVerifiedAt: true, phoneVerifiedHash: true } as const
 type Account = Prisma.UserGetPayload<{ select: typeof userSelect }>
 
 export class PhoneVerificationError extends Error {
@@ -19,7 +19,7 @@ const phoneChanged = () => new PhoneVerificationError('Your phone or account sec
 const verified = (user: Account) => isInternationalPhone(user.phone) && !!user.phoneVerifiedAt && user.phoneVerifiedHash === hash(user.phone)
 const credential = (user: Account) => sessionCredentialVersion(user.password, user.securityVersion)
 function requirePhone(user: Account | null, expected: string): asserts user is Account & { phone: string } {
-  if (!user) throw new PhoneVerificationError('Unauthorized', 401, 'UNAUTHORIZED')
+  if (!user || user.closedAt) throw new PhoneVerificationError('Unauthorized', 401, 'UNAUTHORIZED')
   if (user.phone !== expected) throw phoneChanged()
   if (!isInternationalPhone(user.phone)) throw new PhoneVerificationError('Save your phone with an explicit +country code first.', 400, 'PHONE_FORMAT')
 }
@@ -39,7 +39,7 @@ function providerError(error: unknown) {
 /** Private current-owner status contains neither provider identifiers nor credential fingerprints. */
 export async function phoneVerificationStatus(userId: string) {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { ...userSelect, phoneVerification: true } })
-  if (!user) throw new PhoneVerificationError('Unauthorized', 401, 'UNAUTHORIZED')
+  if (!user || user.closedAt) throw new PhoneVerificationError('Unauthorized', 401, 'UNAUTHORIZED')
   const state = user.phoneVerification, now = Date.now(), isVerified = verified(user)
   const active = !isVerified && isInternationalPhone(user.phone) && state?.providerId && state.phoneHash === hash(user.phone) && state.credentialVersion === credential(user) && state.expiresAt.getTime() > now && state.attempts < MAX_ATTEMPTS
   const retry = retryAt(state, now)
@@ -123,7 +123,7 @@ export async function confirmPhoneVerification(userId: string, phone: string, re
     const state = await tx.phoneVerification.findUnique({ where: { userId } }), now = new Date()
     if (!state || state.requestId !== requestId || state.checkingId !== check.checkingId || state.providerId !== check.providerId || state.expiresAt <= now || !state.checkingUntil || state.checkingUntil <= now || credential(user) !== check.credentialVersion) throw invalid()
     if (outcome === 'approved') {
-      const changed = await tx.user.updateMany({ where: { id: userId, phone, password: user.password, securityVersion: user.securityVersion }, data: { phoneVerifiedAt: now, phoneVerifiedHash: hash(phone) } })
+      const changed = await tx.user.updateMany({ where: { id: userId, phone, password: user.password, securityVersion: user.securityVersion, closedAt: null }, data: { phoneVerifiedAt: now, phoneVerifiedHash: hash(phone) } })
       if (changed.count !== 1) throw phoneChanged()
     }
     await tx.phoneVerification.update({ where: { userId }, data: {
