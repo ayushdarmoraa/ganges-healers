@@ -207,7 +207,7 @@ function ProductFormFields({ formAction }: Props) {
     <Card>
       <CardContent className="p-4">
         <h2 className="font-medium mb-3">Create Product</h2>
-        <form ref={formRef} action={formAction} onSubmit={event => { event.preventDefault(); void submitProduct(new FormData(event.currentTarget)) }} className="space-y-4">
+        <form aria-label="Create product" ref={formRef} action={formAction} onSubmit={event => { event.preventDefault(); void submitProduct(new FormData(event.currentTarget)) }} className="space-y-4">
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           {notice && <p role="status" className="text-sm">{notice}</p>}
           <fieldset disabled={saving} className="space-y-4">
