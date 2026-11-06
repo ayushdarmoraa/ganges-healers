@@ -344,3 +344,15 @@ failure feedback visible, clears secret inputs after attempts, preserves email
 and recovery links, and prevents duplicate submissions. Existing real-password,
 MFA and administrator authorization checks remain intact; no demo login or
 privileged account is silently installed.
+
+## Administrator benefit edits
+
+The existing VIP/credit workspace validates whole nonnegative balances, requires
+an audit reason and rejects stale reviewed data. Stable actor/account row locks
+serialize saves with credit consumption and recheck current administrator roles.
+Benefits and their before/after audit commit together; subscription terms,
+credit ledgers, payments, credentials and roles remain intact. The editor retains
+failed drafts, requires reload after conflicts, blocks duplicate submissions and
+clears on account changes. Disposable-database and real-password administrator
+browser fixtures verify these workflows without requiring owner browser sign-in.
+No schema, provider credential or production-data change is required.
