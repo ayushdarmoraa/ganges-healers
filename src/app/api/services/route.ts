@@ -1,9 +1,10 @@
-import { isTestMode } from '@/lib/test-mode'
 // src/app/api/services/route.ts
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/rbac'
 import { cached } from '@/lib/cache'
+import { createServiceSchema } from '@/lib/services/catalog-schema'
 
 export async function GET(request: NextRequest) {
   try {
@@ -102,51 +103,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: status ?? 403 })
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- admin body destructured without Zod
-    let body: any
-    if (isTestMode()) {
-      const raw = await request.text().catch(() => '')
-      console.debug('[TEST_MODE] /api/services POST raw body:', raw || '(none)')
-      try {
-        body = raw ? JSON.parse(raw) : {}
-      } catch (err) {
-        console.error('[TEST_MODE] JSON parse failed for /api/services POST', err, 'raw:', raw)
-        return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
-      }
-    } else {
-      body = await request.json()
-    }
-    const { name, description, tagline, category, price, duration, image, mode = 'BOTH', benefits = [] } = body
-
-    if (!name || !description || !category || !price || !duration) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
-    }
-
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-    
-    const existing = await prisma.service.findUnique({ where: { slug } })
-    if (existing) {
-      return NextResponse.json({ error: 'Service already exists' }, { status: 409 })
+    const body: unknown = await request.json().catch(() => undefined)
+    if (body === undefined) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+    const fields = createServiceSchema.safeParse(body)
+    if (!fields.success) {
+      const missing = typeof body === 'object' && body !== null &&
+        ['name', 'description', 'category', 'price', 'duration'].some(key => !Object.hasOwn(body, key))
+      return NextResponse.json({ error: missing ? 'Missing required fields' : 'Invalid service fields' }, { status: 400 })
     }
 
     const service = await prisma.service.create({
-      data: {
-        name,
-        slug,
-        description,
-        tagline,
-        category,
-        price: parseFloat(price),
-        duration: parseInt(duration),
-        image,
-        mode,
-        benefits: benefits.length > 0 ? benefits : undefined,
-        isActive: true
-      }
+      data: { ...fields.data, isActive: true },
     })
 
     return NextResponse.json({ success: true, data: service }, { status: 201 })
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return NextResponse.json({ error: 'Service already exists' }, { status: 409 })
+    }
     console.error('Service creation error:', error)
     return NextResponse.json({ error: 'Failed to create service' }, { status: 500 })
   }

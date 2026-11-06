@@ -168,7 +168,7 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
   back/forward and cleared filters; legacy `q` searches remain supported.
   Invalid/repeated numeric filters are not passed to Prisma as NaN/infinity;
   zero is a valid price bound. Every empty filtered result offers a link to
-  clear all catalog filters. Existing service/booking JSON APIs are unchanged.
+  clear all catalog filters.
 - `GET /api/services/[id]` keeps `{ success, data }`, public catalog fields,
   `_count.bookings`, `healers`, numeric `averageRating`, and `totalBookings`.
   `totalReviews` is additive; ratings are computed from actual service reviews
@@ -196,6 +196,22 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 - Public healer `certifications` remain an array of plain names. Both legacy
   strings and saved `{ name, ... }` objects are supported; blank/malformed
   entries and duplicate names are omitted instead of rendering arbitrary objects.
+
+### Administrator service catalog
+
+- The admin editor and service write APIs validate names, descriptions,
+  categories, service modes, prices and durations before saving. Prices are in
+  rupees with at most two decimal places, from zero to ₹21,474,836.47 so the
+  booking price fits the stored paise amount. Durations are whole minutes from
+  1 to 1440, matching the session delivery limit.
+- `POST /api/services` generates the slug from the name and keeps the
+  `201 { success, data }` response. `PUT /api/services/[id]` keeps
+  `200 { success, data }` and accepts partial changes to catalog fields.
+  Malformed JSON, invalid fields, and update keys outside the catalog return
+  `400 { error }`. A duplicate slug returns `409 { error }`.
+- The admin form keeps input available after a rejected save. A successful
+  creation clears the form. Activation and deactivation remain separate
+  from editing and preserve linked bookings and billing records.
 
 ### Booking and availability
 - Healer profile booking links carry `openBooking=1` and the selected `healerId`.
