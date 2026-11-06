@@ -5,11 +5,12 @@ import { Button } from '@/components/ui/button'
 
 type SaveResult = { error?: string }
 
-export function CatalogEditor({ action, children, item, create = false }: {
+export function CatalogEditor({ action, children, item, create = false, submitLabel }: {
   action: (data: FormData) => Promise<SaveResult>
   children: ReactNode
   item: string
   create?: boolean
+  submitLabel?: string
 }) {
   const [result, setResult] = useState<SaveResult | null>(null)
   const [pending, startTransition] = useTransition()
@@ -45,7 +46,7 @@ export function CatalogEditor({ action, children, item, create = false }: {
         {result?.error && <p role="alert" className="text-sm text-destructive md:col-span-3">{result.error}</p>}
         {result && !result.error && <p role="status" className="text-sm md:col-span-3">{item} {create ? 'created.' : 'saved.'}</p>}
         <div>
-          <Button type="submit" size="sm">{pending ? 'Saving…' : create ? 'Create' : 'Save'}</Button>
+          <Button type="submit" size="sm">{pending ? 'Saving…' : submitLabel ?? (create ? 'Create' : 'Save')}</Button>
         </div>
       </fieldset>
     </form>

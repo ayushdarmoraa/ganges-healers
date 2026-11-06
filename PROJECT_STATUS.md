@@ -23,7 +23,7 @@ program edits recoverable in their admin forms.
 | Programs and courses | Catalogs, paid/free enrollment rules, owned lesson progress; program practitioner assignment, reservations, cancellation, guarded completion/progress and pause/resume | Remote meeting provisioning and live purchase delivery |
 | Community and content | Topics/tags, drafts, administration, moderation/report review, blog publishing/withdrawal | Owner-supplied published content and deployed role smoke checks |
 | Notifications and navigation | Inbox/read state, bells, polling/socket authorization, search, account menus and cart | External email/SMS providers and deployed responsive checks |
-| Store | Catalog/checkout, owned order details, filters/paging, saved line totals and recovery screens | Real gateway checkout and fulfillment operations |
+| Store | Catalog/checkout, owned order details, filters/paging, saved line totals, staff shipment and delivery recording, customer tracking | Real gateway checkout and operational fulfillment checks |
 | Administration and analytics | Admin workspaces, validated service/healer/program edits with draft recovery, access controls, payment reports, funnel/events, experiments and products | Production data/provider configuration and live monitoring |
 
 The implemented candidate and passing isolated checks do not establish production deployment or completion of unspecified future sprint placeholders. No owner credential entry is needed for the changes above. The current production audit and remaining upstream finding are documented in `docs/ops-checklist.md`.
