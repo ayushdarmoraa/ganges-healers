@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from 'next/navigation'
 import { useForm } from "react-hook-form"
@@ -41,6 +41,8 @@ type PasswordData = z.infer<typeof passwordSchema>
 
 interface Props {
   user: {
+    id: string
+    profileVersion: string
     name: string
     email: string
     phone: string
@@ -51,14 +53,23 @@ interface Props {
 
 export default function SettingsClient({ user }: Props) {
   const { update: updateSession, data: session, status } = useSession()
+  const router = useRouter()
+
+  if (session?.user?.id !== user.id) return <div className="container mx-auto max-w-2xl space-y-4 p-6">
+    <h1 className="text-2xl font-semibold">Account Settings</h1>
+    {status === 'loading' ? <p role="status">Loading account settings…</p> : <>
+      <p role="alert">Your account changed. Reload account settings to continue.</p>
+      <Button type="button" onClick={() => router.refresh()}>Reload account settings</Button>
+    </>}
+  </div>
 
   return (
     <div className="container mx-auto p-6 max-w-2xl space-y-8">
       <h1 className="text-2xl font-semibold">Account Settings</h1>
 
-      <ProfileSection user={user} onSessionRefresh={updateSession} />
+      <ProfileSection key={`profile-${user.id}`} user={user} disabled={status !== 'authenticated'} onSessionRefresh={updateSession} />
 
-      <PasswordSection passwordExists={user.passwordExists} />
+      <PasswordSection key={`password-${user.id}`} passwordExists={user.passwordExists} />
       <EmailVerificationSettings userId={session?.user?.id ?? ""} sessionLoading={status === "loading"} />
       <TwoFactorSettings userId={session?.user?.id ?? ""} sessionLoading={status === "loading"} />
 
@@ -84,13 +95,22 @@ export default function SettingsClient({ user }: Props) {
 
 function ProfileSection({
   user,
+  disabled,
   onSessionRefresh,
 }: {
   user: Props["user"]
+  disabled: boolean
   onSessionRefresh: (data?: Record<string, unknown>) => Promise<unknown>
 }) {
   const [saving, setSaving] = useState(false)
+  const [reloading, setReloading] = useState(false)
+  const [version, setVersion] = useState(user.profileVersion)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
   const [avatarUrl, setAvatarUrl] = useState(user.image)
+  const busy = useRef(false)
+  const active = useRef(false)
+  useEffect(() => { active.current = true; return () => { active.current = false } }, [])
 
   const form = useForm<ProfileData>({
     resolver: zodResolver(profileSchema),
@@ -98,33 +118,61 @@ function ProfileSection({
   })
 
   const onSubmit = async (data: ProfileData) => {
+    if (busy.current || disabled) return
+    busy.current = true
     setSaving(true)
+    setError(''); setMessage('')
     try {
       const res = await fetch("/api/users/me", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", 'X-Account-Id': user.id, 'If-Match': `"${version}"` },
         body: JSON.stringify({
           name: data.name,
           phone: data.phone || null,
         }),
       })
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || "Update failed")
-      }
-
+      const body: unknown = await res.json().catch(() => null)
+      if (!active.current) return
+      if (!res.ok) throw new Error(responseError(body, 'Update failed'))
+      const saved = savedProfile(body, user.id)
+      if (!saved || saved.user.name !== data.name || saved.user.phone !== (data.phone || null)) throw new Error('Profile save could not be confirmed. Your draft is still available; reload the saved profile before retrying.')
+      setVersion(saved.profileVersion)
+      form.reset({ name: saved.user.name || '', phone: saved.user.phone || '' })
+      setMessage('Profile updated.')
       toast.success("Profile updated")
-      // Refresh the NextAuth session so navbar reflects new name immediately
-      await onSessionRefresh()
+      try { await onSessionRefresh() }
+      catch { if (active.current) setMessage('Profile updated. Reload the page to refresh your account menu.') }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Update failed")
+      if (active.current) {
+        const message = err instanceof Error ? err.message : 'Update failed'
+        setError(message); toast.error(message)
+      }
     } finally {
-      setSaving(false)
+      busy.current = false
+      if (active.current) setSaving(false)
     }
   }
 
+  const reload = async () => {
+    if (busy.current || disabled) return
+    busy.current = true; setReloading(true); setError(''); setMessage('')
+    try {
+      const res = await fetch('/api/users/me', { cache: 'no-store' })
+      const body: unknown = await res.json().catch(() => null)
+      if (!active.current) return
+      if (!res.ok) throw new Error(responseError(body, 'Unable to reload the saved profile. Your draft is still available.'))
+      const saved = savedProfile(body, user.id)
+      if (!saved) throw new Error('Unable to confirm the saved profile. Your draft is still available. Reload account settings if your account changed.')
+      setVersion(saved.profileVersion)
+      form.reset({ name: saved.user.name || '', phone: saved.user.phone || '' })
+      setMessage('Saved profile loaded. Review it before saving.')
+    } catch (cause) { if (active.current) setError(cause instanceof Error ? cause.message : 'Unable to reload the saved profile.') }
+    finally { busy.current = false; if (active.current) setReloading(false) }
+  }
+
   const handleAvatarUploaded = async (url: string) => {
+    if (!active.current) return
     setAvatarUrl(url)
     // Refresh session so the navbar avatar updates immediately
     await onSessionRefresh()
@@ -144,7 +192,8 @@ function ProfileSection({
         />
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <form aria-label="Edit profile" aria-busy={saving || reloading} onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <fieldset disabled={disabled || saving || reloading} className="space-y-4">
             <FormField
               control={form.control}
               name="name"
@@ -173,14 +222,31 @@ function ProfileSection({
               )}
             />
 
-            <Button type="submit" disabled={saving}>
+            <Button type="submit">
               {saving ? "Saving…" : "Save Changes"}
             </Button>
+            <p className="text-xs text-muted-foreground">Reloading replaces your draft with the saved name and phone.</p>
+            <Button type="button" variant="outline" onClick={() => void reload()}>{reloading ? 'Reloading…' : 'Discard draft and reload'}</Button>
+            </fieldset>
+            {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+            {message && <p role="status" className="text-sm">{message}</p>}
           </form>
         </Form>
       </CardContent>
     </Card>
   )
+}
+
+const savedProfileSchema = z.object({
+  user: z.object({ id: z.string(), name: z.string().nullable(), phone: z.string().nullable() }),
+  profileVersion: z.string().regex(/^[a-f0-9]{64}$/),
+})
+function savedProfile(body: unknown, ownerId: string) {
+  const parsed = savedProfileSchema.safeParse(body)
+  return parsed.success && parsed.data.user.id === ownerId ? parsed.data : null
+}
+function responseError(body: unknown, fallback: string) {
+  return body && typeof body === 'object' && 'error' in body && typeof body.error === 'string' ? body.error : fallback
 }
 
 // --- Password Section ---

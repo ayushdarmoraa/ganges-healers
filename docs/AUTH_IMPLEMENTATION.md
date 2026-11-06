@@ -157,6 +157,14 @@ booking callback. Recovery uses the existing Resend service and
 configuration is shown as temporarily unavailable; email delivery has not been
 verified in the new Ganges workspace.
 
+Profile settings use an owner-bound saved-name/phone version for conditional
+saves. Stale tabs and changed owners receive conflicts; failed operations retain
+the draft until an explicit discard/reload. The API handles phone uniqueness
+races without partial writes or raw personal data in logs. The new response
+version and conditional headers are documented in `docs/contracts.md`; legacy
+JSON callers remain compatible. This changes no credentials or billing records
+and requires no provider configuration, schema migration or dependency.
+
 Email ownership verification now uses the same configured mail service and
 trusted-origin validation, with account status/resend controls in settings and
 `/auth/verify-email` for confirmation. Links are hashed at rest, last 30 minutes,
