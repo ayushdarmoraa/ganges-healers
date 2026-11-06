@@ -333,3 +333,14 @@ accounts remain intact. Administration can still edit, verify and reactivate
 records. The browser regression snapshots these related records through actual
 deactivation actions and verifies that the customer still has the appointment
 and its private calendar. No migration or provider credential is required.
+
+## Sign-in feedback and independent development
+
+A read-only check of the connected release Preview database found no website
+account matching the email used in the failed browser attempt. Vercel account
+access does not create an application account. Website development continues
+without making browser sign-in an owner action gate. The sign-in page now keeps
+failure feedback visible, clears secret inputs after attempts, preserves email
+and recovery links, and prevents duplicate submissions. Existing real-password,
+MFA and administrator authorization checks remain intact; no demo login or
+privileged account is silently installed.

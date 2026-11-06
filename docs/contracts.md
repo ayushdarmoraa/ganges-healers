@@ -925,3 +925,16 @@ booking time/status or purchased program term. Customer booking history/calendar
 access continues even when its catalog service/practitioner is inactive. Use the
 existing Activate action to reverse deactivation. If repairing/rolling back this
 change, retain the deactivation-only behavior; do not restore cascade deletion.
+
+## Sign-in feedback and development continuity
+
+The existing Auth.js credentials and optional Google providers, stored-password
+verification, MFA checks and callback validation are unchanged. Failed or
+unconfirmed credentials retain a persistent, non-enumerating inline alert as
+well as the existing toast; transport failures use a separate generic alert.
+Email is retained for retry while password and one-use factor inputs are cleared.
+A synchronous submission guard prevents duplicate requests, and standard password
+manager autocomplete is available. Recovery/registration links remain accessible.
+No demo identity, default administrator or authentication bypass is introduced.
+No schema, environment, dependency or payment changes; revert the focused page
+and test changes together if necessary.
