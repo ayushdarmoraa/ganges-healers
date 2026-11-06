@@ -50,13 +50,6 @@ async function toggleVerified(formData: FormData) {
   revalidatePath('/admin/healers')
 }
 
-async function deleteHealer(formData: FormData) {
-  'use server'
-  await guardAdmin()
-  const id = String(formData.get('id'))
-  await prisma.healer.delete({ where: { id } })
-  revalidatePath('/admin/healers')
-}
 
 export default async function AdminHealersPage() {
   await guardAdmin()
@@ -72,12 +65,13 @@ export default async function AdminHealersPage() {
   return (
     <div className="container mx-auto px-4 py-8 space-y-8">
       <h1 className="text-2xl font-semibold">Admin · Healers</h1>
+      <p className="text-sm text-muted-foreground">Deactivate a healer to stop new bookings. Existing appointments, program assignments and the user account are kept.</p>
 
       <Card>
         <CardContent className="p-0 divide-y">
           {healers.map((h) => (
-            <div key={h.id} className="p-4 space-y-3">
-              <div className="flex items-start justify-between gap-4">
+            <article key={h.id} aria-label={`Healer ${h.user.name || h.user.email}`} className="p-4 space-y-3">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <div className="font-medium">
                     {h.user.name || h.user.email}
@@ -108,10 +102,7 @@ export default async function AdminHealersPage() {
                       {h.isVerified ? 'Unverify' : 'Verify'}
                     </Button>
                   </form>
-                  <form action={deleteHealer}>
-                    <input type="hidden" name="id" value={h.id} />
-                    <Button type="submit" variant="destructive" size="sm">Delete</Button>
-                  </form>
+
                 </div>
               </div>
               <details className="text-sm">
@@ -135,7 +126,7 @@ export default async function AdminHealersPage() {
                   </div>
                 </form>
               </details>
-            </div>
+            </article>
           ))}
           {healers.length === 0 && (
             <div className="p-4 text-center text-muted-foreground">No healers registered yet.</div>

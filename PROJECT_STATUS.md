@@ -316,3 +316,15 @@ a database row lock before deletion. Purchased/bundled products keep the existin
 Deactivate option. Safe deletion and its audit are atomic, failures are explicit,
 and mobile product cards keep controls visible. Exact results are recorded in the
 follow-up pull request; no schema, provider or payment-flow changes are required.
+
+
+## Service and healer retention
+
+The Services and Healers administrator pages now use reversible deactivation
+instead of exposing permanent cascade deletion. Both the old buttons and their
+unguarded private server actions are retired. Existing bookings, payment/refund/
+invoice chains, reviews, linked products, program assignments and healer user
+accounts remain intact. Administration can still edit, verify and reactivate
+records. The browser regression snapshots these related records through actual
+deactivation actions and verifies that the customer still has the appointment
+and its private calendar. No migration or provider credential is required.
