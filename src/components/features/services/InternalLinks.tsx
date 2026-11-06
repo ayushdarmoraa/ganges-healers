@@ -26,6 +26,7 @@ export default async function InternalLinks({ serviceName, category }: InternalL
     }),
     prisma.audioTrack.findMany({
       where: {
+        isPublished: true,
         OR: [
           { title: { contains: keyword, mode: "insensitive" } },
           { category: { contains: categoryLower, mode: "insensitive" } },

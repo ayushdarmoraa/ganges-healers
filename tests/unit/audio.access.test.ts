@@ -44,14 +44,14 @@ describe('public audio catalog', () => {
     expect(mockAuth).not.toHaveBeenCalled()
   })
 
-  test('redacts a warm cache without mutating cached records', async () => {
+  test('ignores obsolete cached URLs and reads current publication/access metadata', async () => {
     const cachedTracks = [premium, free]
     cacheSet('audio:list:all', { tracks: cachedTracks, categories: ['Meditation'] })
     for (let i = 0; i < 2; i++) {
       const response = await listAudio(new Request('http://localhost/api/audio'))
       expect(await response.text()).not.toContain(premium.audioUrl)
     }
-    expect(db.audioTrack.findMany).not.toHaveBeenCalled()
+    expect(db.audioTrack.findMany).toHaveBeenCalledTimes(4)
     expect(cachedTracks[0].audioUrl).toBe(premium.audioUrl)
   })
 
@@ -59,10 +59,18 @@ describe('public audio catalog', () => {
     const url = 'http://localhost/api/audio?category=Meditation'
     await listAudio(new Request(url))
     const response = await listAudio(new Request(url))
-    expect(db.audioTrack.findMany).toHaveBeenCalledTimes(2)
-    expect(db.audioTrack.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { category: 'Meditation' } }))
+    expect(db.audioTrack.findMany).toHaveBeenCalledTimes(4)
+    expect(db.audioTrack.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { category: 'Meditation', isPublished: true } }))
     expect((await response.json()).tracks[0].audioUrl).toBeNull()
   })
+})
+
+test('withdrawn or draft audio is missing even when requested by its known identifier', async () => {
+  db.audioTrack.findFirst.mockResolvedValue(null)
+  const response = await detail()
+  expect(response.status).toBe(404); expect(await response.json()).toEqual({ error: 'Track not found' })
+  expect(db.audioTrack.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { isPublished: true, OR: [{ id: premium.slug }, { slug: premium.slug }] } }))
+  expect(response.headers.get('cache-control')).toBe('private, no-store')
 })
 
 describe('audio playback access', () => {

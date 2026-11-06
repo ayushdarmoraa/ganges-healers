@@ -356,3 +356,20 @@ failed drafts, requires reload after conflicts, blocks duplicate submissions and
 clears on account changes. Disposable-database and real-password administrator
 browser fixtures verify these workflows without requiring owner browser sign-in.
 No schema, provider credential or production-data change is required.
+
+## Audio authoring and publication
+
+Administrators can create private audio drafts, edit metadata/media URLs, publish
+and withdraw from the existing audio library. Content versions and transaction
+locks reject stale writes; current roles are rechecked, and edits/publication
+commit with an audit. Failed drafts remain available for retry or explicit reload.
+Published visibility is enforced in playback, metadata, library/home discovery,
+search, service links and sitemaps. Premium rules remain tied to current VIP or
+active program/course access. Player account changes discard old media and
+ignore late responses. No provider credential is required to manage licensed,
+externally hosted HTTPS media URLs.
+
+The additive publication migration preserves legacy visibility by default and was
+rehearsed on an isolated Neon child branch with an unchanged legacy-row fingerprint.
+Release Preview application and deployed verification are recorded in the audio
+follow-up PR. No production connection/domain or owner account change is required.

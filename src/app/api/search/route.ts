@@ -66,8 +66,14 @@ export async function GET(req: Request) {
        LIMIT 10`,
       tsquery,
     )
+    const freshAudio = prisma.$queryRawUnsafe<Array<{ id: string; slug: string; title: string; category: string; duration: number; isPremium: boolean }>>(
+      `SELECT id, slug, title, category, duration, "isPremium" FROM "AudioTrack"
+       WHERE "isPublished" = true AND "searchVector" @@ to_tsquery('english', $1)
+       ORDER BY ts_rank("searchVector", to_tsquery('english', $1)) DESC
+       LIMIT 10`, tsquery,
+    )
     const cachedResults = cached(`search:${tsquery}`, async () => {
-      const [services, healers, programs, products, audio] =
+      const [services, healers, programs, products] =
       await Promise.all([
         prisma.$queryRawUnsafe<Array<{ id: string; slug: string; name: string; category: string; tagline: string | null }>>(
           `SELECT id, slug, name, category, tagline FROM "Service"
@@ -100,20 +106,13 @@ export async function GET(req: Request) {
            LIMIT 10`,
           tsquery
         ),
-        prisma.$queryRawUnsafe<Array<{ id: string; slug: string; title: string; category: string; duration: number; isPremium: boolean }>>(
-          `SELECT id, slug, title, category, duration, "isPremium" FROM "AudioTrack"
-           WHERE "searchVector" @@ to_tsquery('english', $1)
-           ORDER BY ts_rank("searchVector", to_tsquery('english', $1)) DESC
-           LIMIT 10`,
-          tsquery
-        ),
       ])
 
-      return { services, healers, programs, products, audio }
+      return { services, healers, programs, products }
     })
 
     // Publication state is read afresh even when the other result groups are cached.
-    const [results, blog, courses] = await Promise.all([cachedResults, freshBlog, freshCourses])
+    const [results, blog, courses, audio] = await Promise.all([cachedResults, freshBlog, freshCourses, freshAudio])
 
     // Reshape healers to match previous API contract
     const shapedHealers = results.healers.map((h) => ({
@@ -130,7 +129,7 @@ export async function GET(req: Request) {
       courses,
       products: results.products,
       blog,
-      audio: results.audio,
+      audio,
     }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (err) {
     console.error('[search][error]', err)
