@@ -8,7 +8,7 @@ import bcrypt from "bcryptjs"
 
 import { membershipAccess } from '@/lib/memberships/access'
 import { assertProductionTestModeDisabled } from '@/lib/test-mode'
-import { sessionCredentialVersion } from '@/lib/auth/password-version'
+import { createRecentAuthentication, sessionCredentialVersion } from '@/lib/auth/password-version'
 import { verifyTwoFactorLogin } from '@/lib/auth/two-factor'
 
 assertProductionTestModeDisabled()
@@ -34,7 +34,7 @@ providers.push(
       const password = typeof credentials?.password === 'string' ? credentials.password : undefined
       if (!email || !password) return null
       const user = await prisma.user.findUnique({ where: { email }, include: { twoFactorCredential: { select: { enabled: true } } } })
-      if (!user || !user.password) return null
+      if (!user || user.closedAt || !user.password) return null
       const passwordsMatch = await bcrypt.compare(password, user.password)
       if (!passwordsMatch) return null
       if (user.twoFactorCredential?.enabled) {
@@ -73,9 +73,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async signIn({ account, profile, user }) {
       if (!account || account.provider === 'credentials') return true
       if (account.provider === 'google' && profile?.email_verified !== true || !user?.id) return false
-      const existing = await prisma.user.findUnique({ where: { id: user.id }, select: { twoFactorCredential: { select: { enabled: true } } } })
+      const existing = await prisma.user.findUnique({ where: { id: user.id }, select: { closedAt: true, twoFactorCredential: { select: { enabled: true } } } })
       // A linked OAuth provider must not bypass the locally enabled factor.
-      return !existing?.twoFactorCredential?.enabled
+      return !existing?.closedAt && !existing?.twoFactorCredential?.enabled
     },
     async jwt({ token, user, trigger, account }) {
       if (user) {
@@ -90,9 +90,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (typeof token.id !== 'string' || !token.id) return null
       const fresh = await prisma.user.findUnique({
         where: { id: token.id },
-        select: { name: true, image: true, password: true, securityVersion: true, role: true, vip: true, freeSessionCredits: true, memberships: { select: { status: true, endDate: true } }, twoFactorCredential: { select: { enabled: true } } },
+        select: { name: true, image: true, password: true, securityVersion: true, closedAt: true, role: true, vip: true, freeSessionCredits: true, memberships: { select: { status: true, endDate: true } }, twoFactorCredential: { select: { enabled: true } } },
       })
-      if (!fresh) return null
+      if (!fresh || fresh.closedAt) return null
       const version = sessionCredentialVersion(fresh.password, fresh.securityVersion)
       if (user) {
         // A reset between password verification and token issuance must not issue a surviving session.
@@ -100,6 +100,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (fresh.twoFactorCredential?.enabled && (account?.provider !== 'credentials' || verifiedVersion !== version)) return null
         if (verifiedVersion !== undefined && verifiedVersion !== version) return null
         token.passwordVersion = version
+        token.recentAuthentication = createRecentAuthentication(token.id, version)
       }
       else if (token.passwordVersion !== version) return null
       if (trigger === 'update') {
@@ -113,9 +114,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     async session({ session, token }) {
       if (session?.user) {
-        interface UserSessionShape { id?: string; role?: string; vip?: boolean; freeSessionCredits?: number; email?: string | null; name?: string | null }
+        interface UserSessionShape { id?: string; role?: string; vip?: boolean; freeSessionCredits?: number; email?: string | null; name?: string | null; recentAuthentication?: typeof token.recentAuthentication }
         const su = session.user as UserSessionShape
         su.id = token.id as string
+        su.recentAuthentication = token.recentAuthentication
         if (token.role) su.role = token.role as string
         if (typeof token.vip !== 'undefined') su.vip = token.vip as boolean
         if (typeof token.freeSessionCredits !== 'undefined') su.freeSessionCredits = token.freeSessionCredits as number

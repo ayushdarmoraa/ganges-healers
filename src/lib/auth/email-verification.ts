@@ -14,7 +14,7 @@ export class EmailVerificationError extends Error {
 
 /** Private status is always loaded from the current authenticated account. */
 export async function emailVerificationStatus(userId: string) {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true, emailVerified: true } })
+  const user = await prisma.user.findUnique({ where: { id: userId, closedAt: null }, select: { id: true, email: true, emailVerified: true } })
   if (!user) throw new EmailVerificationError('Unauthorized', 401)
   return { ownerId: user.id, email: user.email, verifiedAt: user.emailVerified?.toISOString() ?? null }
 }
@@ -23,7 +23,7 @@ export async function emailVerificationStatus(userId: string) {
 export async function requestEmailVerification(userId: string, expectedEmail: string, origin: string) {
   const delivery = await prisma.$transaction(async tx => {
     await lockTransaction(tx, 'account', userId)
-    const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true, email: true, emailVerified: true, securityVersion: true } })
+    const user = await tx.user.findUnique({ where: { id: userId, closedAt: null }, select: { id: true, email: true, emailVerified: true, securityVersion: true } })
     if (!user || user.email !== expectedEmail || user.emailVerified) return null
     const now = new Date()
     const rateToken = hash(`email-verification-rate:${userId}`)
@@ -66,12 +66,12 @@ export async function confirmEmailVerification(token: string) {
   const userId = parts[1]
   await prisma.$transaction(async tx => {
     await lockTransaction(tx, 'account', userId)
-    const user = await tx.user.findUnique({ where: { id: userId }, select: { email: true, emailVerified: true, securityVersion: true } })
+    const user = await tx.user.findUnique({ where: { id: userId, closedAt: null }, select: { email: true, emailVerified: true, securityVersion: true } })
     if (!user || emailHash(user.email) !== parts[2] || String(user.securityVersion) !== parts[3]) throw invalid()
     const consumed = await tx.verificationToken.deleteMany({ where: { token: tokenHash, identifier: record.identifier, expires: { gt: new Date() } } })
     if (consumed.count !== 1) throw invalid()
     if (!user.emailVerified) {
-      const changed = await tx.user.updateMany({ where: { id: userId, email: user.email, emailVerified: null, securityVersion: user.securityVersion }, data: { emailVerified: new Date() } })
+      const changed = await tx.user.updateMany({ where: { id: userId, email: user.email, emailVerified: null, securityVersion: user.securityVersion, closedAt: null }, data: { emailVerified: new Date() } })
       if (changed.count !== 1) throw invalid()
     }
     await tx.verificationToken.deleteMany({ where: { identifier: { startsWith: `email-verification:${userId}:` } } })

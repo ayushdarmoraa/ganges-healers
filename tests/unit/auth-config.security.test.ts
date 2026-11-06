@@ -1,4 +1,4 @@
-import { passwordVersion } from '@/lib/auth/password-version'
+import { passwordVersion, recentAuthenticationExpiresAt, sessionCredentialVersion } from '@/lib/auth/password-version'
 
 jest.mock('next-auth', () => ({
   __esModule: true,
@@ -43,6 +43,28 @@ function loadConfiguration(): {
   if (!result) throw new Error('Auth configuration was not loaded')
   return result
 }
+
+test('closed accounts cannot pass password, OAuth or JWT issuance/read checks', async () => {
+  const { configuration, user, compare } = loadConfiguration()
+  const closed = { id: 'closed', closedAt: new Date(), password: 'stored-hash', role: 'USER', memberships: [] }
+  user.findUnique.mockResolvedValue(closed)
+  expect(await configuration.providers[0].authorize({ email: 'closed@example.test', password: 'password' })).toBeNull()
+  expect(compare).not.toHaveBeenCalled()
+  expect(await configuration.callbacks.signIn({ account: { provider: 'google' }, profile: { email_verified: true }, user: { id: 'closed' } })).toBe(false)
+  expect(await configuration.callbacks.jwt({ token: { id: 'closed', passwordVersion: passwordVersion(closed.password) }, trigger: '' })).toBeNull()
+  expect(await configuration.callbacks.jwt({ token: {}, user: { id: 'closed', passwordVersion: passwordVersion(closed.password) }, trigger: '' })).toBeNull()
+})
+test('only verified sign-in issues recent authentication; client refresh cannot renew or replace it', async () => {
+  const { configuration, user } = loadConfiguration()
+  user.findUnique.mockResolvedValue({ password: 'stored-hash', securityVersion: 3, memberships: [], role: 'USER' })
+  const version = sessionCredentialVersion('stored-hash', 3)
+  const issued = await configuration.callbacks.jwt({ token: {}, user: { id: 'owner', passwordVersion: version }, account: { provider: 'credentials' }, trigger: '' })
+  const proof = issued?.recentAuthentication as { issuedAt: number; proof: string }
+  expect(recentAuthenticationExpiresAt('owner', version, proof)).not.toBeNull()
+  const refreshed = await configuration.callbacks.jwt({ token: issued!, trigger: 'update', session: { recentAuthentication: { issuedAt: Date.now() + 900000, proof: 'forged' } } })
+  expect(refreshed?.recentAuthentication).toEqual(proof)
+  expect((await configuration.callbacks.jwt({ token: { id: 'owner', passwordVersion: version }, trigger: 'update', session: { recentAuthentication: proof } }))?.recentAuthentication).toBeUndefined()
+})
 
 describe('production-safe authentication configuration', () => {
   beforeEach(() => {

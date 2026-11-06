@@ -97,7 +97,7 @@ test.each([{ ...user, email: 'changed@example.test' }, { ...user, securityVersio
 test('a valid link is consumed with a guarded update and clears other verification links', async () => {
   db.verificationToken.findUnique.mockResolvedValue(record)
   await confirmEmailVerification(raw)
-  expect(db.user.updateMany).toHaveBeenCalledWith({ where: { id: 'owner', email: user.email, emailVerified: null, securityVersion: 2 }, data: { emailVerified: expect.any(Date) } })
+  expect(db.user.updateMany).toHaveBeenCalledWith({ where: { id: 'owner', email: user.email, emailVerified: null, securityVersion: 2, closedAt: null }, data: { emailVerified: expect.any(Date) } })
   expect(db.verificationToken.deleteMany).toHaveBeenCalledWith({ where: { identifier: { startsWith: 'email-verification:owner:' } } })
 })
 test('a consumed token or changed account cannot be reported as verified', async () => {

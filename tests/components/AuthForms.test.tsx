@@ -12,6 +12,7 @@ jest.mock('next-auth/react', () => ({ getProviders: jest.fn(), signIn: jest.fn()
 jest.mock('@/components/dashboard/AvatarUpload', () => ({ __esModule: true, default: () => null }))
 jest.mock('@/components/auth/EmailVerificationSettings', () => ({ __esModule: true, default: () => null }))
 jest.mock('@/components/auth/PhoneVerificationSettings', () => ({ __esModule: true, default: () => null, PROFILE_UPDATED_EVENT: 'ganges:profile-updated' }))
+jest.mock('@/components/auth/AccountClosureSettings', () => ({ __esModule: true, default: () => null }))
 jest.mock('@/components/auth/TwoFactorSettings', () => ({ __esModule: true, default: () => null }))
 jest.mock('sonner', () => ({ toast: { success: jest.fn(), error: jest.fn() } }))
 

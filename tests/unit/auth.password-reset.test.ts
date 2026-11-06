@@ -108,7 +108,7 @@ test.each([
 test('the successful transaction replaces only the verified credential and clears recovery links and database sessions', async () => {
   await confirmPasswordReset(token, 'NewPassword123')
   expect(bcrypt.hash).toHaveBeenCalledWith('NewPassword123', 12)
-  expect(db.user.updateMany).toHaveBeenCalledWith({ where: { id: 'owner', email: 'Owner@example.test', password: 'old-hash' }, data: { password: 'new-hash' } })
+  expect(db.user.updateMany).toHaveBeenCalledWith({ where: { id: 'owner', email: 'Owner@example.test', password: 'old-hash', closedAt: null }, data: { password: 'new-hash' } })
   expect(db.verificationToken.deleteMany).toHaveBeenCalledWith({ where: { token: hash(token), identifier: record.identifier, expires: { gt: expect.any(Date) } } })
   expect(db.verificationToken.deleteMany).toHaveBeenCalledWith({ where: { identifier: { startsWith: 'password-reset:owner:' } } })
   expect(db.session.deleteMany).toHaveBeenCalledWith({ where: { userId: 'owner' } })

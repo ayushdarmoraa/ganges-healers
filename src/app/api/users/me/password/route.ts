@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     const { currentPassword, newPassword } = parsed.data
 
     const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
+      where: { id: session.user.id, closedAt: null },
       select: { id: true, password: true },
     })
 
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
 
     const hashed = await bcrypt.hash(newPassword, 12)
     const changed = await prisma.user.updateMany({
-      where: { id: session.user.id, password: user.password },
+      where: { id: session.user.id, password: user.password, closedAt: null },
       data: { password: hashed },
     })
     if (changed.count !== 1) return NextResponse.json({ error: "Current password is incorrect" }, { status: 400 })

@@ -5,8 +5,8 @@ import { sessionCredentialVersion } from '@/lib/auth/password-version'
 interface SocketIdentity { userId: string; expiresAt: number }
 type VerifyCredential = (userId: string, version: unknown) => Promise<boolean>
 const verifyCredential: VerifyCredential = async (userId, version) => {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { password: true, securityVersion: true } })
-  return Boolean(user && typeof version === 'string' && version === sessionCredentialVersion(user.password, user.securityVersion))
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { password: true, securityVersion: true, closedAt: true } })
+  return Boolean(user && !user.closedAt && typeof version === 'string' && version === sessionCredentialVersion(user.password, user.securityVersion))
 }
 
 /** Decode only server-issued Auth.js session cookies; the handshake's claimed user ID is ignored. */
