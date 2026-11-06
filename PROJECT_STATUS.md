@@ -1,6 +1,6 @@
 # Ganges Healers — Implementation and Rollout Status
 
-Reviewed November 5, 2026 against the implementation plan, repository branches, pull requests, CI and database rehearsal records. Vercel access is now authorized. Historical checks below describe their recorded commits; PR #10 tracks the current protected Preview and production readiness.
+Reviewed November 6, 2026 against the attached implementation plan and system design, current release source, recent commit history, pull requests and CI. Vercel access is now authorized. Historical checks below describe their recorded commits; PR #10 tracks the current protected Preview and production readiness.
 
 ## Current development line
 
@@ -9,7 +9,7 @@ The release candidate is `codex/site-completion-release` in [PR #10](https://git
 | Plan area | Credential-free implementation in this candidate | Outside the current work scope |
 | --- | --- | --- |
 | Foundation | Additive migrations, exact SQL/data-preservation rehearsals, guarded disposable test databases, CI, health route, structured logs | Fresh production-data cutover, provider configuration and deployed verification |
-| Accounts and profiles | Registration, password sign-in/recovery, role guards, profiles and availability; owner-enabled authenticator protection and single-use recovery codes | Google credentials/callback setup; real email/SMS delivery |
+| Accounts and profiles | Registration, password sign-in/recovery, role guards, profiles and availability; owner-enabled authenticator protection and single-use recovery codes; email-verification follow-up adds owner status/resend and single-use confirmation | Google credentials/callback setup; actual email delivery; phone/OTP verification and SMS delivery |
 | Marketplace and bookings | Discovery, capacity checks shared with programs, creation/rescheduling/cancellation, credit confirmation, calendar downloads | Live payment/refund delivery and deployed smoke checks |
 | Payments and memberships | Server-priced owned checkout, verified webhooks, idempotent fulfillment, invoice/access checks, immutable membership/program quotes and retry recovery | Gateway credentials, real checkout and webhook delivery |
 | Programs and courses | Catalogs, paid/free enrollment rules, owned lesson progress; program practitioner assignment, reservations, cancellation, guarded completion/progress and pause/resume | Remote meeting provisioning and live purchase delivery |
@@ -19,6 +19,41 @@ The release candidate is `codex/site-completion-release` in [PR #10](https://git
 | Administration and analytics | Admin workspaces, access controls, payment reports, funnel/events, experiments and products | Production data/provider configuration and live monitoring |
 
 The implemented candidate and passing isolated checks do not establish production deployment or completion of unspecified future sprint placeholders. No owner credential entry is needed for the changes above. The current production audit and remaining upstream finding are documented in `docs/ops-checklist.md`.
+
+## November 6 source recheck and continuation
+
+The recheck followed the recent release history through `7b93330`, including
+recovery/MFA, checkout retries, weekly availability, course and lesson authoring,
+private session links, product-photo recovery, order/catalog retention, audited
+benefit edits and audio drafting/publication. These existing implementations
+must be extended rather than duplicated. The current release source tree
+`04e09f408d1648ed43b435c5e8b8a18d30917412` passed all seven CI jobs in run
+`42208326563` (715 unit, 360 UI, 331 database and 42 browser tests, plus six
+operational checks, build and dependency gate). The earlier release run's
+mobile sign-out fixture race is historical: the current source isolates role
+sessions. That upstream fix is preserved by this follow-up.
+
+One remaining Sprint 2 gap was concrete: `emailVerified` existed without a
+customer verification/resend flow. This follow-up adds owner-bound settings
+controls, trusted expiring links, shared delivery cooldowns and atomic one-use
+confirmation using the existing mail service and token table. It changes no
+login, MFA or payment entitlement rules and requires no new dependency or
+migration. Local unit/UI/static checks and dedicated PostgreSQL/browser cases
+accompany the change; actual mail-provider delivery remains unverified. This
+source follow-up performs no hosting or production-data action.
+
+Remaining code work includes phone/OTP verification and the account-closure
+lifecycle specified by the system-design API, plus further regression review of
+older staff forms. Operational acceptance still needs actual gateway checkout /
+webhook / refund delivery, email/SMS, configured Google login, final licensed
+course/audio media, automated remote meetings where required, worker/monitoring
+checks, load/Core Web Vitals measurements and backup recovery drills. A fresh
+live-data/schema-history cutover is still required before production. Existing
+provider setup or isolated fixtures do not establish these acceptance results.
+
+The plan details Sprints 1–4 but replaces Sprint 5 onward with a continuation
+placeholder despite announcing 12 sprints. Do not invent missing acceptance
+criteria or claim a precise whole-project completion percentage.
 
 ## Earlier store and course batch
 

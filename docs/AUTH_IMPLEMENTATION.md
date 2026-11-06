@@ -157,6 +157,16 @@ booking callback. Recovery uses the existing Resend service and
 configuration is shown as temporarily unavailable; email delivery has not been
 verified in the new Ganges workspace.
 
+Email ownership verification now uses the same configured mail service and
+trusted-origin validation, with account status/resend controls in settings and
+`/auth/verify-email` for confirmation. Links are hashed at rest, last 30 minutes,
+are consumed only by an explicit confirmation POST, and bind the current email
+and security version. Loading a link cannot verify an address. This sets only
+the existing `emailVerified` field; it never issues a session, changes login
+requirements or bypasses an enabled authenticator. Missing delivery configuration
+returns an unavailable message. Actual provider delivery remains unverified;
+isolated tests exercise the real confirmation path using synthetic email links.
+
 Links expire after 15 minutes, are single-use, and invalidate other recovery
 links and prior sessions. Accounts with Google only continue using Google.
 The rollout requires existing users to sign in once because old JWT cookies do
