@@ -288,3 +288,20 @@ Validation results and deployed Preview status are recorded in the follow-up pul
 request. This adds no schema, dependency, remote-meeting credential or live charge.
 Provider-owned meetings, actual email/payment delivery and the fresh production
 cutover remain separate configuration and verification work.
+
+
+## Product-photo upload completion
+
+The administrator product form now preserves successful gallery uploads across
+partial failures, offers explicit failed-image retries, blocks incomplete and
+duplicate submissions, and retains drafts after save errors. Keyboard buttons and
+labelled file inputs replace clickable upload containers. Account changes clear
+the editor and abort pending uploads. Shared file rules align browser/server
+validation below the platform request limit; server checks format signatures and
+current administrator roles, uses generated paths and avoids provider-secret logs.
+
+Product-photo storage uses its own credential so invoice PDF uploads stay disabled
+unless separately configured. No database migration or payment change is needed.
+Validation and actual provider-provisioning/deployment status are recorded in the
+follow-up pull request. The domain purchase and production configuration are later
+launch steps; they do not block this website implementation and Preview testing.
