@@ -3,6 +3,7 @@ import { z } from "zod"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { ProfileUpdateError, profileVersion, updateOwnProfile } from '@/lib/users/profile'
+import { isInternationalPhone } from '@/config/phone'
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -10,7 +11,7 @@ const headers = { 'Cache-Control': 'private, no-store' }
 
 const PatchSchema = z.object({
   name: z.string().min(1).max(100).optional(),
-  phone: z.string().min(10).max(15).optional().nullable(),
+  phone: z.string().max(16).refine(value => value.length >= 10 || isInternationalPhone(value), 'Use an international phone or at least 10 characters.').optional().nullable(),
   image: z.string().url().max(2048).optional().nullable(),
 })
 

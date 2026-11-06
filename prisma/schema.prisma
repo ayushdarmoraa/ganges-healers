@@ -19,6 +19,8 @@ model User {
   vip                Boolean             @default(false)
   freeSessionCredits Int                 @default(0)
   emailVerified      DateTime?
+  phoneVerifiedAt    DateTime?
+  phoneVerifiedHash  String?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   accounts           Account[]
@@ -45,6 +47,26 @@ model User {
   firstSource        String?
   firstVariant       String?
   twoFactorCredential TwoFactorCredential?
+  phoneVerification  PhoneVerification?
+}
+
+model PhoneVerification {
+  userId            String   @id
+  requestId         String
+  phoneHash         String
+  credentialVersion String
+  providerId        String?
+  expiresAt         DateTime
+  nextSendAt        DateTime
+  sendWindowStart   DateTime
+  sendsInWindow     Int
+  attempts          Int      @default(0)
+  checkingId        String?
+  checkingUntil     DateTime?
+  consentedAt       DateTime
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model TwoFactorCredential {

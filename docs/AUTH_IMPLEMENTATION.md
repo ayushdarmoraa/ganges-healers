@@ -157,6 +157,22 @@ booking callback. Recovery uses the existing Resend service and
 configuration is shown as temporarily unavailable; email delivery has not been
 verified in the new Ganges workspace.
 
+Phone ownership verification uses `GET/POST /api/users/me/phone-verification`
+and settings controls. The additive `20261106142000_phone_verification` migration
+adds nullable proof fields and one current challenge/rate record per account.
+Only provider-approved, current-owner/current-phone/current-credential checks
+set verification; resend/guess limits and a durable check lease are shared across
+instances. Phone edits clear proof; passwords, MFA and login rules are unchanged.
+
+The fixed-origin Twilio Verify adapter uses `TWILIO_VERIFY_SERVICE_SID` and
+`TWILIO_API_KEY_SID` / `TWILIO_API_KEY_SECRET`, or the existing planned
+`TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` pair when API keys are absent. Never
+commit credentials. Missing configuration reports unavailable. Numbers require
+an explicit +country code; existing local numbers are not guessed or rewritten.
+No dependency is added. Real SMS activation/delivery is a separate acceptance
+step; automated browser servers suppress SMS credentials, while unit/database
+tests use explicit provider fixtures rather than a public verification bypass.
+
 Profile settings use an owner-bound saved-name/phone version for conditional
 saves. Stale tabs and changed owners receive conflicts; failed operations retain
 the draft until an explicit discard/reload. The API handles phone uniqueness

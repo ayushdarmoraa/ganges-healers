@@ -25,7 +25,7 @@ export async function updateOwnProfile(userId: string, changes: ProfileChanges, 
       if (expectedVersion && profileVersion(current) !== expectedVersion) throw new ProfileUpdateError('Your saved profile changed. Discard the draft and reload before saving again.', 409, 'PROFILE_CHANGED')
       const changed = await tx.user.updateMany({
         where: { id: userId, name: current.name, phone: current.phone, ...(changes.image !== undefined ? { image: current.image } : {}) },
-        data: changes,
+        data: { ...changes, ...(changes.phone !== undefined && changes.phone !== current.phone ? { phoneVerifiedAt: null, phoneVerifiedHash: null } : {}) },
       })
       if (changed.count !== 1) throw new ProfileUpdateError('Your saved profile changed. Discard the draft and reload before saving again.', 409, 'PROFILE_CHANGED')
       const user = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: selection })

@@ -2,6 +2,21 @@
 
 Verified on November 4, 2026. This is a rehearsal record, not a completed production cutover.
 
+## Phone verification rehearsal (November 6, 2026)
+
+The additive `20261106142000_phone_verification` migration was rehearsed on
+`br-dawn-salad-adi139rl` (`codex-phone-verification-20261106`), copied from the
+existing release Preview `br-winter-sun-ado4pted` in `holy-block-51695227`.
+Its exact SHA-256 is
+`c09c0797e244cf97c406753ef1002e5d74d439b782fa1506c99358f1aca172ce`.
+The schema diff contains only two nullable User fields and a new per-account
+challenge table with its primary/foreign keys. All 46 original application-table
+counts and original-field fingerprints match the parent; all 25 earlier
+migration records are unchanged. The 26th migration is recorded, the challenge
+table is empty and no legacy phone was marked verified. This records the isolated
+rehearsal only; follow-up PR verification must establish application to the
+release Preview before matching code is merged. Production is unchanged.
+
 ## Database mapping
 
 The existing production deployment uses the older Vercel Marketplace Neon resource. The separately transferred production-named Neon project has a different schema and dataset. Switching the production connection string to that project's default branch would omit existing application records.

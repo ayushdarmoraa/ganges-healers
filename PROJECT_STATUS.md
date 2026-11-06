@@ -42,7 +42,17 @@ migration. Local unit/UI/static checks and dedicated PostgreSQL/browser cases
 accompany the change; actual mail-provider delivery remains unverified. This
 source follow-up performs no hosting or production-data action.
 
-Remaining code work includes phone/OTP verification and the account-closure
+The phone/OTP follow-up now adds owner-bound settings, explicit SMS consent,
+provider-approved checks, persistent resend/attempt limits and atomic proof
+clearing on phone changes. Its additive migration was rehearsed on an isolated
+child branch with all 46 original application tables and 25 earlier migration
+records preserved. Actual SMS configuration/delivery remains outside this
+developer batch; missing configuration is shown truthfully as unavailable.
+Local verification passed 792 unit and 395 UI tests, TypeScript, focused lint,
+browser discovery and six operational checks. Full database/browser CI and
+release-Preview migration application must be recorded in the follow-up PR.
+
+Remaining code work includes the account-closure
 lifecycle specified by the system-design API, plus further regression review of
 older staff forms. Operational acceptance still needs actual gateway checkout /
 webhook / refund delivery, email/SMS, configured Google login, final licensed
