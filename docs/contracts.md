@@ -938,3 +938,28 @@ manager autocomplete is available. Recovery/registration links remain accessible
 No demo identity, default administrator or authentication bypass is introduced.
 No schema, environment, dependency or payment changes; revert the focused page
 and test changes together if necessary.
+
+## Administrator manual VIP and free-credit edits
+
+The existing /admin editor now binds each save to the reviewed account identity,
+manual VIP flag, free-session balance and version. Balances must be nonnegative
+whole Postgres integers and every actual change needs a nonempty reason (up to
+300 characters). Administrator authorization is checked again after acquiring
+actor/target row locks in stable ID order. Stale account edits or concurrent
+credit consumption return USER_BENEFITS_CHANGED rather than overwriting newer
+values. Missing actors/targets and invalid inputs fail explicitly. No-op saves
+write neither balance nor audit.
+
+Only User.vip and User.freeSessionCredits change. The transaction also creates a
+user_benefits_updated activity entry with actor ID, target ID, before/after values
+and reason; an audit failure rolls back the change. Passwords, roles, MFA,
+membership terms, credit ledgers, bookings, payments and invoices are untouched.
+The existing rule remains: manual VIP applies only without subscription history;
+subscription access follows its current lifecycle and expiry.
+
+The account-bound editor retains failed drafts, blocks duplicate/pending saves,
+and requires a fresh user-list review after conflicts. It clears the editor on
+session changes and ignores late responses. Internal server-action results are
+now explicit success/error objects; no public HTTP API changes. No migration,
+dependency or environment changes. Revert page/form/helper together for repair;
+do not silently restore stale balance overwrites.
