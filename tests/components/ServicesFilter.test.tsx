@@ -40,6 +40,20 @@ test('a legacy unavailable category is shown truthfully and can be cleared', asy
   expect(screen.getByRole('combobox', { name: 'Category' })).toHaveValue('')
 })
 
+test('the current rating threshold can be changed and cleared with the other filters', async () => {
+  mockParams = new URLSearchParams({ search: 'yoga', minRating: '4.5' })
+  const user = userEvent.setup()
+  render(<ServicesFilter categories={[]} minimumRating={4.5} />)
+  const rating = screen.getByLabelText('Minimum rating (out of 5)')
+  expect(rating).toHaveValue(4.5)
+  await user.clear(rating)
+  await user.type(rating, '4{Enter}')
+  expect(mockPush).toHaveBeenLastCalledWith('/services?minRating=4&search=yoga')
+  await user.click(screen.getByRole('button', { name: 'Clear all' }))
+  expect(rating).toHaveValue(null)
+  expect(mockPush).toHaveBeenLastCalledWith('/services')
+})
+
 test('home service discovery paths use supported search fields rather than nonexistent categories', () => {
   render(<HealingPathSelector />)
   for (const label of ['Anxiety & Stress', 'Emotional Healing', 'Spiritual Growth', 'Past Trauma']) {

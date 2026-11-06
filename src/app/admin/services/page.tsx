@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Prisma } from '@prisma/client'
-import { ServiceEditor } from '@/components/admin/service-editor'
+import { CatalogEditor } from '@/components/admin/catalog-editor'
 import { maxServiceDuration, maxServicePrice, serviceFieldsSchema, serviceFormSchema } from '@/lib/services/catalog-schema'
 
 const invalidFields = 'Enter a name, description and category, choose a mode, and enter a valid price and duration.'
@@ -79,7 +79,7 @@ export default async function AdminServicesPage() {
       <Card>
         <CardContent className="p-4">
           <h2 className="font-medium mb-3">Create Service</h2>
-          <ServiceEditor action={createService} create>
+          <CatalogEditor action={createService} item="Service" create>
             <div className="grid gap-1">
               <Label htmlFor="new-name">Name</Label>
               <Input id="new-name" name="name" required />
@@ -112,7 +112,7 @@ export default async function AdminServicesPage() {
               <Label htmlFor="new-desc">Description</Label>
               <textarea id="new-desc" name="description" required className="min-h-[60px] rounded-md border px-3 py-2 bg-background text-sm" />
             </div>
-          </ServiceEditor>
+          </CatalogEditor>
         </CardContent>
       </Card>
 
@@ -145,7 +145,7 @@ export default async function AdminServicesPage() {
               {/* Inline edit */}
               <details className="text-sm">
                 <summary className="cursor-pointer text-muted-foreground hover:text-primary">Edit</summary>
-                <ServiceEditor action={updateService}>
+                <CatalogEditor action={updateService} item="Service">
                   <input type="hidden" name="id" value={s.id} />
                   <div className="grid gap-1">
                     <Label htmlFor={`${s.id}-name`}>Name</Label>
@@ -175,7 +175,7 @@ export default async function AdminServicesPage() {
                     <Label htmlFor={`${s.id}-description`}>Description</Label>
                     <textarea id={`${s.id}-description`} name="description" defaultValue={s.description} required className="min-h-[60px] rounded-md border px-3 py-2 bg-background text-sm" />
                   </div>
-                </ServiceEditor>
+                </CatalogEditor>
               </details>
             </article>
           ))}

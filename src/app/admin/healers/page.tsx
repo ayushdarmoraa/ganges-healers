@@ -6,6 +6,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { CatalogEditor } from '@/components/admin/catalog-editor'
+import { healerProfileFields, healerProfileLimits } from '@/lib/healers/profile-schema'
 
 async function guardAdmin() {
   const session = await auth()
@@ -17,19 +19,21 @@ async function guardAdmin() {
 async function updateHealer(formData: FormData) {
   'use server'
   await guardAdmin()
-  const id = String(formData.get('id'))
-  const bio = String(formData.get('bio') || '') || null
-  const experienceYears = parseInt(String(formData.get('experienceYears') || '0'), 10)
-  const specializations = String(formData.get('specializations') || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-
-  await prisma.healer.update({
-    where: { id },
-    data: { bio, experienceYears, specializations },
+  const id = formData.get('id')
+  const bio = formData.get('bio')
+  const experience = formData.get('experienceYears')
+  const specializations = formData.get('specializations')
+  if (typeof id !== 'string' || !id) return { error: 'Select a healer profile to edit.' }
+  const fields = healerProfileFields.safeParse({
+    bio: typeof bio === 'string' ? bio || null : undefined,
+    experienceYears: typeof experience === 'string' ? Number(experience) : undefined,
+    specializations: typeof specializations === 'string' ? specializations.split(',').map(value => value.trim()).filter(Boolean) : undefined,
   })
+  if (!fields.success) return { error: 'Enter 0–100 whole years of experience, a bio of up to 2,000 characters, and up to 20 specializations of 100 characters each.' }
+  const result = await prisma.healer.updateMany({ where: { id }, data: fields.data })
+  if (!result.count) return { error: 'This healer profile is no longer available. Reload the page.' }
   revalidatePath('/admin/healers')
+  return {}
 }
 
 async function toggleHealer(formData: FormData) {
@@ -107,24 +111,21 @@ export default async function AdminHealersPage() {
               </div>
               <details className="text-sm">
                 <summary className="cursor-pointer text-muted-foreground hover:text-primary">Edit</summary>
-                <form action={updateHealer} className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2">
+                <CatalogEditor action={updateHealer} item="Healer profile">
                   <input type="hidden" name="id" value={h.id} />
                   <div className="grid gap-1">
-                    <Label>Experience (years)</Label>
-                    <Input name="experienceYears" type="number" min="0" defaultValue={h.experienceYears} />
+                    <Label htmlFor={`${h.id}-experience`}>Experience (years)</Label>
+                    <Input id={`${h.id}-experience`} name="experienceYears" type="number" min="0" max={healerProfileLimits.experienceYears} defaultValue={h.experienceYears} />
                   </div>
                   <div className="grid gap-1">
-                    <Label>Specializations (comma-separated)</Label>
-                    <Input name="specializations" defaultValue={h.specializations.join(', ')} />
+                    <Label htmlFor={`${h.id}-specializations`}>Specializations (comma-separated)</Label>
+                    <Input id={`${h.id}-specializations`} name="specializations" defaultValue={h.specializations.join(', ')} />
                   </div>
                   <div className="md:col-span-3 grid gap-1">
-                    <Label>Bio</Label>
-                    <textarea name="bio" defaultValue={h.bio ?? ''} className="min-h-[60px] rounded-md border px-3 py-2 bg-background text-sm" />
+                    <Label htmlFor={`${h.id}-bio`}>Bio</Label>
+                    <textarea id={`${h.id}-bio`} name="bio" maxLength={healerProfileLimits.bio} defaultValue={h.bio ?? ''} className="min-h-[60px] rounded-md border px-3 py-2 bg-background text-sm" />
                   </div>
-                  <div>
-                    <Button type="submit" size="sm">Save</Button>
-                  </div>
-                </form>
+                </CatalogEditor>
               </details>
             </article>
           ))}

@@ -114,3 +114,76 @@ test('service editors retain a duplicate draft and save corrected catalog fields
     } finally { await db.$disconnect() }
   }
 })
+
+test('healer and program editors keep rejected drafts and save corrected values', async ({ page }) => {
+  test.setTimeout(150000)
+  const settings = loadTestDatabaseEnvironment()
+  await verifyTestDatabaseConnection(settings)
+  const db = new PrismaClient({ datasources: { db: { url: settings.environment.DATABASE_URL } } })
+  const token = randomUUID()
+  const adminEmail = `staff-editor-${token}@example.test`
+  const healerEmail = `healer-editor-${token}@example.test`
+  const healerName = `Healer editor ${token}`
+  const duplicateSlug = `existing-program-${token}`
+  const programSlug = `new-program-${token}`
+  const programTitle = `New program ${token}`
+  try {
+    await db.user.create({ data: { email: adminEmail, role: 'ADMIN' } })
+    const user = await db.user.create({ data: { email: healerEmail, name: healerName, role: 'HEALER' } })
+    const healer = await db.healer.create({ data: {
+      userId: user.id, bio: 'Saved biography', experienceYears: 2, specializations: ['Meditation'], isVerified: true, isActive: true,
+    } })
+    await db.program.create({ data: {
+      title: 'Existing program', slug: duplicateSlug, description: 'Fixture', totalSessions: 2, sessionsPerWeek: 1, durationMinutes: 60, pricePaise: 1000,
+    } })
+    await page.context().setExtraHTTPHeaders({ 'x-forwarded-for': '192.0.2.96' })
+    expect((await page.request.get(`/api/test/login?${new URLSearchParams({ role: 'ADMIN', email: adminEmail })}`)).status()).toBe(200)
+
+    await page.goto('/admin/healers')
+    const profile = page.getByRole('article', { name: `Healer ${healerName}`, exact: true })
+    await profile.getByText('Edit', { exact: true }).click()
+    await profile.getByLabel('Experience (years)').fill('9')
+    await profile.getByLabel('Bio', { exact: true }).fill('')
+    const specializations = profile.getByLabel('Specializations (comma-separated)')
+    await specializations.fill(Array.from({ length: 21 }, (_, index) => `Specialization ${index}`).join(', '))
+    await profile.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(profile.getByRole('alert')).toContainText('up to 20 specializations')
+    await expect(profile.getByLabel('Experience (years)')).toHaveValue('9')
+    expect(await db.healer.findUnique({ where: { id: healer.id } })).toMatchObject({ bio: 'Saved biography', experienceYears: 2 })
+    await specializations.fill('Yoga, Reiki')
+    await profile.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(profile.getByRole('status')).toHaveText('Healer profile saved.')
+    expect(await db.healer.findUnique({ where: { id: healer.id } })).toMatchObject({
+      bio: null, experienceYears: 9, specializations: ['Yoga', 'Reiki'], isVerified: true, isActive: true,
+    })
+
+    await page.goto('/admin/programs')
+    const create = page.locator('form').filter({ has: page.getByLabel('Slug', { exact: true }) })
+    await create.getByLabel('Title', { exact: true }).fill(programTitle)
+    await create.getByLabel('Slug', { exact: true }).fill(duplicateSlug)
+    await create.getByLabel('Price (paise)', { exact: true }).fill('1500')
+    await create.getByLabel('Description', { exact: true }).fill('A drafted program description.')
+    await create.getByRole('button', { name: 'Create', exact: true }).click()
+    await expect(create.getByRole('alert')).toHaveText('That program slug is already in use.')
+    await expect(create.getByLabel('Title', { exact: true })).toHaveValue(programTitle)
+    await create.getByLabel('Slug', { exact: true }).fill(programSlug)
+    await create.getByRole('button', { name: 'Create', exact: true }).click()
+    await expect(create.getByRole('status')).toHaveText('Program created.')
+    const program = page.getByRole('article', { name: `Program ${programTitle}`, exact: true })
+    await program.getByText('Edit', { exact: true }).click()
+    const sessions = program.getByLabel('Total Sessions', { exact: true })
+    await sessions.fill('367')
+    await program.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(program.getByRole('alert')).toContainText('1–366 sessions')
+    await expect(sessions).toHaveValue('367')
+    await sessions.fill('6')
+    await program.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(program.getByRole('status')).toHaveText('Program saved.')
+    expect(await db.program.findUnique({ where: { slug: programSlug } })).toMatchObject({ title: programTitle, totalSessions: 6, pricePaise: 1500 })
+  } finally {
+    try {
+      await db.program.deleteMany({ where: { slug: { in: [duplicateSlug, programSlug] } } })
+      await db.user.deleteMany({ where: { email: { in: [adminEmail, healerEmail] } } })
+    } finally { await db.$disconnect() }
+  }
+})

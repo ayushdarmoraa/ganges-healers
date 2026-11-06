@@ -1,11 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { ServiceEditor } from '@/components/admin/service-editor'
+import { CatalogEditor } from '@/components/admin/catalog-editor'
 
 function editor(action: (data: FormData) => Promise<{ error?: string }>, create = false) {
-  render(<ServiceEditor action={action} create={create}>
+  render(<CatalogEditor action={action} item="Service" create={create}>
     <label>Name <input name="name" defaultValue={create ? '' : 'Saved service'} /></label>
-  </ServiceEditor>)
+  </CatalogEditor>)
   return screen.getByRole('textbox', { name: 'Name' })
 }
 

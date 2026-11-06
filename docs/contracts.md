@@ -207,6 +207,11 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
   Invalid/repeated numeric filters are not passed to Prisma as NaN/infinity;
   zero is a valid price bound. Every empty filtered result offers a link to
   clear all catalog filters.
+- The service page and `GET /api/services` accept `minRating` from 1 to 5
+  with up to one decimal place. They compare against the average of all
+  submitted service reviews. Unrated services are omitted when this filter is
+  set. API pagination and totals apply after the rating filter. Invalid or
+  repeated numeric values are ignored, and API page sizes are capped at 100.
 - `GET /api/services/[id]` keeps `{ success, data }`, public catalog fields,
   `_count.bookings`, `healers`, numeric `averageRating`, and `totalBookings`.
   `totalReviews` is additive; ratings are computed from actual service reviews
@@ -250,6 +255,10 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 - The admin form keeps input available after a rejected save. A successful
   creation clears the form. Activation and deactivation remain separate
   from editing and preserve linked bookings and billing records.
+- The healer and program editors also keep input after rejected saves.
+  Healer edits use the same biography, experience and specialization limits
+  as the healer profile API. Program writes use the existing catalog service
+  and report validation and duplicate-slug failures inside the editor.
 
 ### Booking and availability
 - Healer profile booking links carry `openBooking=1` and the selected `healerId`.
