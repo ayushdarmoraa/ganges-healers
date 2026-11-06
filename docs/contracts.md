@@ -791,3 +791,53 @@ No schema or dependency change is required. Prefer a compatible application fix
 for rollback after archival; reverting to older course-access code would hide
 archived curricula from existing students. Media ownership, private storage and
 expiring delivery of licensed assets remain separate provider/content tasks.
+
+
+## Ordinary appointment delivery and practitioner actions
+
+The existing owned healer booking GET/PATCH response envelopes remain
+`{ success, data }`, with private/no-store responses. The healer list's existing
+payment projection adds the non-secret gateway name; it never exports gateway
+signatures or credentials. The customer booking list is private/no-store as well.
+
+PATCH `/api/healer/bookings/[id]` adds
+`{ action: "SET_MEETING_LINK", meetingLink: string|null, version: updatedAt }`.
+The version is the exact ISO timestamp returned with the saved booking. New links
+require HTTPS, at most 2,000 characters, no embedded credentials and no control
+characters; explicit null removes the link. They are never fetched by the server.
+Edits apply only to future/ongoing CONFIRMED or RESCHEDULED appointments. Invalid
+bodies/JSON return 400; missing/foreign ownership retains 404/403; stale versions
+and invalid delivery state return 409. The transaction locks the assigned healer,
+rechecks current ownership/role, and compares timestamp and status before writing.
+Updated timestamps advance monotonically by at least one millisecond so two
+writes in the same clock tick cannot share a version. No booking time, saved
+price, payment, refund or credit is rewritten by this action.
+
+Customers receive the saved link only through their existing owned bookings and
+calendar routes. UI links use a new tab with noopener/noreferrer. Calendar exports
+and cards also reject unsafe legacy URLs. Cancelled/completed cards omit the join
+action; cancelled exports omit the URL. Session dates are labeled in India time.
+Account changes hide and clear private booking/link state. A rejected or malformed
+save keeps the healer's draft until an explicit reload. No Google/Zoom event or
+email delivery is claimed by saving a manually supplied link.
+
+The existing CONFIRM/CANCEL/COMPLETE bodies remain supported, with intentional
+state/funding guards: a positive-price unpaid booking cannot be manually confirmed;
+confirmation needs a valid future interval and its captured price, an applied VIP
+credit or a zero-price appointment. COMPLETE accepts confirmed/rescheduled rows
+only after their valid stored interval ends. Premature or inconsistent requests
+return 409; invalid status transitions retain 400. These actions take the same
+healer lock and reject stale updates instead of restoring terminal bookings.
+
+Practitioner CANCEL refuses captured payments and applied VIP credits with 409,
+leaving every booking/payment/credit row intact for cancellation/refund review.
+This replaces the unsafe earlier status-only cancellation of funded sessions.
+Unpaid holds may still be cancelled after UI confirmation. No provider refund or
+credit-return policy is invented here; existing customer cancellation/refund
+contracts remain unchanged. Audit entries commit with accepted changes and contain
+action/boolean link presence, never the meeting URL, token, password or customer
+contact data.
+
+No migration or dependency is required. Roll back the UI/API/helper changes
+together if needed; retain existing stored links. Prefer a compatible fix rather
+than restoring the earlier premature completion or funded-cancellation behavior.

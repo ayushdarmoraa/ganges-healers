@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: bookings
-    })
+    }, { headers: { 'Cache-Control': 'private, no-store' } })
 
   } catch (error) {
     console.error('Get bookings error:', error)
