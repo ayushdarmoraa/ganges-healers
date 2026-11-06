@@ -14,13 +14,15 @@ import { toast } from "sonner"
 import AvatarUpload from "@/components/dashboard/AvatarUpload"
 import TwoFactorSettings from "@/components/auth/TwoFactorSettings"
 import EmailVerificationSettings from "@/components/auth/EmailVerificationSettings"
+import PhoneVerificationSettings, { PROFILE_UPDATED_EVENT } from '@/components/auth/PhoneVerificationSettings'
+import { isInternationalPhone } from '@/config/phone'
 import { signOutCurrentSession } from '@/lib/auth/client-session'
 
 // --- Schemas ---
 
 const profileSchema = z.object({
   name: z.string().min(1, "Name is required").max(100),
-  phone: z.string().min(10, "Phone must be at least 10 characters").max(15).optional().or(z.literal("")),
+  phone: z.string().max(16).refine(value => value === '' || value.length >= 10 || isInternationalPhone(value), 'Phone must be at least 10 characters').optional(),
 })
 
 const passwordSchema = z
@@ -71,6 +73,7 @@ export default function SettingsClient({ user }: Props) {
 
       <PasswordSection key={`password-${user.id}`} passwordExists={user.passwordExists} />
       <EmailVerificationSettings userId={session?.user?.id ?? ""} sessionLoading={status === "loading"} />
+      <PhoneVerificationSettings userId={session?.user?.id ?? ""} sessionLoading={status === "loading"} />
       <TwoFactorSettings userId={session?.user?.id ?? ""} sessionLoading={status === "loading"} />
 
       <Card>
@@ -140,6 +143,7 @@ function ProfileSection({
       setVersion(saved.profileVersion)
       form.reset({ name: saved.user.name || '', phone: saved.user.phone || '' })
       setMessage('Profile updated.')
+      window.dispatchEvent(new CustomEvent(PROFILE_UPDATED_EVENT, { detail: { ownerId: user.id } }))
       toast.success("Profile updated")
       try { await onSessionRefresh() }
       catch { if (active.current) setMessage('Profile updated. Reload the page to refresh your account menu.') }
@@ -215,7 +219,7 @@ function ProfileSection({
                 <FormItem>
                   <FormLabel>Phone (Optional)</FormLabel>
                   <FormControl>
-                    <Input placeholder="Phone number" {...field} />
+                    <Input type="tel" autoComplete="tel" maxLength={16} placeholder="Phone number" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

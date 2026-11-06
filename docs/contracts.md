@@ -23,6 +23,46 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
 
 ## Public APIs: Contracts to Preserve
 
+### Account phone verification
+- `GET /api/users/me/phone-verification` is authenticated, owner-only and
+  private/no-store. It returns the saved phone, matching verification date,
+  availability/format flags, an opaque active request ID/expiry and resend time.
+  Provider IDs, credential fingerprints, passwords and codes are never returned.
+- POST requires JSON, same-origin requests and the displayed `ownerId`/`phone`.
+  `action: request` additionally requires `consent: true`; `action: confirm`
+  requires the current `challengeId` and a 4–10 digit code. A changed owner is
+  409 `SESSION_CHANGED`; changed phone/security is 409 `PHONE_CHANGED`.
+  Invalid/expired/replayed checks return 400; throttles return 429/Retry-After;
+  unconfigured or unavailable SMS returns a truthful 503, never a fake code.
+- Only exact international `+` numbers are eligible; no country is inferred for
+  legacy local numbers. Profile inputs accept up to 16 characters to accommodate
+  the plus sign and 15 digits. Existing optional/local phone storage remains
+  compatible. A phone change clears both verification fields atomically.
+- Twilio Verify uses a fixed HTTPS origin, bounded eight-second requests,
+  redirect rejection and explicit service/phone/SID/channel validation. Only
+  the provider's approved check can verify; a pending send is not approval.
+  API-key credentials take precedence as a complete pair, without falling back
+  from a partial key to another account. Existing account/auth-token credentials
+  remain supported when no key pair is present. No code or provider error body
+  is persisted in the database or logs.
+- `PhoneVerification` stores one current request per account. Account locks
+  reserve a 60-second resend cooldown, three-send hourly budget and five-check
+  attempt budget. A short durable lease serializes checks; all provider I/O
+  occurs outside database transactions. Late responses must match the current
+  request/lease, saved phone and credential/factor version before writing.
+  Approval and challenge consumption are atomic. Ambiguous send failures retain
+  their rate budget because an SMS may already have been accepted remotely.
+- `phoneVerifiedAt` alone is not authority: status also matches the saved number
+  against `phoneVerifiedHash`. Verification changes no password, role, session,
+  authenticator, credit, membership or purchased entitlement, and adds no new
+  login requirement. Codes remain outside URLs/cookies/browser storage.
+- Settings ignore old owner/phone replies, clear code/consent on account/profile
+  changes, validate success replies and support explicit retry/status refresh.
+  The additive migration leaves existing numbers unverified. Browser test-server
+  launches blank SMS credentials; positive provider outcomes use isolated Jest
+  fixtures. No test-only phone approval endpoint or hardcoded production OTP is
+  introduced. Actual SMS delivery/provider activation remains unverified.
+
 ### Client analytics request bodies
 - `POST /api/events/track` returns 400 `Invalid event payload` for malformed,
   empty or non-object JSON before resolving cookies/accounts or writing events.

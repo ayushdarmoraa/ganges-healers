@@ -11,6 +11,7 @@ jest.mock('next/navigation', () => ({ useRouter: jest.fn(), useSearchParams: jes
 jest.mock('next-auth/react', () => ({ getProviders: jest.fn(), signIn: jest.fn(), signOut: jest.fn(), useSession: () => ({ update: jest.fn(), data: { user: { id: 'settings-user' } }, status: 'authenticated' }) }))
 jest.mock('@/components/dashboard/AvatarUpload', () => ({ __esModule: true, default: () => null }))
 jest.mock('@/components/auth/EmailVerificationSettings', () => ({ __esModule: true, default: () => null }))
+jest.mock('@/components/auth/PhoneVerificationSettings', () => ({ __esModule: true, default: () => null, PROFILE_UPDATED_EVENT: 'ganges:profile-updated' }))
 jest.mock('@/components/auth/TwoFactorSettings', () => ({ __esModule: true, default: () => null }))
 jest.mock('sonner', () => ({ toast: { success: jest.fn(), error: jest.fn() } }))
 
