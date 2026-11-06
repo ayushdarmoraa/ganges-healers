@@ -19,7 +19,7 @@ async function review(tx: Prisma.TransactionClient, user: Account, authenticatio
     tx.$queryRaw<Array<{ present: boolean }>>`SELECT EXISTS (SELECT 1 FROM "Booking" WHERE "userId" = ${user.id} AND "status" IN ('PENDING', 'SCHEDULED', 'CONFIRMED', 'RESCHEDULED') AND "scheduledAt" + "durationMin" * interval '1 minute' > ${now}) AS "present"`,
     tx.vIPMembership.findFirst({ where: { userId: user.id, status: { not: 'cancelled' } }, select: { id: true } }),
     tx.programEnrollment.findFirst({ where: { userId: user.id, status: { in: ['active', 'paused'] } }, select: { id: true } }),
-    tx.order.findFirst({ where: { userId: user.id, status: { notIn: ['pending_payment', 'fulfilled', 'cancelled', 'refunded'] } }, select: { id: true } }),
+    tx.order.findFirst({ where: { userId: user.id, status: { notIn: ['pending_payment', 'delivered', 'fulfilled', 'cancelled', 'refunded'] } }, select: { id: true } }),
     tx.payment.findFirst({ where: { userId: user.id, OR: [{ statusEnum: 'PROCESSING' }, { status: 'processing' }] }, select: { id: true } }),
   ])
   const blockers: Blocker[] = []

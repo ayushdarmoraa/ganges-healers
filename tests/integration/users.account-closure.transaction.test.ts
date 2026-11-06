@@ -134,6 +134,17 @@ test('new open orders invalidate an earlier clear review; fulfillment is never f
   expect((await review()).blockers).toEqual([expect.objectContaining({ code: 'ORDERS' })])
   expect(await prisma.order.findUnique({ where: { id: order.id } })).toEqual(order)
 })
+test('shipped orders block closure until delivery, and delivered order history is retained', async () => {
+  const order = await prisma.order.create({ data: { userId, totalPaise: 1000, status: 'shipped' } })
+  const blocked = await review()
+  expect(blocked.blockers).toEqual([expect.objectContaining({ code: 'ORDERS' })])
+  await expect(close()).rejects.toMatchObject({ code: 'ACCOUNT_IN_USE' })
+  const delivered = await prisma.order.update({ where: { id: order.id }, data: { status: 'delivered' } })
+  await expect(closeOwnAccount(userId, blocked.reviewVersion, await proof())).rejects.toMatchObject({ code: 'ACCOUNT_CHANGED' })
+  expect((await review()).blockers).toEqual([])
+  await expect(close()).resolves.toMatchObject({ closed: true })
+  expect(await prisma.order.findUnique({ where: { id: order.id } })).toEqual(delivered)
+})
 test('processing payments block closure while abandoned unpaid carts retain their saved records', async () => {
   const order = await prisma.order.create({ data: { userId, totalPaise: 1000 } })
   const payment = await prisma.payment.create({ data: { userId, gateway: 'razorpay', amountPaise: 1000, status: 'processing', statusEnum: 'PROCESSING' } })

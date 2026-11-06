@@ -40,6 +40,8 @@ This living document pins the repo’s public API contracts, HTTP headers, loggi
   active/paused programs, nonterminal store orders and processing payments
   must be resolved first. A final review rechecks these conditions; an account
   edit or changed blockers requires an explicit review refresh.
+- Paid and shipped orders remain open for closure review. Delivered and
+  fulfilled orders are retained as completed history and do not block closure.
 - A shared account advisory lock and User row lock serialize confirmation.
   `closedAt`, security-version increment, database-session/recovery-link
   revocation, phone-challenge expiration and a non-sensitive `account_closed`
