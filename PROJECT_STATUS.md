@@ -261,3 +261,30 @@ application rows were preserved during that separate branch upgrade. The latest
 Preview and its verification are recorded in PR #10; this remains an older data
 snapshot rather than a synchronized production source. Production configuration
 and identification of the authoritative live dataset remain outstanding.
+
+
+## Ordinary session delivery
+
+Assigned practitioners can save, replace or clear an HTTPS meeting link for an
+upcoming/ongoing confirmed appointment. The customer sees the same link in My
+Bookings and private calendar exports; cancelled/completed cards do not advertise
+a join action. No remote meeting is fabricated. Customer and healer displays use
+explicit India time, and account changes clear private booking/link state.
+
+Link saves require the saved booking timestamp and share the reservation advisory
+lock. Ownership and current role are reread after waiting; competing/stale writes
+retain drafts and cannot revive a cancelled session. Appointment, price, payment
+and credit records remain unchanged by link editing. A safe audit records the
+action without the URL or its access token. Failed loads/saves cannot claim success.
+
+Practitioners can complete confirmed/rescheduled sessions only after the scheduled
+end. Pending confirmation requires verified saved funding, an applied credit or
+a genuinely free appointment. Practitioner cancellation of captured payments or
+used credits now requires separate refund/credit review rather than silently
+losing the customer's entitlement. Unpaid reservations retain their guarded
+cancellation action. Existing customer cancellation/refund handling is unchanged.
+
+Validation results and deployed Preview status are recorded in the follow-up pull
+request. This adds no schema, dependency, remote-meeting credential or live charge.
+Provider-owned meetings, actual email/payment delivery and the fresh production
+cutover remain separate configuration and verification work.

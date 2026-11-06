@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireHealer } from '@/lib/auth/requireHealer'
 
+export const dynamic = 'force-dynamic'
+const headers = { 'Cache-Control': 'private, no-store' }
+
 export async function GET(request: NextRequest) {
   try {
     const { healer } = await requireHealer()
@@ -40,25 +43,25 @@ export async function GET(request: NextRequest) {
           select: { id: true, name: true, email: true, image: true },
         },
         payment: {
-          select: { status: true, amountPaise: true, statusEnum: true },
+          select: { status: true, amountPaise: true, statusEnum: true, gateway: true },
         },
       },
       orderBy: { scheduledAt: 'asc' },
     })
 
-    return NextResponse.json({ success: true, data: bookings })
+    return NextResponse.json({ success: true, data: bookings }, { headers })
   } catch (error: unknown) {
     const status = (error as { status?: number }).status
     if (status === 401 || status === 403) {
       return NextResponse.json(
         { error: (error as Error).message },
-        { status },
+        { status, headers },
       )
     }
     console.error('Healer bookings GET error:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
-      { status: 500 },
+      { status: 500, headers },
     )
   }
 }

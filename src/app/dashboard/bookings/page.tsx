@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useSession } from 'next-auth/react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card } from '@/components/ui/card'
 import BookingCard from '../../../components/bookings/BookingCard'
@@ -9,6 +10,7 @@ import CancelDialog from '../../../components/bookings/CancelDialog'
 import { track } from '@/lib/analytics/client'
 import { toast } from 'sonner'
 import type { BookingReview } from '@/components/bookings/BookingReviewForm'
+import { safeMeetingLink } from '@/lib/bookings/session-delivery'
 
 type ApiBooking = {
   id: string
@@ -19,6 +21,7 @@ type ApiBooking = {
   status: 'PENDING'|'SCHEDULED'|'CONFIRMED'|'RESCHEDULED'|'CANCELLED'|'COMPLETED'
   durationMin?: number | null
   pricePaise?: number | null
+  meetingLink?: string | null
   healer?: { userId?: string; user?: { name?: string | null } | null } | null
   service?: { name?: string | null; category?: string | null; slug?: string | null } | null
   payment?: { status?: string | null; amountPaise?: number | null } | null
@@ -37,23 +40,30 @@ export type NormalizedBooking = {
   healerId: string
   serviceId: string
   amountPaise: number
+  meetingLink?: string | null
   canReview?: boolean
   review?: BookingReview | null
 }
 
 export default function MyBookingsPage() {
+  const { data: session, status: authStatus } = useSession()
+  const userId = session?.user?.id ?? ''
   const [items, setItems] = useState<NormalizedBooking[]>([])
+  const [itemsOwner, setItemsOwner] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const [rescheduleId, setRescheduleId] = useState<string | null>(null)
   const [cancelId, setCancelId] = useState<string | null>(null)
 
-  const selectedForReschedule = useMemo(() => items.find(i => i.id === rescheduleId) || null, [items, rescheduleId])
-  const selectedForCancel = useMemo(() => items.find(i => i.id === cancelId) || null, [items, cancelId])
+  const selectedForReschedule = useMemo(() => itemsOwner === userId ? items.find(i => i.id === rescheduleId) || null : null, [items, rescheduleId, itemsOwner, userId])
+  const selectedForCancel = useMemo(() => itemsOwner === userId ? items.find(i => i.id === cancelId) || null : null, [items, cancelId, itemsOwner, userId])
 
   useEffect(() => {
     let mounted = true
+    setItems([]); setItemsOwner(''); setRescheduleId(null); setCancelId(null)
+    if (authStatus === 'loading') { setLoading(true); return () => { mounted = false } }
+    if (!userId) { setLoading(false); setError('Sign in to view your bookings.'); return () => { mounted = false } }
     ;(async () => {
       setLoading(true)
       setError(null)
@@ -75,6 +85,7 @@ export default function MyBookingsPage() {
             healerName: b.healer?.user?.name || 'Healer',
             startIso: start.toISOString(),
             status,
+            meetingLink: safeMeetingLink(b.meetingLink),
             isCancelable: active && hoursUntil >= 24,
             isReschedulable: active && hoursUntil >= 24,
             healerId: b.healerId,
@@ -84,7 +95,7 @@ export default function MyBookingsPage() {
             review: b.review ?? null,
           }
         })
-        if (mounted) setItems(normalized)
+        if (mounted) { setItems(normalized); setItemsOwner(userId) }
       } catch (e) {
         if (mounted) setError(e instanceof Error ? e.message : 'Failed to load bookings')
       } finally {
@@ -92,14 +103,15 @@ export default function MyBookingsPage() {
       }
     })()
     return () => { mounted = false }
-  }, [])
+  }, [userId, authStatus])
 
   const { upcoming, past } = useMemo(() => {
     const now = Date.now()
+    if (itemsOwner !== userId) return { upcoming: [], past: [] }
     const upcoming = items.filter(i => new Date(i.startIso).getTime() > now && i.status !== 'CANCELLED' && i.status !== 'COMPLETED')
     const past = items.filter(i => new Date(i.startIso).getTime() <= now || i.status === 'CANCELLED' || i.status === 'COMPLETED')
     return { upcoming, past }
-  }, [items])
+  }, [items, itemsOwner, userId])
 
   function onRescheduleOpen(b: NormalizedBooking) {
     setRescheduleId(b.id)

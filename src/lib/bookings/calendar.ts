@@ -1,3 +1,5 @@
+import { safeMeetingLink } from './session-delivery'
+
 interface CalendarEvent {
   id: string
   title: string
@@ -26,8 +28,7 @@ function fold(value: string) {
 /** Private RFC 5545 export. Calendar services import the file; this does not create a remote meeting. */
 export function renderCalendarEvent(event: CalendarEvent) {
   if (!Number.isFinite(event.start.getTime()) || !Number.isFinite(event.updatedAt.getTime()) || !Number.isSafeInteger(event.durationMin) || event.durationMin < 1) throw new Error('Invalid calendar event')
-  let meeting: string | null = null
-  try { const value = new URL(event.meetingLink ?? ''); if (value.protocol === 'https:') meeting = value.href } catch {}
+  const meeting = safeMeetingLink(event.meetingLink)
   const lines = [
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Ganges Healers//Appointments//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
     'BEGIN:VEVENT', `UID:${calendarText(event.id)}@gangeshealers`, `DTSTAMP:${utc(event.updatedAt)}`, `LAST-MODIFIED:${utc(event.updatedAt)}`,

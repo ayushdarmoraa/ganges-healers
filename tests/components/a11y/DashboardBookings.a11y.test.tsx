@@ -3,6 +3,8 @@ import React from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import MyBookingsPage from '@/app/dashboard/bookings/page'
 
+jest.mock('next-auth/react', () => ({ useSession: () => ({ data: { user: { id: 'u1' } }, status: 'authenticated' }) }))
+
 beforeAll(() => {
   const data = {
     success: true,
