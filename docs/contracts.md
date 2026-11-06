@@ -900,3 +900,21 @@ The two new runtime modules separate transactional store writes from the
 interactive confirmation; the existing read-query and creation modules remain
 focused. For rollback, disable deletion while repairing it; do not restore the
 unguarded cascading action. No schema or historical-data rollback is needed.
+
+
+## Service/healer deactivation instead of permanent deletion
+
+Services and healer profiles are retained through the existing isActive controls.
+The administrator pages no longer expose permanent Delete buttons or register the
+old unguarded deleteService/deleteHealer server actions. This intentionally
+retires a private destructive action that could cascade through bookings into
+payments, refunds, invoices and reviews, or discard program delivery assignments.
+The visible Deactivate/Activate controls, metadata editing and Verify/Unverify
+flows remain. Administrative cards stack controls on narrow screens and explain
+which records deactivation preserves. Reload open admin pages after deployment.
+
+This changes no public API, authentication gate, database schema, billing amount,
+booking time/status or purchased program term. Customer booking history/calendar
+access continues even when its catalog service/practitioner is inactive. Use the
+existing Activate action to reverse deactivation. If repairing/rolling back this
+change, retain the deactivation-only behavior; do not restore cascade deletion.

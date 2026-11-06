@@ -58,13 +58,6 @@ async function toggleService(formData: FormData) {
   revalidatePath('/admin/services')
 }
 
-async function deleteService(formData: FormData) {
-  'use server'
-  await guardAdmin()
-  const id = String(formData.get('id'))
-  await prisma.service.delete({ where: { id } })
-  revalidatePath('/admin/services')
-}
 
 export default async function AdminServicesPage() {
   await guardAdmin()
@@ -77,6 +70,7 @@ export default async function AdminServicesPage() {
   return (
     <div className="container mx-auto px-4 py-8 space-y-8">
       <h1 className="text-2xl font-semibold">Admin · Services</h1>
+      <p className="text-sm text-muted-foreground">Deactivate a service to stop offering it. Existing bookings, payments and linked records are kept.</p>
 
       {/* Create form */}
       <Card>
@@ -126,8 +120,8 @@ export default async function AdminServicesPage() {
       <Card>
         <CardContent className="p-0 divide-y">
           {services.map((s) => (
-            <div key={s.id} className="p-4 space-y-3">
-              <div className="flex items-start justify-between gap-4">
+            <article key={s.id} aria-label={`Service ${s.name}`} className="p-4 space-y-3">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <div className="font-medium">
                     {s.name}
@@ -145,10 +139,7 @@ export default async function AdminServicesPage() {
                       {s.isActive ? 'Deactivate' : 'Activate'}
                     </Button>
                   </form>
-                  <form action={deleteService}>
-                    <input type="hidden" name="id" value={s.id} />
-                    <Button type="submit" variant="destructive" size="sm">Delete</Button>
-                  </form>
+
                 </div>
               </div>
               {/* Inline edit */}
@@ -189,7 +180,7 @@ export default async function AdminServicesPage() {
                   </div>
                 </form>
               </details>
-            </div>
+            </article>
           ))}
           {services.length === 0 && (
             <div className="p-4 text-center text-muted-foreground">No services yet.</div>
