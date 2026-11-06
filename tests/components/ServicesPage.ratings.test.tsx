@@ -34,3 +34,21 @@ test('valid search and category filters retain a zero minimum price', async () =
     { name: { contains: 'hypnotherapy', mode: 'insensitive' } }, { description: { contains: 'hypnotherapy', mode: 'insensitive' } },
   ] } }))
 })
+
+test('a minimum rating matches the actual review average and excludes unrated services', async () => {
+  render(await ServicesPage({ searchParams: Promise.resolve({ minRating: '3.5' }) }))
+  expect(screen.getByRole('heading', { name: 'Yoga' })).toBeVisible()
+  expect(screen.queryByRole('heading', { name: 'Meditation' })).not.toBeInTheDocument()
+  expect(prisma.review.groupBy).toHaveBeenCalledTimes(1)
+})
+
+test('a higher threshold shows the clearable empty state', async () => {
+  render(await ServicesPage({ searchParams: Promise.resolve({ minRating: '3.6' }) }))
+  expect(screen.getByText('No matching services')).toBeVisible()
+  expect(screen.getByRole('link', { name: 'Clear filters' })).toHaveAttribute('href', '/services')
+})
+
+test.each(['Infinity', '0', '5.1', '4.51', ['4', '5']].map(minRating => ({ minRating })))('ignores malformed or repeated ratings (%j)', async ({ minRating }) => {
+  render(await ServicesPage({ searchParams: Promise.resolve({ minRating }) }))
+  expect(screen.getByRole('heading', { name: 'Meditation' })).toBeVisible()
+})

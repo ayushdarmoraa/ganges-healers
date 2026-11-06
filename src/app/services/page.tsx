@@ -11,6 +11,7 @@ import { canonicalOf } from '@/config/site'
 import Breadcrumbs from '@/components/seo/Breadcrumbs'
 import BreadcrumbsLd from '@/components/seo/BreadcrumbsLd'
 import { makeServicesIndexCrumbs } from '@/lib/seo/breadcrumbs'
+import { parseCatalogPrice, parseMinimumServiceRating } from '@/lib/services/catalog-filters'
 
 export async function generateMetadata(): Promise<Metadata> {
   return {
@@ -49,17 +50,12 @@ interface UiService {
   totalReviews: number
 }
 
-async function getServices(params: Record<string, string | string[] | undefined>): Promise<UiService[]> {
+async function getServices(params: Record<string, string | string[] | undefined>, minimumRating: number | undefined): Promise<UiService[]> {
   const single = (value: string | string[] | undefined) => typeof value === 'string' ? value.trim() : ''
   const category = single(params.category)
   const text = (single(params.search) || single(params.q)).slice(0, 200)
-  const priceValue = (value: string | string[] | undefined) => {
-    const raw = single(value)
-    const parsed = raw ? Number(raw) : NaN
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined
-  }
-  const minPrice = priceValue(params.minPrice)
-  const maxPrice = priceValue(params.maxPrice)
+  const minPrice = parseCatalogPrice(params.minPrice)
+  const maxPrice = parseCatalogPrice(params.maxPrice)
 
   const where: {
     isActive: true
@@ -120,7 +116,7 @@ async function getServices(params: Record<string, string | string[] | undefined>
     averageRating: ratings.get(s.id)?._avg.rating ?? null,
     totalSessions: s._count.bookings,
     totalReviews: ratings.get(s.id)?._count.rating ?? 0
-  }))
+  })).filter(service => minimumRating === undefined || (service.averageRating !== null && service.averageRating >= minimumRating))
 }
 
 export default async function ServicesPage({
@@ -129,13 +125,14 @@ export default async function ServicesPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const params = await searchParams
+  const minimumRating = parseMinimumServiceRating(params.minRating)
   const [services, categoryRows] = await Promise.all([
-    getServices(params),
+    getServices(params, minimumRating),
     prisma.service.findMany({ where: { isActive: true }, select: { category: true }, distinct: ['category'], orderBy: { category: 'asc' } }),
   ])
   const categories = categoryRows.map(row => row.category).filter(Boolean)
   const filterKeys = ['category', 'search', 'q', 'minPrice', 'maxPrice'] as const
-  const hasFilters = filterKeys.some(key => Boolean(params[key]))
+  const hasFilters = minimumRating !== undefined || filterKeys.some(key => Boolean(params[key]))
   
   return (
     <div className="min-h-screen bg-gray-50">
@@ -161,7 +158,7 @@ export default async function ServicesPage({
           {/* Filters Sidebar */}
           <aside className="lg:w-64">
             <Suspense fallback={<div>Loading filters...</div>}>
-              <ServicesFilter key={JSON.stringify(filterKeys.map(key => params[key]))} categories={categories} />
+              <ServicesFilter key={JSON.stringify([...filterKeys.map(key => params[key]), minimumRating])} categories={categories} minimumRating={minimumRating} />
             </Suspense>
           </aside>
           

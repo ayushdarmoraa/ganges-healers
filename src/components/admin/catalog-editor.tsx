@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/button'
 
 type SaveResult = { error?: string }
 
-export function ServiceEditor({ action, children, create = false }: {
+export function CatalogEditor({ action, children, item, create = false }: {
   action: (data: FormData) => Promise<SaveResult>
   children: ReactNode
+  item: string
   create?: boolean
 }) {
   const [result, setResult] = useState<SaveResult | null>(null)
@@ -30,7 +31,7 @@ export function ServiceEditor({ action, children, create = false }: {
         if (!response.error && create) form.reset()
         setResult(response)
       } catch {
-        setResult({ error: 'The service could not be saved. Try again.' })
+        setResult({ error: `The ${item.toLowerCase()} could not be saved. Try again.` })
       } finally {
         saving.current = false
       }
@@ -42,7 +43,7 @@ export function ServiceEditor({ action, children, create = false }: {
       <fieldset disabled={pending} className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-3">
         {children}
         {result?.error && <p role="alert" className="text-sm text-destructive md:col-span-3">{result.error}</p>}
-        {result && !result.error && <p role="status" className="text-sm md:col-span-3">{create ? 'Service created.' : 'Service saved.'}</p>}
+        {result && !result.error && <p role="status" className="text-sm md:col-span-3">{item} {create ? 'created.' : 'saved.'}</p>}
         <div>
           <Button type="submit" size="sm">{pending ? 'Saving…' : create ? 'Create' : 'Save'}</Button>
         </div>

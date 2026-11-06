@@ -6,17 +6,25 @@ Reviewed November 6, 2026 against the attached implementation plan and system de
 
 The release candidate is `codex/site-completion-release` in [PR #10](https://github.com/gangeshealers/ganges-healers/pull/10). It preserves the existing Next.js App Router application. Recent implementation-plan follow-ups are [recovery hardening #12](https://github.com/gangeshealers/ganges-healers/pull/12), [checkout recovery #13](https://github.com/gangeshealers/ganges-healers/pull/13), [dependency fixes #14](https://github.com/gangeshealers/ganges-healers/pull/14), [program scheduling and calendar exports #15](https://github.com/gangeshealers/ganges-healers/pull/15), and [authenticator security #16](https://github.com/gangeshealers/ganges-healers/pull/16). The linked PRs record their exact tested source and seven-job CI results; PR #10 records the final combined validation. Earlier dated/checkpoint notes below are history, not current unresolved CI gates.
 
+The account-closure change merged in [PR #34](https://github.com/gangeshealers/ganges-healers/pull/34).
+The protected Preview database was checked before merge. It has the exact
+closure migration and 27 applied migrations. The service catalog validation in
+[PR #35](https://github.com/gangeshealers/ganges-healers/pull/35) was checked
+against that combined source. The marketplace follow-up adds review-based
+filtering to the public service page and API, and makes rejected healer and
+program edits recoverable in their admin forms.
+
 | Plan area | Credential-free implementation in this candidate | Outside the current work scope |
 | --- | --- | --- |
 | Foundation | Additive migrations, exact SQL/data-preservation rehearsals, guarded disposable test databases, CI, health route, structured logs | Fresh production-data cutover, provider configuration and deployed verification |
 | Accounts and profiles | Registration, password sign-in/recovery, role guards, profiles and availability; authenticator protection; email and phone verification; reviewed closure with recent sign-in, commitment checks, retained history and session revocation | Google credentials/callback setup; actual email/SMS delivery; deployed acceptance |
-| Marketplace and bookings | Discovery, capacity checks shared with programs, creation/rescheduling/cancellation, credit confirmation, calendar downloads | Live payment/refund delivery and deployed smoke checks |
+| Marketplace and bookings | Discovery with review-based rating filters, capacity checks shared with programs, creation/rescheduling/cancellation, credit confirmation, calendar downloads | Live payment/refund delivery and deployed smoke checks |
 | Payments and memberships | Server-priced owned checkout, verified webhooks, idempotent fulfillment, invoice/access checks, immutable membership/program quotes and retry recovery | Gateway credentials, real checkout and webhook delivery |
 | Programs and courses | Catalogs, paid/free enrollment rules, owned lesson progress; program practitioner assignment, reservations, cancellation, guarded completion/progress and pause/resume | Remote meeting provisioning and live purchase delivery |
 | Community and content | Topics/tags, drafts, administration, moderation/report review, blog publishing/withdrawal | Owner-supplied published content and deployed role smoke checks |
 | Notifications and navigation | Inbox/read state, bells, polling/socket authorization, search, account menus and cart | External email/SMS providers and deployed responsive checks |
 | Store | Catalog/checkout, owned order details, filters/paging, saved line totals and recovery screens | Real gateway checkout and fulfillment operations |
-| Administration and analytics | Admin workspaces, access controls, payment reports, funnel/events, experiments and products | Production data/provider configuration and live monitoring |
+| Administration and analytics | Admin workspaces, validated service/healer/program edits with draft recovery, access controls, payment reports, funnel/events, experiments and products | Production data/provider configuration and live monitoring |
 
 The implemented candidate and passing isolated checks do not establish production deployment or completion of unspecified future sprint placeholders. No owner credential entry is needed for the changes above. The current production audit and remaining upstream finding are documented in `docs/ops-checklist.md`.
 
