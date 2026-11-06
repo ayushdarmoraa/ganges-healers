@@ -172,6 +172,13 @@ After running the seed script, you can log in with:
 - **Email:** admin@ganges-healers.com
 - **Password:** admin123
 
+### Administrator workspaces
+
+The administrator dashboard and account menu link to the existing services,
+healers, courses/lessons, audio, products, programs/enrollments, community,
+articles, payments and analytics workspaces. Their server-side administrator
+checks remain required; navigation does not grant access to another role.
+
 ## Project Structure
 
 ```
