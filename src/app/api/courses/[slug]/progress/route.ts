@@ -26,7 +26,7 @@ export async function POST(
     if (!parsed.success) return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
 
     const course = await prisma.course.findFirst({
-      where: { OR: [{ id: slug }, { slug }], isActive: true },
+      where: { OR: [{ id: slug }, { slug }] },
       include: { lessons: { select: { order: true } } },
     })
     if (!course) return NextResponse.json({ error: 'Course not found' }, { status: 404 })
@@ -60,7 +60,7 @@ export async function POST(
     if (changed.count > 0) {
       logActivity({ userId: session.user.id, action: isCompleted && enrollment.status !== 'completed' ? 'course_completed' : 'lesson_completed', entityType: 'course', entityId: course.id, metadata: { progress: updated.progress, lessonOrder: parsed.data.lessonOrder } })
     }
-    return NextResponse.json({ progress: updated.progress, status: updated.status })
+    return NextResponse.json({ progress: updated.progress, status: updated.status }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (err) {
     console.error('[courses][progress][error]', err)
     return NextResponse.json({ error: 'Failed to update progress' }, { status: 500 })

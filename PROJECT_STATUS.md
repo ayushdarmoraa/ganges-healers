@@ -1,6 +1,6 @@
 # Ganges Healers — Implementation and Rollout Status
 
-Reviewed November 5, 2026 against the implementation plan, repository branches, pull requests, CI and database rehearsal records. Current work excludes Vercel. Earlier Preview checks below are historical and do not establish deployment of the latest source.
+Reviewed November 5, 2026 against the implementation plan, repository branches, pull requests, CI and database rehearsal records. Vercel access is now authorized. Historical checks below describe their recorded commits; PR #10 tracks the current protected Preview and production readiness.
 
 ## Current development line
 
@@ -8,7 +8,7 @@ The release candidate is `codex/site-completion-release` in [PR #10](https://git
 
 | Plan area | Credential-free implementation in this candidate | Outside the current work scope |
 | --- | --- | --- |
-| Foundation | Additive migrations, exact SQL/data-preservation rehearsals, guarded disposable test databases, CI, health route, structured logs | Production schema reconciliation and deployment; Vercel is excluded |
+| Foundation | Additive migrations, exact SQL/data-preservation rehearsals, guarded disposable test databases, CI, health route, structured logs | Fresh production-data cutover, provider configuration and deployed verification |
 | Accounts and profiles | Registration, password sign-in/recovery, role guards, profiles and availability; owner-enabled authenticator protection and single-use recovery codes | Google credentials/callback setup; real email/SMS delivery |
 | Marketplace and bookings | Discovery, capacity checks shared with programs, creation/rescheduling/cancellation, credit confirmation, calendar downloads | Live payment/refund delivery and deployed smoke checks |
 | Payments and memberships | Server-priced owned checkout, verified webhooks, idempotent fulfillment, invoice/access checks, immutable membership/program quotes and retry recovery | Gateway credentials, real checkout and webhook delivery |
@@ -233,3 +233,31 @@ failed/conflicted saves preserve the draft, and account changes clear it. The
 GET schedule endpoint, additive response version, legacy minute-window handling,
 API compatibility and rollback are documented in `docs/contracts.md`. No schema
 change, dependency, provider credential or Vercel operation is included.
+
+
+## Course authoring and purchase preservation
+
+The existing administrator course page now supports private draft creation,
+validated metadata, lesson text/HTTPS video editing, lesson ordering, explicit
+publication and archival. A new course starts unpublished; publication requires a
+complete curriculum. Saved versions prevent competing administrators from silently
+overwriting each other. Failed saves preserve drafts, and pending text blocks
+publication until saved. The API is current-role guarded and private/no-store.
+
+Any enrollment or course-bound payment record protects the course from deletion
+and structural curriculum changes. Content corrections remain possible. Archiving
+stops discovery and new enrollments while active/completed students retain their
+course, lesson and progress access. Course allocation shares the catalog lock with
+these administrative decisions and rereads publication state before reserving a
+quote. Purchased prices and the existing progress representation stay unchanged.
+
+Validation and exact commit results are recorded in the follow-up pull request.
+No schema migration, dependency, provider credential, real payment or fabricated
+course content is introduced. Licensed course media remains owner supplied.
+
+The Vercel release Preview's isolated database now has all 24 committed migrations,
+including program reservations and authenticator security. All original
+application rows were preserved during that separate branch upgrade. The latest
+Preview and its verification are recorded in PR #10; this remains an older data
+snapshot rather than a synchronized production source. Production configuration
+and identification of the authoritative live dataset remain outstanding.

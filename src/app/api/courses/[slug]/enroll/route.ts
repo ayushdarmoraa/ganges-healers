@@ -14,10 +14,14 @@ export async function POST(_req: Request, { params }: { params: Promise<{ slug: 
     const session = await auth()
     if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const userId = session.user.id
-    const course = await prisma.course.findFirst({ where: { OR: [{ id: slug }, { slug }], isActive: true } })
-    if (!course) return NextResponse.json({ error: 'Course not found or inactive' }, { status: 404 })
+    const catalogCourse = await prisma.course.findFirst({ where: { OR: [{ id: slug }, { slug }], isActive: true } })
+    if (!catalogCourse) return NextResponse.json({ error: 'Course not found or inactive' }, { status: 404 })
 
     return await prisma.$transaction(async tx => {
+      // Catalog deletion, archiving, curriculum edits, and quote allocation share this lock.
+      await lockTransaction(tx, 'course', `catalog:${catalogCourse.id}`)
+      const course = await tx.course.findFirst({ where: { id: catalogCourse.id, isActive: true } })
+      if (!course) return NextResponse.json({ error: 'Course not found or inactive' }, { status: 404 })
       // A retry must see the preceding enrollment and order before creating either again.
       await lockTransaction(tx, 'course', `${userId}:${course.id}`)
       let enrollment = await tx.courseEnrollment.findUnique({ where: { userId_courseId: { userId, courseId: course.id } } })
