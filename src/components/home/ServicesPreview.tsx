@@ -28,7 +28,7 @@ export default async function ServicesPreview() {
         Most Popular Healing Services
       </h2>
       <p className="text-center text-muted-foreground mb-12 max-w-2xl mx-auto">
-        Our highest-rated healing modalities, chosen by the community.
+        Explore healing services and choose the approach that fits your needs.
       </p>
       <div className="grid md:grid-cols-3 lg:grid-cols-5 gap-6">
         {services.map((service) => (

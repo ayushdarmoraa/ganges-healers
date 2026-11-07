@@ -1,78 +1,46 @@
+import { createHash } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireHealer } from '@/lib/auth/requireHealer'
-import { z } from 'zod'
+import { lockTransaction } from '@/lib/db/locks'
+import { readWeeklyAvailability, weeklyAvailabilitySchema } from '@/lib/bookings/availability-rules'
 
-const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const
-
-const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/
-
-const dayWindowSchema = z
-  .object({
-    start: z.string().regex(timeRegex, 'Use HH:MM format (e.g. "10:00")'),
-    end: z.string().regex(timeRegex, 'Use HH:MM format (e.g. "18:00")'),
-  })
-  .nullable()
-
-const availabilitySchema = z
-  .object({
-    monday: dayWindowSchema.optional(),
-    tuesday: dayWindowSchema.optional(),
-    wednesday: dayWindowSchema.optional(),
-    thursday: dayWindowSchema.optional(),
-    friday: dayWindowSchema.optional(),
-    saturday: dayWindowSchema.optional(),
-    sunday: dayWindowSchema.optional(),
-  })
-  .refine(
-    (val) => {
-      for (const day of DAYS) {
-        const w = val[day]
-        if (w && w.start >= w.end) return false
-      }
-      return true
-    },
-    { message: 'start time must be before end time for each day' },
-  )
-
-export async function PUT(request: NextRequest) {
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+const privateHeaders = { 'Cache-Control': 'private, no-store' }
+function version(healerId: string, value: unknown) {
+  return `"availability-${createHash('sha256').update(`${healerId}:${JSON.stringify(readWeeklyAvailability(value) ?? value)}`).digest('hex')}"`
+}
+function failure(error: unknown, method: 'GET' | 'PUT') {
+  const status = (error as { status?: number })?.status
+  if (status === 401 || status === 403) return NextResponse.json({ error: (error as Error).message }, { status, headers: privateHeaders })
+  // Preserve the existing namespace without logging a submitted private schedule.
+  console.error(`Healer availability ${method} error:`, { name: error instanceof Error ? error.name : 'UnknownError' })
+  return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: privateHeaders })
+}
+export async function GET() {
   try {
     const { healer } = await requireHealer()
-
-    const body = await request.json()
-    const parsed = availabilitySchema.safeParse(body)
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: 'Validation failed', details: parsed.error.flatten() },
-        { status: 400 },
-      )
-    }
-
-    // Normalise: missing days become null
-    const schedule: Record<string, { start: string; end: string } | null> = {}
-    for (const day of DAYS) {
-      schedule[day] = parsed.data[day] ?? null
-    }
-
-    const updated = await prisma.healer.update({
-      where: { id: healer.id },
-      data: { availability: schedule },
-      select: { id: true, availability: true },
-    })
-
-    return NextResponse.json({ success: true, data: updated.availability })
-  } catch (error: unknown) {
-    const status = (error as { status?: number }).status
-    if (status === 401 || status === 403) {
-      return NextResponse.json(
-        { error: (error as Error).message },
-        { status },
-      )
-    }
-    console.error('Healer availability PUT error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 },
-    )
-  }
+    const schedule = readWeeklyAvailability(healer.availability)
+    if (!schedule) return NextResponse.json({ error: 'Stored availability needs review before editing.' }, { status: 409, headers: privateHeaders })
+    return NextResponse.json({ success: true, data: schedule }, { headers: { ...privateHeaders, ETag: version(healer.id, schedule) } })
+  } catch (error) { return failure(error, 'GET') }
+}
+export async function PUT(request: NextRequest) {
+  try {
+    const { user, healer } = await requireHealer()
+    const parsed = weeklyAvailabilitySchema.safeParse(await request.json().catch(() => null))
+    if (!parsed.success) return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400, headers: privateHeaders })
+    const ifMatch = request.headers.get('if-match')
+    return await prisma.$transaction(async tx => {
+      // Coordinate schedule edits with ordinary and program appointment writers.
+      await lockTransaction(tx, 'healer', healer.id)
+      const current = await tx.healer.findUnique({ where: { id: healer.id }, select: { userId: true, availability: true, user: { select: { role: true } } } })
+      if (!current || current.userId !== user.id || current.user.role !== 'HEALER') return NextResponse.json({ error: 'Forbidden: healer only' }, { status: 403, headers: privateHeaders })
+      const etag = version(healer.id, current.availability)
+      if (ifMatch && ifMatch.trim() !== '*' && !ifMatch.split(',').some(tag => tag.trim() === etag)) return NextResponse.json({ error: 'Availability changed in another session. Reload the saved hours before trying again.' }, { status: 412, headers: privateHeaders })
+      const updated = await tx.healer.update({ where: { id: healer.id }, data: { availability: parsed.data }, select: { availability: true } })
+      return NextResponse.json({ success: true, data: parsed.data, version: version(healer.id, updated.availability) }, { headers: privateHeaders })
+    }, { maxWait: 10000, timeout: 10000 })
+  } catch (error) { return failure(error, 'PUT') }
 }

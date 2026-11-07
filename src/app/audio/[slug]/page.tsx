@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import AudioPlayerClient from '@/components/audio/AudioPlayerClient'
 
+export const dynamic = 'force-dynamic'
+
 interface Props {
   params: Promise<{ slug: string }>
 }
@@ -10,7 +12,8 @@ interface Props {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
   const track = await prisma.audioTrack.findFirst({
-    where: { OR: [{ id: slug }, { slug }] },
+    where: { isPublished: true, OR: [{ id: slug }, { slug }] },
+    select: { title: true, description: true, category: true },
   })
   if (!track) return { title: 'Track Not Found' }
   return {
@@ -23,7 +26,8 @@ export default async function AudioTrackPage({ params }: Props) {
   const { slug } = await params
 
   const track = await prisma.audioTrack.findFirst({
-    where: { OR: [{ id: slug }, { slug }] },
+    where: { isPublished: true, OR: [{ id: slug }, { slug }] },
+    select: { slug: true },
   })
 
   if (!track) notFound()

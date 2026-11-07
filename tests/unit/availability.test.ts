@@ -33,15 +33,9 @@ jest.mock('@/lib/prisma', () => ({
         return { duration: 60, isActive: true }
       }),
     },
-    booking: {
-      findMany: jest.fn(async (args: { where?: { scheduledAt?: { gte?: Date; lte?: Date } } }) => {
-        const gte = args.where?.scheduledAt?.gte
-        const lte = args.where?.scheduledAt?.lte
-        if (gte && lte) return bookings.filter(b => b.scheduledAt >= gte && b.scheduledAt <= lte)
-        if (gte && !lte) return bookings.filter(b => b.scheduledAt >= gte)
-        return bookings
-      })
-    }
+    $queryRaw: jest.fn(async (_sql: TemplateStringsArray, _healerId: string, end: string, start: string, excludeId: string | null) =>
+      bookings.filter(b => b.id !== excludeId && b.scheduledAt < new Date(end) &&
+        b.scheduledAt.getTime() + b.durationMin * 60000 > new Date(start).getTime())),
   }
 }))
 
@@ -58,7 +52,10 @@ beforeAll(() => {
   clock = FakeTimers.install({ now: new Date('2025-09-25T03:30:00.000Z') })
 })
 afterAll(() => clock.uninstall())
-beforeEach(() => { bookings.splice(0, bookings.length); jest.clearAllMocks() })
+beforeEach(() => {
+  bookings.splice(0, bookings.length); jest.clearAllMocks()
+  for (const day of Object.keys(availability)) availability[day] = { start: '10:00', end: '20:00' }
+})
 
 // ------------------ Tests ------------------
 describe('getHealerAvailability', () => {
@@ -67,13 +64,13 @@ describe('getHealerAvailability', () => {
     expect(res.slots).toHaveLength(20)
     expect(res.slots[0].time).toBe('10:00')
     expect(res.slots.at(-1)?.time).toBe('19:30')
-    expect(res.slots.filter(s => !s.available)).toHaveLength(0)
+    // A one-hour session must finish within the 20:00 window.
+    expect(res.slots.filter(s => !s.available).map(s => s.time)).toEqual(['19:30'])
   })
 
-  it('no availability => all slots marked unavailable', async () => {
+  it('a day off has no offered starts', async () => {
     const res = await getHealerAvailability('no-availability', '2025-09-29')
-    expect(res.slots).toHaveLength(20)
-    expect(res.slots.every(s => !s.available)).toBe(true)
+    expect(res.slots).toEqual([])
   })
 
   it('inactive healer returns []', async () => {
@@ -81,18 +78,56 @@ describe('getHealerAvailability', () => {
     expect(res.slots).toEqual([])
   })
 
+  it('offers saved early and late hours and excludes passed starts in India time', async () => {
+    availability.thursday = { start: '08:00', end: '23:00' }
+    const today = await getHealerAvailability('healer-1', '2025-09-25')
+    expect(today.slots[0].time).toBe('08:00')
+    expect(today.slots.find(slot => slot.time === '09:00')?.available).toBe(false)
+    expect(today.slots.find(slot => slot.time === '09:30')?.available).toBe(true)
+    expect(today.slots.find(slot => slot.time === '21:00')?.available).toBe(true)
+    expect(today.slots.find(slot => slot.time === '22:30')?.available).toBe(false)
+  })
+
+  it('supports midnight closing, legacy minute windows, and fails closed on corrupt rules', async () => {
+    availability.monday = { start: '21:15', end: '24:00' }
+    const evening = await getHealerAvailability('healer-1', '2025-09-29', 30)
+    expect(evening.slots[0]).toEqual({ time: '21:30', available: true })
+    expect(evening.slots.at(-1)).toEqual({ time: '23:30', available: true })
+    availability.monday = { start: 'nonsense', end: '24:00' }
+    expect((await getHealerAvailability('healer-1', '2025-09-29')).slots).toEqual([])
+  })
+
   it('conflicting booking marks slot unavailable', async () => {
-    // Use local time string (no Z) to align with slot generation independent of system TZ
-    addBooking('2025-09-29T10:30:00')
+    addBooking('2025-09-29T10:30:00+05:30')
     const res = await getHealerAvailability('healer-1', '2025-09-29')
     const tenThirty = res.slots.find(s => s.time === '10:30')
     expect(tenThirty?.available).toBe(false)
+    expect(tenThirty).not.toHaveProperty('bookingId')
   })
 
   it('boundary slots exist', async () => {
     const res = await getHealerAvailability('healer-1', '2025-09-30')
     expect(res.slots[0].time).toBe('10:00')
     expect(res.slots.at(-1)?.time).toBe('19:30')
+  })
+
+  it('uses the service duration for the end of the working window', async () => {
+    const short = await getHealerAvailability('healer-1', '2025-09-29', 30)
+    const long = await getHealerAvailability('healer-1', '2025-09-29', 90)
+    expect(short.slots.find(s => s.time === '19:30')?.available).toBe(true)
+    expect(long.slots.find(s => s.time === '19:00')?.available).toBe(false)
+    expect(long.slots.find(s => s.time === '18:30')?.available).toBe(true)
+  })
+
+  it('can preview a booking move without counting that booking against itself', async () => {
+    addBooking('2025-09-29T10:00:00+05:30', 90)
+    const withoutExclusion = await getHealerAvailability('healer-1', '2025-09-29', 90)
+    const excludingOwn = await getHealerAvailability('healer-1', '2025-09-29', 90, 'b0')
+    expect(withoutExclusion.slots.find(s => s.time === '10:30')?.available).toBe(false)
+    expect(excludingOwn.slots.find(s => s.time === '10:30')?.available).toBe(true)
+    addBooking('2025-09-29T11:00:00+05:30', 60)
+    const anotherBooking = await getHealerAvailability('healer-1', '2025-09-29', 90, 'b0')
+    expect(anotherBooking.slots.find(s => s.time === '10:30')?.available).toBe(false)
   })
 })
 
@@ -112,16 +147,43 @@ describe('validateBookingSlot', () => {
   })
 
   it('detects conflict with existing booking', async () => {
-    addBooking('2025-09-29T12:00:00')
-    const conflict = new Date('2025-09-29T12:00:00')
+    addBooking('2025-09-29T12:00:00+05:30')
+    const conflict = new Date('2025-09-29T12:00:00+05:30')
     const res = await validateBookingSlot('healer-1', 'service-60', conflict)
     expect(res.valid).toBe(false)
     expect(res.error).toMatch(/not available/i)
   })
 
   it('accepts aligned future free slot', async () => {
-    const future = new Date('2025-09-29T10:00:00')
+    const future = new Date('2025-09-29T10:00:00+05:30')
     const res = await validateBookingSlot('healer-1', 'service-60', future)
     expect(res.valid).toBe(true)
+  })
+
+  it('rejects overlaps spanning midnight or starting more than two hours earlier', async () => {
+    addBooking('2025-09-28T23:30:00+05:30', 660)
+    const res = await validateBookingSlot('healer-1', 'service-60', new Date('2025-09-29T10:00:00+05:30'))
+    expect(res).toEqual({ valid: false, error: 'Time slot not available' })
+  })
+
+  it('always rejects conflicting slots even when test mode is enabled', async () => {
+    const previous = process.env.TEST_MODE
+    process.env.TEST_MODE = '1'
+    try {
+      addBooking('2025-09-29T12:00:00+05:30')
+      const result = await validateBookingSlot('healer-1', 'service-60', new Date('2025-09-29T12:00:00+05:30'))
+      expect(result).toEqual({ valid: false, error: 'Time slot not available' })
+    } finally {
+      if (previous === undefined) delete process.env.TEST_MODE
+      else process.env.TEST_MODE = previous
+    }
+  })
+
+  it('excludes the booking being rescheduled but still rejects other overlaps', async () => {
+    addBooking('2025-09-29T10:00:00+05:30')
+    const slot = new Date('2025-09-29T10:30:00+05:30')
+    expect(await validateBookingSlot('healer-1', 'service-60', slot, { excludeBookingId: 'b0' })).toEqual({ valid: true })
+    addBooking('2025-09-29T10:30:00+05:30')
+    expect((await validateBookingSlot('healer-1', 'service-60', slot, { excludeBookingId: 'b0' })).valid).toBe(false)
   })
 })

@@ -7,6 +7,7 @@ export type HealerListItem = {
   title: string | null
   yearsExperience: number
   ratingAvg: number
+  reviewCount: number
   avatarUrl: string | null
   shortBio: string
   services: Array<{ slug: string; title: string }>
@@ -17,6 +18,21 @@ export type HealerDetail = HealerListItem & {
   certifications: Array<string>
   languages: Array<string>
   gallery?: Array<string>
+}
+
+/** Read public rating summaries for the selected practitioners without loading review bodies. */
+export async function getHealerReviewSummaries(healerIds: string[]) {
+  if (healerIds.length === 0) return new Map<string, { ratingAvg: number; reviewCount: number }>()
+  const summaries = await prisma.review.groupBy({
+    by: ['healerId'],
+    where: { healerId: { in: [...new Set(healerIds)] } },
+    _avg: { rating: true },
+    _count: { rating: true },
+  })
+  return new Map(summaries.map(summary => [summary.healerId, {
+    ratingAvg: summary._avg.rating ?? 0,
+    reviewCount: summary._count.rating,
+  }]))
 }
 
 function specializationKeyFromServiceName(name: string) {
@@ -62,14 +78,16 @@ export async function listHealers(params?: { serviceSlug?: string; q?: string; l
       id: true,
       bio: true,
       experienceYears: true,
-      rating: true,
       specializations: true,
       user: { select: { name: true, image: true } },
     },
   })
 
   // Fetch all services once to map specializations → services
-  const allServices = await prisma.service.findMany({ select: { slug: true, name: true } })
+  const [allServices, ratings] = await Promise.all([
+    prisma.service.findMany({ where: { isActive: true }, select: { slug: true, name: true } }),
+    getHealerReviewSummaries(healers.map(healer => healer.id)),
+  ])
 
   const items: HealerListItem[] = healers.map((h) => {
     const name = h.user?.name || 'Healer'
@@ -86,7 +104,8 @@ export async function listHealers(params?: { serviceSlug?: string; q?: string; l
       name,
       title,
       yearsExperience: h.experienceYears ?? 0,
-      ratingAvg: Number(h.rating ?? 0),
+      ratingAvg: ratings.get(h.id)?.ratingAvg ?? 0,
+      reviewCount: ratings.get(h.id)?.reviewCount ?? 0,
       avatarUrl: h.user?.image || null,
       shortBio: (h.bio || '').slice(0, 180),
       services,
@@ -100,12 +119,11 @@ export async function listHealers(params?: { serviceSlug?: string; q?: string; l
 export async function getHealerBySlug(slug: string): Promise<HealerDetail | null> {
   // slug is healer.id for now
   const h = await prisma.healer.findUnique({
-    where: { id: slug },
+    where: { id: slug, isActive: true },
     select: {
       id: true,
       bio: true,
       experienceYears: true,
-      rating: true,
       specializations: true,
       certifications: true,
       user: { select: { name: true, image: true } },
@@ -113,7 +131,11 @@ export async function getHealerBySlug(slug: string): Promise<HealerDetail | null
   })
   if (!h) return null
 
-  const allServices = await prisma.service.findMany({ select: { slug: true, name: true } })
+  const [allServices, ratings] = await Promise.all([
+    prisma.service.findMany({ where: { isActive: true }, select: { slug: true, name: true } }),
+    getHealerReviewSummaries([h.id]),
+  ])
+  const rating = ratings.get(h.id)
   const services = (h.specializations || []).flatMap((spec) =>
     allServices
       .filter((s) => s.name.toLowerCase().includes(spec.toLowerCase()))
@@ -121,18 +143,25 @@ export async function getHealerBySlug(slug: string): Promise<HealerDetail | null
       .map((s) => ({ slug: s.slug, title: s.name }))
   )
 
+  const certifications = Array.isArray(h.certifications) ? h.certifications.flatMap(value => {
+    const name = typeof value === 'string' ? value
+      : value && typeof value === 'object' && !Array.isArray(value) && typeof value.name === 'string' ? value.name : ''
+    return name.trim() ? [name.trim()] : []
+  }) : []
+
   return {
     id: h.id,
     slug: h.id,
     name: h.user?.name || 'Healer',
     title: h.specializations?.[0] ? `${h.specializations[0]} Healer` : null,
     yearsExperience: h.experienceYears ?? 0,
-    ratingAvg: Number(h.rating ?? 0),
+    ratingAvg: rating?.ratingAvg ?? 0,
+    reviewCount: rating?.reviewCount ?? 0,
     avatarUrl: h.user?.image || null,
     shortBio: (h.bio || '').slice(0, 180),
     services,
     longBio: h.bio || '',
-  certifications: Array.isArray(h.certifications) ? (h.certifications as unknown[]).map((x) => String(x)) : [],
+    certifications: [...new Set(certifications)],
     languages: [],
     gallery: [],
   }

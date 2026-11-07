@@ -1,9 +1,16 @@
+import { isTestMode } from '@/lib/test-mode'
 import { NextResponse } from 'next/server'
 import { encode } from 'next-auth/jwt'
 import { prisma } from '@/lib/prisma'
+import { sessionCredentialVersion } from '@/lib/auth/password-version'
 
 // Test-only helper to bypass UI + CSRF for e2e. DO NOT ENABLE IN PRODUCTION.
 export async function GET(request: Request) {
+  // Fail closed before parsing the request, accessing users, or issuing cookies.
+  if (!isTestMode()) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
   const { searchParams } = new URL(request.url)
   const role = searchParams.get('role') || 'ADMIN'
   const email = searchParams.get('email') || 'admin@ganges-healers.com'
@@ -27,6 +34,7 @@ export async function GET(request: Request) {
       // Include both sub and id for maximum compatibility with callbacks
       sub: user.id,
       id: user.id,
+      passwordVersion: sessionCredentialVersion(user.password, user.securityVersion),
       email: user.email!,
       name: user.name || 'Test User',
       role: role,

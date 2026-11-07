@@ -1,11 +1,28 @@
 # Ganges Healers - Healthcare Management System
 
+### Continue the current development branch
+
+The combined course-progress and customer-order work is on `feat/store-order-details`.
+To update an existing Windows/Git Bash checkout, first commit or stash your own local edits, then run:
+
+```bash
+git fetch origin
+git switch feat/store-order-details
+git pull --ff-only origin feat/store-order-details
+pnpm install --frozen-lockfile
+```
+
+Customer order history is at `/dashboard/orders`; details, progress, and saved shipping information are available through **View details**. Filters reset pagination, and unavailable orders and temporary errors offer recovery. Course progress counts reached lessons using the existing stored position and completes only after the final lesson. See `docs/contracts.md` for boundaries and `PROJECT_STATUS.md` for rollout status.
+
 A modern healthcare management system built with Next.js 14, TypeScript, and a comprehensive tech stack for managing medical services, appointments, and patient records.
 
 > Project roadmap: See docs/IMPLEMENTATION_PLAN.md for the 24-week implementation plan and sprint breakdown.
 > Engineering process: See docs/GUARDRAILS.md for change management and contribution rules.
 > Contracts & Invariants: See docs/contracts.md for pinned API/logging/DB/env contracts and Patch Plan template.
 > Authentication: See docs/AUTH_IMPLEMENTATION.md for NextAuth setup and testing guide.
+> Blog publishing: See [docs/blog-publishing.md](docs/blog-publishing.md) for admin drafts, review, publication, and withdrawal.
+> Notifications: See [docs/notifications.md](docs/notifications.md) for the member inbox, read controls, optional Redis delivery, and authenticated real-time updates.
+> Navigation: See [docs/navigation.md](docs/navigation.md) for live search, session/role shortcuts, verified sign-out, mobile controls, and cart access.
 > Analytics: See docs/analytics.md for the client-only analytics shim and events.
 > SEO: See docs/seo.md for canonical URLs, Breadcrumbs & JSON-LD components.
 > Sitemap: Generated via app/sitemap.ts using a helper that outputs canonical URLs only; see docs/seo.md.
@@ -111,6 +128,25 @@ A modern healthcare management system built with Next.js 14, TypeScript, and a c
 
    Open [http://localhost:3000](http://localhost:3000) in your browser.
 
+## Safe test database setup
+
+`pnpm test:unit` runs without database credentials, reset, or seed. Integration
+tests use `jest.integration.config.ts`; all test reset/seed paths verify the
+dedicated target before changing data. Keep `.env.test` Git-ignored, with exactly
+one active `DATABASE_URL` for `ganges_healers_test` and `TEST_DATABASE_HOST` set to
+that URL's direct, unpooled hostname. Test hosts must differ from production hosts
+in `.env`, `.env.local`, `.env.production`, and `.env.production.local`.
+
+Use `pnpm db:test:push`, `pnpm db:test:seed`, or `pnpm test:int` after configuration.
+Each database command first checks `current_database()` in a separate process.
+Missing, ambiguous, production, or misrouted settings fail closed without logging
+connection strings. CI may use an isolated loopback database named
+`ganges_healers_test` without a private environment file. `pnpm dev:test` performs
+the same checks before preparing data and starting the E2E server on port 3010
+with Turbopack, matching the application's development and production build
+commands. CI retains browser failure screenshots, video, and error context for
+three days.
+
 ## Available Scripts
 
 - `npm run dev` - Start development server with Turbopack
@@ -135,6 +171,13 @@ The application uses the following main models:
 After running the seed script, you can log in with:
 - **Email:** admin@ganges-healers.com
 - **Password:** admin123
+
+### Administrator workspaces
+
+The administrator dashboard and account menu link to the existing services,
+healers, courses/lessons, audio, products, programs/enrollments, community,
+articles, payments and analytics workspaces. Their server-side administrator
+checks remain required; navigation does not grant access to another role.
 
 ## Project Structure
 

@@ -1,7 +1,9 @@
 // src/app/api/services/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/rbac'
+import { updateServiceSchema } from '@/lib/services/catalog-schema'
 
 export async function GET(
   request: NextRequest,
@@ -12,15 +14,18 @@ export async function GET(
     
     const service = await prisma.service.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true, name: true, slug: true, description: true, tagline: true,
+        category: true, price: true, duration: true, image: true, mode: true,
+        benefits: true, isActive: true, popularity: true, createdAt: true, updatedAt: true,
         bookings: {
-          where: { status: 'COMPLETED' },
-          include: {
+          where: { status: 'COMPLETED', healer: { isActive: true } },
+          select: {
             healer: {
-              include: {
-                user: {
-                  select: { name: true, image: true }
-                }
+              select: {
+                id: true, bio: true, experienceYears: true, rating: true,
+                specializations: true, isVerified: true,
+                user: { select: { name: true, image: true } },
               }
             }
           },
@@ -36,27 +41,27 @@ export async function GET(
       return NextResponse.json({ error: 'Service not found' }, { status: 404 })
     }
 
-        // Extract unique healers from completed bookings
-    type HealerData = { 
-      id: string; 
-      rating: number;
-      user: { name: string | null; image: string | null };
-    };
-    const healers: HealerData[] = service.bookings
-      .map((b: { healer: HealerData }) => b.healer)
-      .filter((healer: HealerData, index: number, self: HealerData[]) => 
-        index === self.findIndex((h: HealerData) => h.id === healer.id)
-      );
-    const averageRating = healers.length > 0
-      ? healers.reduce((acc: number, h: HealerData) => acc + h.rating, 0) / healers.length
-      : 0
+    // Keep both projections explicit: ORM rows must never become a public booking or account export.
+    const healers = [...new Map(service.bookings.map(({ healer }) => [healer.id, {
+      id: healer.id, bio: healer.bio, experienceYears: healer.experienceYears,
+      rating: healer.rating, specializations: healer.specializations, isVerified: healer.isVerified,
+      user: { name: healer.user.name, image: healer.user.image },
+    }])).values()]
+    const reviews = await prisma.review.aggregate({ where: { serviceId: service.id }, _avg: { rating: true }, _count: { rating: true } })
 
     return NextResponse.json({
       success: true,
       data: {
-        ...service,
+        id: service.id, name: service.name, slug: service.slug, description: service.description,
+        tagline: service.tagline, category: service.category, price: service.price, duration: service.duration,
+        image: service.image, mode: service.mode, benefits: service.benefits, isActive: service.isActive,
+        popularity: service.popularity, createdAt: service.createdAt, updatedAt: service.updatedAt,
+        _count: { bookings: service._count.bookings },
+        // Compatibility: retain this legacy array with public healer summaries only.
+        bookings: healers.map(healer => ({ healer })),
         healers,
-        averageRating: Math.round(averageRating * 10) / 10,
+        averageRating: Math.round((reviews._avg.rating ?? 0) * 10) / 10,
+        totalReviews: reviews._count.rating,
         totalBookings: service._count.bookings
       }
     })
@@ -79,28 +84,21 @@ export async function PUT(
     }
 
     const { id } = await params
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- admin body spread into Prisma update
-    let body: any
-    if (process.env.TEST_MODE === '1') {
-      const raw = await request.text().catch(() => '')
-      console.debug('[TEST_MODE] /api/services/[id] PUT raw body:', raw || '(none)')
-      try {
-        body = raw ? JSON.parse(raw) : {}
-      } catch (err) {
-        console.error('[TEST_MODE] JSON parse failed for /api/services/[id] PUT', err, 'raw:', raw)
-        return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
-      }
-    } else {
-      body = await request.json()
-    }
+    const body: unknown = await request.json().catch(() => undefined)
+    if (body === undefined) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+    const fields = updateServiceSchema.safeParse(body)
+    if (!fields.success) return NextResponse.json({ error: 'Invalid service fields' }, { status: 400 })
 
     const service = await prisma.service.update({
       where: { id },
-      data: { ...body, updatedAt: new Date() }
+      data: { ...fields.data, updatedAt: new Date() }
     })
 
     return NextResponse.json({ success: true, data: service })
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return NextResponse.json({ error: 'Service already exists' }, { status: 409 })
+    }
     console.error('Service update error:', error)
     return NextResponse.json({ error: 'Failed to update service' }, { status: 500 })
   }

@@ -1,5 +1,8 @@
 import { Resend } from 'resend'
 import { BookingConfirmationEmail as BookingConfirmationEmailComponent } from './templates/booking-confirmation'
+import { QuizAlignmentEmail } from './templates/quiz-alignment'
+import { QuizFollowUpEmail } from './templates/quiz-follow-up'
+import { AbandonedCartEmail } from './templates/abandoned-cart'
 
 const resendApiKey = process.env.RESEND_API_KEY
 const disabled = !resendApiKey
@@ -14,6 +17,41 @@ function safeLogError(scope: string, error: unknown) {
 export const emailService = {
   isEnabled() {
     return !disabled
+  },
+
+  async sendEmailVerification(data: { to: string; link: string }) {
+    if (disabled || !resend) return { success: false, disabled: true }
+    try {
+      const href = data.link.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+      const result = await resend.emails.send({
+        from: 'Ganges Healers <noreply@gangeshealers.com>',
+        to: data.to,
+        subject: 'Verify your Ganges Healers email',
+        html: `<h2>Verify your email</h2><p>Confirm this email address for your Ganges Healers account.</p><p><a href="${href}">Verify email</a></p><p>This link expires in 30 minutes and can be used once. If you did not request this, you can ignore this email.</p>`,
+      })
+      return { success: !result.error && Boolean(result.data?.id) }
+    } catch {
+      console.error('[auth][email-verification][email-error]')
+      return { success: false }
+    }
+  },
+
+  async sendPasswordReset(data: { to: string; link: string }) {
+    if (disabled || !resend) return { success: false, disabled: true }
+    try {
+      const href = data.link.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+      const result = await resend.emails.send({
+        from: 'Ganges Healers <noreply@gangeshealers.com>',
+        to: data.to,
+        subject: 'Reset your Ganges Healers password',
+        html: `<h2>Reset your password</h2><p>A password reset was requested for your Ganges Healers account.</p><p><a href="${href}">Choose a new password</a></p><p>This link expires in 15 minutes and can be used once. If you did not request this, you can ignore this email.</p>`,
+      })
+      // Resend reports provider failures in result.error without necessarily throwing.
+      return { success: !result.error && Boolean(result.data?.id) }
+    } catch {
+      console.error('[auth][password-reset][email-error]')
+      return { success: false }
+    }
   },
 
   async sendBookingConfirmation(data: {
@@ -129,6 +167,84 @@ export const emailService = {
       return { success: true, id: result.data?.id }
     } catch (error) {
       console.warn('[invoice][generate][email_failed]', { invoiceNumber: data.invoiceNumber, error })
+      return { success: false, error }
+    }
+  },
+
+  async sendQuizAlignment(data: {
+    to: string
+    name: string | null
+    chakra: string
+    intention: string
+    productTitle: string
+    productSlug: string
+    supportingProducts?: { title: string; slug: string; chakra: string | null; pricePaise: number }[]
+  }) {
+    if (disabled || !resend) {
+      return { success: false, disabled: true }
+    }
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://gangeshealers.com'
+    try {
+      const result = await resend.emails.send({
+        from: 'Ganges Healers <noreply@gangeshealers.com>',
+        to: data.to,
+        subject: 'Your Sacred Energy Alignment ✨',
+        react: QuizAlignmentEmail({ ...data, siteUrl }),
+      })
+      return { success: true, id: result.data?.id }
+    } catch (error) {
+      safeLogError('sendQuizAlignment', error)
+      return { success: false, error }
+    }
+  },
+
+  async sendQuizFollowUp(data: {
+    to: string
+    name: string | null
+    chakra: string
+    intention: string
+    productTitle: string
+    productSlug: string
+  }) {
+    if (disabled || !resend) {
+      return { success: false, disabled: true }
+    }
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://gangeshealers.com'
+    try {
+      const result = await resend.emails.send({
+        from: 'Ganges Healers <noreply@gangeshealers.com>',
+        to: data.to,
+        subject: 'Your alignment window is still open ✨',
+        react: QuizFollowUpEmail({ ...data, siteUrl }),
+      })
+      return { success: true, id: result.data?.id }
+    } catch (error) {
+      safeLogError('sendQuizFollowUp', error)
+      return { success: false, error }
+    }
+  },
+
+  async sendAbandonedCartRecovery(data: {
+    to: string
+    productTitle: string
+    productSlug: string
+    chakra: string | null
+    intention: string | null
+  }) {
+    if (disabled || !resend) {
+      return { success: false, disabled: true }
+    }
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://gangeshealers.com'
+    try {
+      const result = await resend.emails.send({
+        from: 'Ganges Healers <noreply@gangeshealers.com>',
+        to: data.to,
+        subject: 'Your sacred tool is still waiting for you ✨',
+        react: AbandonedCartEmail({ ...data, siteUrl }),
+      })
+      return { success: true, id: result.data?.id }
+    } catch (error) {
+      safeLogError('sendAbandonedCartRecovery', error)
       return { success: false, error }
     }
   }

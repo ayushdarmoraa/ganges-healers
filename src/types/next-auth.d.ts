@@ -1,5 +1,6 @@
 // src/types/next-auth.d.ts
 import { DefaultSession } from "next-auth"
+import type { RecentAuthentication } from '@/lib/auth/password-version'
 
 declare module "next-auth" {
   interface Session {
@@ -8,6 +9,7 @@ declare module "next-auth" {
       role: string
       vip: boolean
       freeSessionCredits: number
+      recentAuthentication?: RecentAuthentication
     } & DefaultSession["user"]
   }
 
@@ -21,6 +23,8 @@ declare module "next-auth" {
 declare module "next-auth/jwt" {
   interface JWT {
     id: string
+    passwordVersion?: string
+    recentAuthentication?: RecentAuthentication
     role: string
     vip: boolean
     freeSessionCredits: number

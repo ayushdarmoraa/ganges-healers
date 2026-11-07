@@ -38,10 +38,10 @@ export default async function HealerDetailPage({ params }: { params: Promise<{ s
       <BreadcrumbsLd crumbs={crumbs} />
       <HealerLd healer={{ slug: h.slug, name: h.name, title: h.title, shortBio: h.shortBio, languages: h.languages ?? undefined }} />
       <h1 className="text-3xl font-semibold">{h.name}</h1>
-      <div className="text-sm text-muted-foreground">{h.title || 'Healer'} • {h.yearsExperience} yrs • ⭐ {h.ratingAvg.toFixed(1)}</div>
+      <div className="text-sm text-muted-foreground">{h.title || 'Healer'} • {h.yearsExperience} yrs • {h.reviewCount > 0 ? `⭐ ${h.ratingAvg.toFixed(1)} (${h.reviewCount} ${h.reviewCount === 1 ? 'review' : 'reviews'})` : 'No reviews yet'}</div>
       {primaryService ? (
         <div>
-          <Link href={`/services/${primaryService.slug}?openBooking=1`} className="border rounded px-3 py-2 inline-block">Book a session</Link>
+          <Link href={`/services/${primaryService.slug}?${new URLSearchParams({ openBooking: '1', healerId: h.id })}`} className="border rounded px-3 py-2 inline-block">Book a session</Link>
         </div>
       ) : null}
       <section>

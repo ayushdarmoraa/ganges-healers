@@ -21,6 +21,7 @@ jest.mock('@/lib/auth', () => ({
 
 jest.mock('@/lib/razorpay', () => ({
   getRazorpayClient: async () => ({
+    plans: { fetch: async () => { const p = await prisma.membershipPlan.findUniqueOrThrow({ where: { slug: 'vip-monthly' } }); return { period: 'monthly', interval: 1, item: { amount: p.pricePaise, currency: 'INR' } } } },
     subscriptions: { create: async (args: any) => ({ id: 'sub_test_' + Date.now(), short_url: 'https://rzp.io/i/testsub', ...args }) }
   })
 }))
@@ -59,12 +60,16 @@ describe('Membership Subscribe', () => {
     const body = await readJSON(res)
     // live path returns id + shortUrl
     expect(body.id).toBeTruthy()
+    expect(await prisma.vIPMembership.findUnique({ where: { subscriptionId: body.id } })).toMatchObject({ userId: user.id, status: 'pending' })
   })
 
-  test('Duplicate subscribe blocked', async () => {
+  test('Duplicate subscribe reuses the owned pending checkout', async () => {
     const req = makeNextRequest('http://localhost/api/memberships/subscribe', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ planSlug: 'vip-monthly' }) })
     const res = await (Subscribe as any).POST(req)
-  // Current route delegates to Razorpay; duplicate subscribe is not enforced here
-  expect(res.status).toBeLessThan(500)
+    expect(res.status).toBe(200)
+    const body = await readJSON(res)
+    const memberships = await prisma.vIPMembership.findMany({ where: { userId: user.id } })
+    expect(memberships).toHaveLength(1)
+    expect(body.id).toBe(memberships[0].subscriptionId)
   })
 })

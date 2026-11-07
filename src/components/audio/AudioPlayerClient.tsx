@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -26,31 +26,40 @@ function formatDuration(seconds: number) {
 }
 
 export default function AudioPlayerClient({ slug }: { slug: string }) {
-  const { status } = useSession()
+  const { status, data: session } = useSession()
+  const identity = `${slug}:${status}:${session?.user?.id || ''}`
   const [track, setTrack] = useState<TrackData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [loadedFor, setLoadedFor] = useState('')
+  const [retry, setRetry] = useState(0)
 
   useEffect(() => {
+    if (status === 'loading') return
+    const controller = new AbortController()
+    setLoading(true); setError(null); setTrack(null)
     async function load() {
       try {
-        const res = await fetch(`/api/audio/${encodeURIComponent(slug)}`)
+        const res = await fetch(`/api/audio/${encodeURIComponent(slug)}`, { signal: controller.signal, cache: 'no-store' })
         if (!res.ok) {
           const data = await res.json()
-          setError(data.error || 'Track not found')
+          if (!controller.signal.aborted) setError(data.error || 'Track not found')
           return
         }
-        setTrack(await res.json())
+        const data = await res.json()
+        if (!data || typeof data.title !== 'string' || typeof data.locked !== 'boolean' || typeof data.duration !== 'number' || !(data.audioUrl === null || typeof data.audioUrl === 'string')) throw new Error('Invalid track response')
+        if (!controller.signal.aborted) setTrack(data)
       } catch {
-        setError('Failed to load track')
+        if (!controller.signal.aborted) setError('Failed to load track')
       } finally {
-        setLoading(false)
+        if (!controller.signal.aborted) { setLoadedFor(identity); setLoading(false) }
       }
     }
     load()
-  }, [slug])
+    return () => controller.abort()
+  }, [slug, status, identity, retry])
 
-  if (loading) {
+  if (loading || loadedFor !== identity) {
     return (
       <div className="container mx-auto p-6 max-w-2xl">
         <div className="animate-pulse space-y-4">
@@ -62,11 +71,12 @@ export default function AudioPlayerClient({ slug }: { slug: string }) {
     )
   }
 
-  if (error || !track) {
+  if (error || !track || !track.locked && !track.audioUrl) {
     return (
       <div className="container mx-auto p-6 max-w-2xl text-center">
         <h1 className="text-xl font-semibold mb-2">Track Not Found</h1>
-        <p className="text-muted-foreground mb-4">{error}</p>
+        <p className="text-muted-foreground mb-4">{error || 'The audio file is unavailable. Please try again later.'}</p>
+        <Button variant="outline" className="mr-3" onClick={() => setRetry(value => value + 1)}>Retry audio</Button>
         <Button asChild variant="outline">
           <Link href="/audio">← Back to Audio Library</Link>
         </Button>
@@ -112,17 +122,20 @@ export default function AudioPlayerClient({ slug }: { slug: string }) {
         </Card>
       ) : (
         <div className="mt-6">
-          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-          <audio
-            controls
-            src={track.audioUrl!}
-            className="w-full"
-            preload="metadata"
-          >
-            Your browser does not support the audio element.
-          </audio>
+          <AudioElement key={identity} url={track.audioUrl!} />
         </div>
       )}
     </div>
   )
+}
+
+function AudioElement({ url }: { url: string }) {
+  const media = useRef<HTMLAudioElement>(null)
+  useEffect(() => {
+    const element = media.current
+    // Strict Mode replays setup after cleanup; restore the source cleared by that cleanup.
+    if (element && element.getAttribute('src') !== url) element.setAttribute('src', url)
+    return () => { if (element) { element.pause(); element.removeAttribute('src'); element.load() } }
+  }, [url])
+  return <audio ref={media} controls src={url} className="w-full" preload="metadata">Your browser does not support the audio element.</audio>
 }

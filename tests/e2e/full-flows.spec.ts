@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test'
+import { PrismaClient } from '@prisma/client'
+import { loadTestDatabaseEnvironment, verifyTestDatabaseConnection } from '../../scripts/test-database'
 
 /**
  * Full E2E test suite covering all major user flows.
@@ -12,13 +14,13 @@ import { test, expect } from '@playwright/test'
 /** Programmatic login — sets session cookies and returns userId */
 async function login(
   page: import('@playwright/test').Page,
-  opts: { role?: string; vip?: boolean; credits?: number } = {}
+  opts: { role?: string; vip?: boolean; credits?: number; email?: string } = {}
 ) {
   const role = opts.role ?? 'USER'
   const vip = opts.vip ? '1' : '0'
   const credits = opts.credits ?? 2
   const res = await page.goto(
-    `/api/test/login?role=${role}&vip=${vip}&credits=${credits}`
+    `/api/test/login?role=${role}&vip=${vip}&credits=${credits}${opts.email ? `&email=${encodeURIComponent(opts.email)}` : ''}`
   )
   let userId: string | null = null
   try {
@@ -70,26 +72,26 @@ test.describe('Book healing session', () => {
     await expect(heading).toBeVisible({ timeout: 15000 })
 
     // Get a healer and service for booking via API
-    const healersRes = await page.request.get('/api/healers')
-    if (!healersRes.ok()) {
-      // Fallback: use direct prisma seed data we know exists
-      test.skip()
-      return
-    }
+    const healersRes = await page.request.get('/api/healers?serviceSlug=yoga-therapy')
+    expect(healersRes.ok()).toBeTruthy()
     const healersBody = await healersRes.json()
-    const healers = healersBody.data || healersBody
+    const healers = healersBody.items
     expect(Array.isArray(healers)).toBeTruthy()
-    if (healers.length === 0) { test.skip(); return }
+    expect(healers.length).toBeGreaterThan(0)
 
     const healer = healers[0]
     const healerId = healer.id
 
     // Get services
     const servicesRes = await page.request.get('/api/services')
+    expect(servicesRes.ok()).toBeTruthy()
     const servicesBody = await servicesRes.json()
     const services = servicesBody.data || servicesBody
     expect(Array.isArray(services)).toBeTruthy()
-    const serviceId = services[0].id
+    expect(services.length).toBeGreaterThan(0)
+    const selectedService = services.find((item: { slug: string }) => item.slug === 'yoga-therapy')
+    expect(selectedService).toBeTruthy()
+    const serviceId = selectedService.id
 
     // Find available slot
     let booked = false
@@ -98,7 +100,7 @@ test.describe('Book healing session', () => {
       d.setDate(d.getDate() + offset)
       const dateStr = d.toISOString().split('T')[0]
       const availRes = await page.request.get(
-        `/api/availability?healerId=${healerId}&date=${dateStr}`
+        `/api/availability?healerId=${healerId}&date=${dateStr}&serviceId=${serviceId}`
       )
       if (!availRes.ok()) continue
       const avail = await availRes.json()
@@ -107,7 +109,7 @@ test.describe('Book healing session', () => {
       )
       if (!slot) continue
 
-      const scheduledAt = `${dateStr}T${slot.time}:00.000Z`
+      const scheduledAt = new Date(`${dateStr}T${slot.time}:00+05:30`).toISOString()
       const bookRes = await page.request.post('/api/bookings', {
         data: { healerId, serviceId, scheduledAt },
         headers: userId ? { 'x-test-user-id': userId } : {},
@@ -182,15 +184,17 @@ test.describe('Purchase product', () => {
 
     // Check store has products via API
     const res = await page.request.get('/api/store/products')
-    if (res.ok()) {
-      const body = await res.json()
-      const items = body.items || body.data || body
-      if (Array.isArray(items) && items.length > 0) {
-        await page.goto(`/store/${items[0].slug}`)
-        await page.waitForLoadState('networkidle')
-        await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 15000 })
-      }
-    }
+    expect(res.ok()).toBeTruthy()
+    const body = await res.json()
+    const items = body.items || body.data || body
+    expect(Array.isArray(items) && items.length > 0).toBeTruthy()
+    await page.goto(`/store/${items[0].slug}`)
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 15000 })
+    const variant = await page.locator('[data-variant]').getAttribute('data-variant')
+    expect(['A', 'B']).toContain(variant)
+    await expect.poll(async () => (await page.context().cookies()).find(c => c.name === 'ghx_product_headline')?.value).toBe(variant)
+    await page.reload()
+    await expect(page.locator('[data-variant]')).toHaveAttribute('data-variant', variant!)
   })
 })
 
@@ -209,8 +213,12 @@ test.describe('VIP membership subscription', () => {
     })
     expect(res.ok()).toBeTruthy()
     const body = await res.json()
-    expect(body.plan).toBeTruthy()
-    expect(body.plan.pricePaise).toBeGreaterThan(0)
+    expect(body).toMatchObject({ marker: 'SUBSCRIBE_V3', canonical: 'vip-monthly', dry: true })
+    expect(body.planId).toBeTruthy()
+    const plansResponse = await page.request.get('/api/memberships/plans')
+    expect(plansResponse.ok()).toBeTruthy()
+    const { plans } = await plansResponse.json()
+    expect(plans.find((plan: { slug: string }) => plan.slug === 'vip-monthly')?.pricePaise).toBeGreaterThan(0)
   })
 })
 
@@ -270,9 +278,12 @@ test.describe('Audio track playback', () => {
 
     // Check audio API
     const res = await page.request.get('/api/audio')
-    if (res.ok()) {
-      const tracks = await res.json()
-      expect(Array.isArray(tracks) || tracks.data).toBeTruthy()
+    expect(res.ok()).toBeTruthy()
+    const catalog = await res.json()
+    expect(Array.isArray(catalog.tracks)).toBeTruthy()
+    expect(Array.isArray(catalog.categories)).toBeTruthy()
+    for (const track of catalog.tracks) {
+      if (track.isPremium) expect(track.audioUrl).toBeNull()
     }
   })
 })
@@ -280,41 +291,49 @@ test.describe('Audio track playback', () => {
 // ─── 9. Course Lesson Completion ──────────────────────────────────
 
 test.describe('Course lesson completion', () => {
-  test('track progress on enrolled course', async ({ page }) => {
-    const userId = await login(page, { vip: true })
+  test('track progress on a test-enrolled course', async ({ page }) => {
+    test.setTimeout(90000)
+    const email = `course-progress-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`
+    const userId = await login(page, { email })
+    expect(userId).toBeTruthy()
 
-    // Get courses
-    const coursesRes = await page.request.get('/api/courses')
-    if (!coursesRes.ok()) { test.skip(); return }
-    const courses = await coursesRes.json()
-    if (!Array.isArray(courses) || courses.length === 0) { test.skip(); return }
-
-    const course = courses[0]
-
-    // Enroll via API (if enrollment endpoint exists)
-    const enrollRes = await page.request.post(`/api/courses/${course.slug}/enroll`, {
-      headers: userId ? { 'x-test-user-id': userId } : {},
-    })
-
-    if (enrollRes.ok() || enrollRes.status() === 409) {
-      // Track lesson progress
-      const progressRes = await page.request.post(
-        `/api/courses/${course.slug}/progress`,
-        {
-          data: { lessonOrder: 1 },
-          headers: userId ? { 'x-test-user-id': userId } : {},
-        }
-      )
-      if (progressRes.ok()) {
-        const progressBody = await progressRes.json()
-        expect(progressBody.progress !== undefined || progressBody.data).toBeTruthy()
-      }
+    // Grant an isolated test enrollment. This test does not exercise paid checkout.
+    const settings = loadTestDatabaseEnvironment()
+    await verifyTestDatabaseConnection(settings)
+    const db = new PrismaClient({ datasources: { db: { url: settings.environment.DATABASE_URL } } })
+    try {
+      const course = await db.course.findUniqueOrThrow({ where: { slug: 'intro-to-reiki' } })
+      await db.courseEnrollment.create({ data: { userId: userId!, courseId: course.id, status: 'active' } })
+    } finally {
+      await db.$disconnect()
     }
 
-    // Navigate to course page
-    await page.goto(`/courses/${course.slug}`)
-    await page.waitForLoadState('networkidle')
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 15000 })
+    const courseResponse = await page.request.get('/api/courses/intro-to-reiki')
+    expect(courseResponse.ok()).toBeTruthy()
+    const course = await courseResponse.json()
+    expect(course.lessons.map((lesson: { order: number }) => lesson.order)).toEqual([1, 2, 3, 4, 5])
+
+    await page.goto(`/courses/${course.slug}/lesson/${course.lessons[0].id}`)
+    const progressResponse = page.waitForResponse(response =>
+      response.url().endsWith(`/api/courses/${course.slug}/progress`) && response.request().method() === 'POST'
+    )
+    await page.getByRole('button', { name: 'Mark Complete & Continue' }).click()
+    const firstProgress = await progressResponse
+    expect(firstProgress.ok()).toBeTruthy()
+    expect(await firstProgress.json()).toEqual({ progress: 2, status: 'active' })
+    await expect(page).toHaveURL(new RegExp(`/lesson/${course.lessons[1].id}$`), { timeout: 30000 })
+
+    await page.goto('/courses/enrolled')
+    await expect(page.getByRole('link', { name: /Introduction to Reiki/i })).toContainText('1/5 lessons · 20%')
+
+    for (const lesson of course.lessons.slice(1)) {
+      const response = await page.request.post(`/api/courses/${course.slug}/progress`, { data: { lessonOrder: lesson.order } })
+      expect(response.ok()).toBeTruthy()
+      expect(await response.json()).toEqual({ progress: lesson.order + 1, status: lesson.order === 5 ? 'completed' : 'active' })
+    }
+    await page.reload()
+    await expect(page.getByRole('link', { name: /Introduction to Reiki/i })).toContainText('5/5 lessons · 100%')
+    await expect(page.getByText('✓ Completed')).toBeVisible()
   })
 })
 

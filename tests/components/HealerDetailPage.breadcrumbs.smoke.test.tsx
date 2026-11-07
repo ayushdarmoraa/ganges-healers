@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 
 jest.mock('@/lib/healers/queries', () => ({
   getHealerBySlug: jest.fn(async () => ({
@@ -18,5 +18,6 @@ describe('Healer detail breadcrumbs', () => {
     const links = Array.from(nav!.querySelectorAll('a')).map(a => a.textContent)
     expect(links).toEqual(['Home', 'Healers'])
     expect(nav!.textContent).toContain('Anita Sharma')
+    expect(screen.getByRole('link', { name: 'Book a session' })).toHaveAttribute('href', '/services/yoga-healing?openBooking=1&healerId=h1')
   })
 })

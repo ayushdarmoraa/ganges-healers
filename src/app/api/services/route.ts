@@ -1,44 +1,41 @@
 // src/app/api/services/route.ts
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/rbac'
 import { cached } from '@/lib/cache'
+import { createServiceSchema } from '@/lib/services/catalog-schema'
+import { parseCatalogPrice, parseMinimumServiceRating } from '@/lib/services/catalog-filters'
+
+function readSingle(params: URLSearchParams, name: string) {
+  const values = params.getAll(name)
+  return values.length === 1 ? values[0] : undefined
+}
+
+function positiveInteger(value: string | undefined, fallback: number) {
+  const number = value && /^\d+$/.test(value) ? Number(value) : NaN
+  return Number.isSafeInteger(number) && number > 0 ? number : fallback
+}
 
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
     const category = searchParams.get('category')
-    const minPrice = searchParams.get('minPrice')
-    const maxPrice = searchParams.get('maxPrice')
+    const minPrice = parseCatalogPrice(readSingle(searchParams, 'minPrice'))
+    const maxPrice = parseCatalogPrice(readSingle(searchParams, 'maxPrice'))
+    const minRating = parseMinimumServiceRating(readSingle(searchParams, 'minRating'))
     const search = searchParams.get('search')
-    const mode = searchParams.get('mode')
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '12')
-
-    interface SearchFilter { contains: string; mode: 'insensitive' }
-    type ServiceModeLiteral = 'ONLINE' | 'OFFLINE' | 'BOTH'
-    const where = {
-      isActive: true as const,
-    } as {
-      isActive: true
-      category?: string
-      mode?: ServiceModeLiteral
-      price?: { gte?: number; lte?: number }
-      OR?: Array<{ name?: SearchFilter; description?: SearchFilter; tagline?: SearchFilter }>
-    }
+    const mode = searchParams.get('mode')?.toUpperCase()
+    const limit = Math.min(positiveInteger(readSingle(searchParams, 'limit'), 12), 100)
+    const requestedPage = positiveInteger(readSingle(searchParams, 'page'), 1)
+    const page = (requestedPage - 1) * limit <= 2_147_483_647 ? requestedPage : 1
+    const where: Prisma.ServiceWhereInput = { isActive: true }
 
     if (category) where.category = category
-    if (mode) {
-      const upperMode = mode.toUpperCase()
-      if (['ONLINE','OFFLINE','BOTH'].includes(upperMode)) {
-        where.mode = upperMode as ServiceModeLiteral
-      }
-    }
+    if (mode === 'ONLINE' || mode === 'OFFLINE' || mode === 'BOTH') where.mode = mode
     
-    if (minPrice || maxPrice) {
-      where.price = {}
-      if (minPrice) where.price.gte = parseFloat(minPrice)
-      if (maxPrice) where.price.lte = parseFloat(maxPrice)
+    if (minPrice !== undefined || maxPrice !== undefined) {
+      where.price = { gte: minPrice, lte: maxPrice }
     }
 
     if (search) {
@@ -49,29 +46,34 @@ export async function GET(request: NextRequest) {
       ]
     }
 
-  // Localized escape hatch: Prisma client generated types are verbose; shape validated by construction above.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const prismaWhere: any = where
-    const cacheKey = `services:${JSON.stringify(prismaWhere)}:${page}:${limit}`
-    const result = await cached(cacheKey, async () => {
+    const load = async (filter: Prisma.ServiceWhereInput) => {
       const [services, total] = await Promise.all([
-        prisma.service.findMany({ where: prismaWhere,
-          include: {
-            _count: {
-              select: { bookings: true }
-            }
-          },
+        prisma.service.findMany({
+          where: filter,
+          include: { _count: { select: { bookings: true } } },
           skip: (page - 1) * limit,
           take: limit,
-          orderBy: [
-            { popularity: 'desc' },
-            { name: 'asc' }
-          ]
+          orderBy: [{ popularity: 'desc' }, { name: 'asc' }, { id: 'asc' }],
         }),
-    prisma.service.count({ where: prismaWhere })
+        prisma.service.count({ where: filter }),
       ])
       return { services, total }
-    })
+    }
+    let result
+    if (minRating === undefined) {
+      const cacheKey = `services:${JSON.stringify(where)}:${page}:${limit}`
+      result = await cached(cacheKey, () => load(where))
+    } else {
+      // Apply the review threshold before pagination and use current reviews.
+      const qualifying = await prisma.review.groupBy({
+        by: ['serviceId'],
+        where: { service: where },
+        having: { rating: { _avg: { gte: minRating } } },
+      })
+      result = qualifying.length
+        ? await load({ ...where, id: { in: qualifying.map(row => row.serviceId) } })
+        : { services: [], total: 0 }
+    }
 
     return NextResponse.json({
       success: true,
@@ -101,51 +103,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: status ?? 403 })
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- admin body destructured without Zod
-    let body: any
-    if (process.env.TEST_MODE === '1') {
-      const raw = await request.text().catch(() => '')
-      console.debug('[TEST_MODE] /api/services POST raw body:', raw || '(none)')
-      try {
-        body = raw ? JSON.parse(raw) : {}
-      } catch (err) {
-        console.error('[TEST_MODE] JSON parse failed for /api/services POST', err, 'raw:', raw)
-        return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
-      }
-    } else {
-      body = await request.json()
-    }
-    const { name, description, tagline, category, price, duration, image, mode = 'BOTH', benefits = [] } = body
-
-    if (!name || !description || !category || !price || !duration) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
-    }
-
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-    
-    const existing = await prisma.service.findUnique({ where: { slug } })
-    if (existing) {
-      return NextResponse.json({ error: 'Service already exists' }, { status: 409 })
+    const body: unknown = await request.json().catch(() => undefined)
+    if (body === undefined) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+    const fields = createServiceSchema.safeParse(body)
+    if (!fields.success) {
+      const missing = typeof body === 'object' && body !== null &&
+        ['name', 'description', 'category', 'price', 'duration'].some(key => !Object.hasOwn(body, key))
+      return NextResponse.json({ error: missing ? 'Missing required fields' : 'Invalid service fields' }, { status: 400 })
     }
 
     const service = await prisma.service.create({
-      data: {
-        name,
-        slug,
-        description,
-        tagline,
-        category,
-        price: parseFloat(price),
-        duration: parseInt(duration),
-        image,
-        mode,
-        benefits: benefits.length > 0 ? benefits : undefined,
-        isActive: true
-      }
+      data: { ...fields.data, isActive: true },
     })
 
     return NextResponse.json({ success: true, data: service }, { status: 201 })
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return NextResponse.json({ error: 'Service already exists' }, { status: 409 })
+    }
     console.error('Service creation error:', error)
     return NextResponse.json({ error: 'Failed to create service' }, { status: 500 })
   }

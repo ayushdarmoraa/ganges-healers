@@ -1,6 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { makeNextRequest, readJSON } from '../helpers/next-handler'
+import { auth } from '@/lib/auth'
 import * as Subscribe from '@/app/api/memberships/subscribe/route'
+
+jest.mock('@/lib/auth', () => ({ auth: jest.fn(async () => null) }))
+afterEach(() => expect(auth).not.toHaveBeenCalled())
 
 function post(url: string, body: any) {
   return makeNextRequest(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })

@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Providers } from "@/components/providers";
-import { Navbar } from "@/components/navbar";
+import { Navbar } from "@/components/navigation/Navbar";
 import { Toaster } from "@/components/ui/sonner";
 import CartDrawer from "@/components/store/LazyCartDrawer";
 import SkipLink from "@/components/a11y/SkipLink";
+import MetaPixelScript from "@/components/analytics/MetaPixelScript";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -32,6 +33,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <MetaPixelScript />
         <Providers>
           <div className="min-h-screen bg-background">
             <SkipLink />

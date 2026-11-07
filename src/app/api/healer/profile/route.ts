@@ -2,14 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireHealer } from '@/lib/auth/requireHealer'
 import { z } from 'zod'
+import { healerProfileFields } from '@/lib/healers/profile-schema'
 
-const profileUpdateSchema = z.object({
-  bio: z.string().max(2000).optional(),
-  experienceYears: z.number().int().min(0).max(100).optional(),
-  certifications: z.array(z.record(z.string(), z.unknown())).optional(),
-  specializations: z.array(z.string().max(100)).max(20).optional(),
-  isActive: z.boolean().optional(),
-})
+const profileUpdateSchema = healerProfileFields.extend({
+  certifications: z.array(z.record(z.string(), z.unknown())),
+  isActive: z.boolean(),
+}).partial()
 
 export async function GET() {
   try {

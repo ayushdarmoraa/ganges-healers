@@ -5,6 +5,7 @@
  */
 import { Worker } from 'bullmq'
 import type { EmailJobData, NotificationJobData, ActivityJobData } from './jobs'
+import { storeNotification } from '../notifications/delivery'
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379'
 
@@ -59,28 +60,7 @@ const notificationWorker = new Worker<NotificationJobData>(
     const { PrismaClient } = await import('@prisma/client')
     const prisma = new PrismaClient()
     try {
-      const notification = await prisma.notification.create({
-        data: {
-          userId: job.data.userId,
-          type: job.data.type,
-          title: job.data.title,
-          message: job.data.message,
-        },
-      })
-
-      // Emit real-time via Socket.IO if server is running in same process
-      try {
-        const { emitNotification } = await import('../socket')
-        emitNotification(job.data.userId, {
-          id: notification.id,
-          type: notification.type,
-          title: notification.title,
-          message: notification.message,
-          createdAt: notification.createdAt.toISOString(),
-        })
-      } catch {
-        // Socket not available in standalone worker
-      }
+      await storeNotification(job.data, prisma)
     } finally {
       await prisma.$disconnect()
     }

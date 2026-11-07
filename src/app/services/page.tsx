@@ -5,13 +5,13 @@ import ServicesGrid from '@/components/services/ServicesGrid'
 import EmptyState from '@/components/empty/EmptyState'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import { clearSearchParams } from '@/lib/utils'
 import ServicesFilter from '@/components/services/ServicesFilter'
 import { Metadata } from 'next'
 import { canonicalOf } from '@/config/site'
 import Breadcrumbs from '@/components/seo/Breadcrumbs'
 import BreadcrumbsLd from '@/components/seo/BreadcrumbsLd'
 import { makeServicesIndexCrumbs } from '@/lib/seo/breadcrumbs'
+import { parseCatalogPrice, parseMinimumServiceRating } from '@/lib/services/catalog-filters'
 
 export async function generateMetadata(): Promise<Metadata> {
   return {
@@ -45,13 +45,17 @@ interface UiService {
   image?: string
   price: number
   duration: number
-  averageRating: number
+  averageRating: number | null
   totalSessions: number
   totalReviews: number
 }
 
-async function getServices(params: Record<string, string | string[] | undefined>): Promise<UiService[]> {
-  const { category, minPrice, maxPrice, search, q } = params
+async function getServices(params: Record<string, string | string[] | undefined>, minimumRating: number | undefined): Promise<UiService[]> {
+  const single = (value: string | string[] | undefined) => typeof value === 'string' ? value.trim() : ''
+  const category = single(params.category)
+  const text = (single(params.search) || single(params.q)).slice(0, 200)
+  const minPrice = parseCatalogPrice(params.minPrice)
+  const maxPrice = parseCatalogPrice(params.maxPrice)
 
   const where: {
     isActive: true
@@ -60,18 +64,17 @@ async function getServices(params: Record<string, string | string[] | undefined>
     OR?: Array<{ name?: { contains: string; mode: 'insensitive' }; description?: { contains: string; mode: 'insensitive' } }>
   } = { isActive: true }
 
-  if (category) where.category = String(category)
+  if (category) where.category = category
 
-  if (minPrice || maxPrice) {
+  if (minPrice !== undefined || maxPrice !== undefined) {
     const priceFilter: { gte?: number; lte?: number } = {}
-    if (minPrice) priceFilter.gte = Number(minPrice)
-    if (maxPrice) priceFilter.lte = Number(maxPrice)
+    if (minPrice !== undefined) priceFilter.gte = minPrice
+    if (maxPrice !== undefined) priceFilter.lte = maxPrice
     if (Object.keys(priceFilter).length) {
       where.price = priceFilter
     }
   }
 
-  const text = (search || q) && String(search || q)
   if (text) {
     where.OR = [
       { name: { contains: text, mode: 'insensitive' } },
@@ -95,7 +98,12 @@ async function getServices(params: Record<string, string | string[] | undefined>
     }
   })
 
-  // We removed reviews from MVP; synthesize rating/reviews as neutral defaults
+  // One aggregate query for the catalog, rather than one query per service.
+  const aggregates = services.length ? await prisma.review.groupBy({
+    by: ['serviceId'], where: { serviceId: { in: services.map(service => service.id) } },
+    _avg: { rating: true }, _count: { rating: true },
+  }) : []
+  const ratings = new Map(aggregates.map(row => [row.serviceId, row]))
   return services.map((s: RawService): UiService => ({
     id: s.id,
     name: s.name,
@@ -105,10 +113,10 @@ async function getServices(params: Record<string, string | string[] | undefined>
     image: s.image ?? undefined,
     price: s.price,
     duration: s.duration,
-    averageRating: 5.0, // placeholder neutral high rating until review system exists
+    averageRating: ratings.get(s.id)?._avg.rating ?? null,
     totalSessions: s._count.bookings,
-    totalReviews: 0
-  }))
+    totalReviews: ratings.get(s.id)?._count.rating ?? 0
+  })).filter(service => minimumRating === undefined || (service.averageRating !== null && service.averageRating >= minimumRating))
 }
 
 export default async function ServicesPage({
@@ -117,7 +125,14 @@ export default async function ServicesPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const params = await searchParams
-  const services = await getServices(params)
+  const minimumRating = parseMinimumServiceRating(params.minRating)
+  const [services, categoryRows] = await Promise.all([
+    getServices(params, minimumRating),
+    prisma.service.findMany({ where: { isActive: true }, select: { category: true }, distinct: ['category'], orderBy: { category: 'asc' } }),
+  ])
+  const categories = categoryRows.map(row => row.category).filter(Boolean)
+  const filterKeys = ['category', 'search', 'q', 'minPrice', 'maxPrice'] as const
+  const hasFilters = minimumRating !== undefined || filterKeys.some(key => Boolean(params[key]))
   
   return (
     <div className="min-h-screen bg-gray-50">
@@ -143,7 +158,7 @@ export default async function ServicesPage({
           {/* Filters Sidebar */}
           <aside className="lg:w-64">
             <Suspense fallback={<div>Loading filters...</div>}>
-              <ServicesFilter />
+              <ServicesFilter key={JSON.stringify([...filterKeys.map(key => params[key]), minimumRating])} categories={categories} minimumRating={minimumRating} />
             </Suspense>
           </aside>
           
@@ -151,17 +166,9 @@ export default async function ServicesPage({
           <main className="flex-1">
             {services.length === 0 ? (
               <EmptyState
-                title="No services yet"
-                subtitle="Check back soon."
-                action={(() => {
-                  const hasFilters = Boolean(params?.q)
-                  if (!hasFilters) return null
-                  const sp = new URLSearchParams(Object.entries(params).flatMap(([k,v]) => Array.isArray(v) ? v.map((vv) => [k, String(vv)]) : v ? [[k, String(v)]] : []))
-                  const href = clearSearchParams('/services' + (sp.toString() ? `?${sp.toString()}` : ''), ['q'])
-                  return (
-                    <Link href={href}><Button variant="secondary">Clear filters</Button></Link>
-                  )
-                })()}
+                title={hasFilters ? 'No matching services' : 'No services yet'}
+                subtitle={hasFilters ? 'Try another search or clear the filters to see all available services.' : 'Check back soon.'}
+                action={hasFilters ? <Link href="/services"><Button variant="secondary">Clear filters</Button></Link> : null}
               />
             ) : (
               <>

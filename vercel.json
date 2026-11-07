@@ -14,6 +14,22 @@
     {
       "path": "/api/cron/booking-reminders",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/quiz-followup",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/abandoned-cart",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/aggregate-funnel",
+      "schedule": "5 0 * * *"
+    },
+    {
+      "path": "/api/cron/cleanup-events",
+      "schedule": "0 3 * * 0"
     }
   ]
 }

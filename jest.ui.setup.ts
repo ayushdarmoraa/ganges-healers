@@ -45,6 +45,7 @@ jest.mock('next/image', () => {
 // Basic Router mocks (if your component uses them)
 jest.mock('next/navigation', () => {
   return {
+    useSearchParams: () => new URLSearchParams(),
     useRouter: () => ({
       push: jest.fn(),
       refresh: jest.fn(),

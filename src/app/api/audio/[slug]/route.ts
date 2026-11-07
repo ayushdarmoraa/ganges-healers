@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { hasVipAccess } from '@/lib/memberships/access'
 import { auth } from '@/lib/auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+const headers = { 'Cache-Control': 'private, no-store' }
 
 export async function GET(
   _req: Request,
@@ -13,11 +15,12 @@ export async function GET(
     const { slug } = await params
 
     const track = await prisma.audioTrack.findFirst({
-      where: { OR: [{ id: slug }, { slug }] },
+      where: { isPublished: true, OR: [{ id: slug }, { slug }] },
+      select: { id: true, slug: true, title: true, description: true, category: true, audioUrl: true, duration: true, isPremium: true, createdAt: true },
     })
 
     if (!track) {
-      return NextResponse.json({ error: 'Track not found' }, { status: 404 })
+      return NextResponse.json({ error: 'Track not found' }, { status: 404, headers })
     }
 
     // Premium access check
@@ -26,44 +29,35 @@ export async function GET(
       if (!session?.user?.id) {
         return NextResponse.json(
           { ...track, audioUrl: null, locked: true, reason: 'Sign in to access premium content' },
-          { status: 200 }
+          { status: 200, headers }
         )
       }
 
-      // Allow if VIP
-      if (!session.user.vip) {
-        // Check for active VIP membership
-        const membership = await prisma.vIPMembership.findFirst({
-          where: { userId: session.user.id, status: 'active' },
-          select: { id: true },
-        })
+      if (!await hasVipAccess(session.user.id)) {
+        // Check for active program enrollment or course enrollment
+        const [programEnrollment, courseEnrollment] = await Promise.all([
+          prisma.programEnrollment.findFirst({
+            where: { userId: session.user.id, status: 'active' },
+            select: { id: true },
+          }),
+          prisma.courseEnrollment.findFirst({
+            where: { userId: session.user.id, status: 'active' },
+            select: { id: true },
+          }),
+        ])
 
-        if (!membership) {
-          // Check for active program enrollment or course enrollment
-          const [programEnrollment, courseEnrollment] = await Promise.all([
-            prisma.programEnrollment.findFirst({
-              where: { userId: session.user.id, status: 'active' },
-              select: { id: true },
-            }),
-            prisma.courseEnrollment.findFirst({
-              where: { userId: session.user.id, status: 'active' },
-              select: { id: true },
-            }),
-          ])
-
-          if (!programEnrollment && !courseEnrollment) {
-            return NextResponse.json(
-              { ...track, audioUrl: null, locked: true, reason: 'Premium content requires VIP membership, or an active program/course enrollment' },
-              { status: 200 }
-            )
-          }
+        if (!programEnrollment && !courseEnrollment) {
+          return NextResponse.json(
+            { ...track, audioUrl: null, locked: true, reason: 'Premium content requires VIP membership, or an active program/course enrollment' },
+            { status: 200, headers }
+          )
         }
       }
     }
 
-    return NextResponse.json({ ...track, locked: false })
+    return NextResponse.json({ ...track, locked: false }, { headers })
   } catch (err) {
     console.error('[audio][detail][error]', err)
-    return NextResponse.json({ error: 'Failed to fetch track' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to fetch track' }, { status: 500, headers })
   }
 }

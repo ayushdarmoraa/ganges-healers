@@ -1,9 +1,9 @@
+import { isTestMode } from '@/lib/test-mode'
 // src/app/api/payments/webhook/route.ts
-// Copilot prompt: Review this webhook handler for Razorpay. Ensure it reads the raw request body, verifies HMAC with RAZORPAY_WEBHOOK_SECRET, returns 401 on mismatch and { ok: true } on success, and logs [webhook] verified with event + IDs. Do not add DB side-effects. Keep response shape stable.
+// Verify the raw request before any gated payment side effects.
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { applyWebhookSideEffects } from '@/lib/payments/webhook-apply'
-// import { prisma } from '@/lib/prisma'  // uncomment later when you wire DB updates
 
 // NOTE: App Router can read the raw body via req.text()
 export async function POST(req: Request) {
@@ -18,8 +18,8 @@ export async function POST(req: Request) {
 
   // Verify HMAC SHA256 signature
   const expected = crypto.createHmac('sha256', secret).update(bodyText).digest('hex');
-  if (signature !== expected) {
-    console.warn('[webhook] signature mismatch', { got: signature.slice(0, 8), expected: expected.slice(0, 8) });
+  if (!/^[a-f0-9]{64}$/i.test(signature) || !crypto.timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expected, 'hex'))) {
+    console.warn('[webhook] signature mismatch');
     return NextResponse.json({ ok: false, error: 'signature-mismatch' }, { status: 401 });
   }
 
@@ -29,8 +29,8 @@ export async function POST(req: Request) {
   try {
     evt = JSON.parse(bodyText)
   } catch (err) {
-    if (process.env.TEST_MODE === '1') {
-      console.error('[TEST_MODE] JSON parse failed in payments webhook', err, 'raw:', bodyText)
+    if (isTestMode()) {
+      console.error('[TEST_MODE] JSON parse failed in payments webhook', err instanceof Error ? err.name : 'invalid-json')
     }
     console.error('[webhook] invalid payload')
     return NextResponse.json({ ok: false, error: 'invalid-payload' }, { status: 400 })
@@ -49,6 +49,7 @@ export async function POST(req: Request) {
       console.log('[webhook][apply]', { type, action: res.action })
     } else {
       console.log('[webhook][skip]', { type, reason: res.reason })
+      if (res.reason === 'apply-error') return NextResponse.json({ ok: false, error: 'apply-error' }, { status: 500 })
     }
   }
 

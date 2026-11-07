@@ -38,6 +38,7 @@ export default async function HealerLayout({
         >
           Profile
         </Link>
+        <Link href="/healer/programs" className="text-sm font-medium px-3 py-1.5 rounded-md hover:bg-muted">Assigned Programs</Link>
       </nav>
       {children}
     </div>

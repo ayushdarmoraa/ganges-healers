@@ -7,6 +7,7 @@ const db = {
 }
 
 const prismaMock = {
+  review: { groupBy: async () => [] },
   service: {
     findUnique: async ({ where }: any) => db.services.find((s) => s.slug === where.slug) || null,
     findMany: async () => db.services.slice(),
@@ -69,6 +70,8 @@ describe('Healers list API', () => {
     expect('title' in it).toBe(true)
     expect(typeof it.yearsExperience).toBe('number')
     expect(typeof it.ratingAvg).toBe('number')
+    expect(it.ratingAvg).toBe(0)
+    expect(it.reviewCount).toBe(0)
     expect('avatarUrl' in it).toBe(true)
     expect('shortBio' in it).toBe(true)
     expect(Array.isArray(it.services)).toBe(true)

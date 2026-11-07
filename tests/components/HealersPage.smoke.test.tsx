@@ -4,8 +4,8 @@ import { render, screen } from '@testing-library/react'
 jest.mock('@/lib/healers/queries', () => ({
   listHealers: jest.fn(async () => ({
     items: [
-      { id: 'h1', slug: 'h1', name: 'Alice', title: 'Yoga Healer', yearsExperience: 5, ratingAvg: 4.8, avatarUrl: null, shortBio: 'Bio A', services: [{ slug: 'yoga-healing', title: 'Yoga Therapy' }] },
-      { id: 'h2', slug: 'h2', name: 'Bob', title: 'Reiki Healer', yearsExperience: 3, ratingAvg: 4.5, avatarUrl: null, shortBio: 'Bio B', services: [{ slug: 'reiki-healing', title: 'Reiki Healing' }] },
+      { id: 'h1', slug: 'h1', name: 'Alice', title: 'Yoga Healer', yearsExperience: 5, ratingAvg: 4.8, reviewCount: 2, avatarUrl: null, shortBio: 'Bio A', services: [{ slug: 'yoga-healing', title: 'Yoga Therapy' }] },
+      { id: 'h2', slug: 'h2', name: 'Bob', title: 'Reiki Healer', yearsExperience: 3, ratingAvg: 0, reviewCount: 0, avatarUrl: null, shortBio: 'Bio B', services: [{ slug: 'reiki-healing', title: 'Reiki Healing' }] },
     ],
     nextCursor: null,
   }))
@@ -20,6 +20,7 @@ describe('HealersPage smoke', () => {
   expect(screen.getByRole('heading', { level: 1, name: 'Healers' })).toBeInTheDocument()
     expect(screen.getByText('Alice')).toBeInTheDocument()
     expect(screen.getByText('Bob')).toBeInTheDocument()
-    expect(screen.getAllByText(/⭐/).length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText(/⭐ 4\.8 \(2 reviews\)/)).toBeInTheDocument()
+    expect(screen.getByText(/No reviews yet/)).toBeInTheDocument()
   })
 })

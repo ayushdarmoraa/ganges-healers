@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest } from 'next/server'
 
-const row = { id: 'h1', user: { name: 'Alice' }, bio: 'Long biography about Alice', experienceYears: 7, rating: 4.7, specializations: ['Yoga'], certifications: ['RYT-200'] }
+const row = { id: 'h1', user: { name: 'Alice' }, bio: 'Long biography about Alice', experienceYears: 7, rating: 4.7, specializations: ['Yoga'], certifications: ['RYT-200', { name: 'Reiki Master', year: 2015 }] }
 
 const prismaMock = {
+  review: { groupBy: async () => [] },
   healer: {
     findUnique: async ({ where }: any) => {
       if (where?.id === row.id) return { ...row }
@@ -34,6 +35,8 @@ describe('Healers detail API', () => {
     expect(json.name).toBe('Alice')
     expect(typeof json.longBio).toBe('string')
     expect(Array.isArray(json.certifications)).toBe(true)
+    expect(json.certifications).toEqual(['RYT-200', 'Reiki Master'])
+    expect(json).toMatchObject({ ratingAvg: 0, reviewCount: 0 })
     expect(Array.isArray(json.services)).toBe(true)
   })
 

@@ -1,3 +1,4 @@
+import { isTestMode } from '@/lib/test-mode'
 import { auth } from '@/lib/auth'
 
 /** Ensure current user is ADMIN; throws with status 403 otherwise */
@@ -5,7 +6,7 @@ interface StatusError extends Error { status?: number }
 
 export async function requireAdmin() {
   // Short-circuit in test mode BEFORE calling auth() to avoid noisy JWT decode errors.
-  if (process.env.TEST_MODE === '1') {
+  if (isTestMode()) {
     console.warn('[auth][admin][bypass_test_mode]')
     return {
       user: {

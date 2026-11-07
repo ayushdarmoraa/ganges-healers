@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic"
 
 const PasswordSchema = z.object({
   currentPassword: z.string().min(1),
-  newPassword: z.string().min(6, "Password must be at least 6 characters"),
+  newPassword: z.string().min(6, "Password must be at least 6 characters").max(72).refine(value => Buffer.byteLength(value, 'utf8') <= 72, 'Password is too long'),
 })
 
 export async function POST(req: Request) {
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     const { currentPassword, newPassword } = parsed.data
 
     const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
+      where: { id: session.user.id, closedAt: null },
       select: { id: true, password: true },
     })
 
@@ -49,10 +49,11 @@ export async function POST(req: Request) {
     }
 
     const hashed = await bcrypt.hash(newPassword, 12)
-    await prisma.user.update({
-      where: { id: session.user.id },
+    const changed = await prisma.user.updateMany({
+      where: { id: session.user.id, password: user.password, closedAt: null },
       data: { password: hashed },
     })
+    if (changed.count !== 1) return NextResponse.json({ error: "Current password is incorrect" }, { status: 400 })
 
     console.log("[users][me][password][changed]", { userId: session.user.id })
 

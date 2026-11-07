@@ -23,7 +23,7 @@ import { makeServiceCrumbs } from '@/lib/seo/breadcrumbs'
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params
-  const url = canonicalOf(`/services/${slug}`, ['openBooking','programSlug'])
+  const url = canonicalOf(`/services/${slug}`, ['openBooking','programSlug','healerId'])
   // Best-effort fetch of service for title/desc; avoid throwing on not found here
   try {
     const s = await prisma.service.findUnique({ where: { slug }, select: { name: true, description: true } })
@@ -62,6 +62,8 @@ export default async function ServiceDetailPage({
   const openBooking = (typeof sp.openBooking === 'string' ? sp.openBooking : Array.isArray(sp.openBooking) ? sp.openBooking[0] : undefined) === '1'
   const programSlug = typeof sp.programSlug === 'string' ? sp.programSlug : Array.isArray(sp.programSlug) ? sp.programSlug[0] : undefined
   const productSlug = typeof sp.productSlug === 'string' ? sp.productSlug : Array.isArray(sp.productSlug) ? sp.productSlug[0] : undefined
+  const requestedHealerId = typeof sp.healerId === 'string' ? sp.healerId : undefined
+  const hasRequestedHealer = sp.healerId !== undefined
 
   const service = await prisma.service.findUnique({
     where: { slug },
@@ -89,9 +91,9 @@ export default async function ServiceDetailPage({
   const now = new Date()
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
 
-  const [healers, reviews, monthlyBookings] = await Promise.all([
+  const [healers, reviews, monthlyBookings, sacredTools] = await Promise.all([
     prisma.healer.findMany({
-      where: { specializations: { has: key } },
+      where: { isActive: true, specializations: { has: key } },
       select: {
         id: true,
         bio: true,
@@ -123,6 +125,19 @@ export default async function ServiceDetailPage({
         createdAt: { gte: monthStart },
       },
     }),
+    prisma.product.findMany({
+      where: { serviceId: service.id, isActive: true },
+      select: {
+        slug: true,
+        title: true,
+        pricePaise: true,
+        imageUrl: true,
+        isConsecrated: true,
+        chakra: true,
+      },
+      take: 6,
+      orderBy: { createdAt: 'desc' },
+    }),
   ])
 
   // Compute review stats for SEO schema
@@ -141,6 +156,7 @@ export default async function ServiceDetailPage({
     rating: h.rating ?? 0,
     reviewCount: h._count.reviews,
   }))
+  const bookingHealer = hasRequestedHealer ? healerData.find(healer => healer.id === requestedHealerId) : healerData[0]
 
   // Category-specific long-form content
   const categoryLabel = (service.category ?? "General").replace(/_/g, " ")
@@ -162,13 +178,17 @@ export default async function ServiceDetailPage({
         }}
       />
 
-      {openBooking && healerData[0] ? (
+      {openBooking && hasRequestedHealer && !bookingHealer ? (
+        <p role="alert" className="rounded-lg border border-input bg-muted p-4 text-sm">The selected healer is unavailable for this service. Please choose an available healer below.</p>
+      ) : null}
+      {openBooking && bookingHealer ? (
         <BookingAutoOpen
+          key={bookingHealer.id}
           enabled={true}
           programSlug={programSlug}
           productSlug={productSlug}
           serviceSlug={service.slug}
-          healer={{ id: healerData[0].id, name: healerData[0].user?.name ?? 'Healer', experienceYears: healerData[0].experienceYears, rating: healerData[0].rating ?? 5 }}
+          healer={{ id: bookingHealer.id, name: bookingHealer.user?.name ?? 'Healer', experienceYears: bookingHealer.experienceYears, rating: bookingHealer.reviewCount > 0 ? bookingHealer.rating : 0 }}
           serviceId={service.id}
           serviceName={service.name}
         />
@@ -290,6 +310,32 @@ export default async function ServiceDetailPage({
         price={service.price}
         mode={service.mode}
       />
+
+      {/* ── Sacred Tools Cross-Sell ────────────────────── */}
+      {sacredTools.length > 0 ? (
+        <section className="space-y-4">
+          <h2 className="text-2xl font-semibold">Sacred Tools for This Healing</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {sacredTools.map((tool) => (
+              <Link key={tool.slug} href={`/store/${tool.slug}`} className="border rounded-lg p-3 hover:shadow transition-shadow">
+                <div className="relative">
+                  {tool.imageUrl ? (
+                    <Image src={tool.imageUrl} alt={tool.title} width={200} height={120} className="w-full h-28 object-cover rounded" sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw" loading="lazy" />
+                  ) : <div className="w-full h-28 bg-muted rounded" />}
+                  {tool.isConsecrated ? (
+                    <span className="absolute top-1.5 left-1.5 bg-amber-900/85 text-amber-100 text-[10px] font-semibold px-1.5 py-0.5 rounded-full backdrop-blur-sm">
+                      ✨ Consecrated
+                    </span>
+                  ) : null}
+                </div>
+                <div className="mt-2 text-sm font-medium line-clamp-2">{tool.title}</div>
+                {tool.chakra ? <div className="text-xs text-purple-600 dark:text-purple-400">{tool.chakra} Chakra</div> : null}
+                <div className="mt-1 text-sm">₹{(tool.pricePaise / 100).toFixed(2)}</div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {/* ── Related Services ──────────────────────────────── */}
       <RelatedServices currentServiceId={service.id} category={service.category} />

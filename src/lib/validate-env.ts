@@ -3,6 +3,8 @@
  * Import at the top of instrumentation.ts or server entry to fail fast.
  */
 
+import { assertProductionTestModeDisabled } from './test-mode'
+
 const required: string[] = [
   'DATABASE_URL',
   'AUTH_SECRET',
@@ -15,6 +17,7 @@ const requiredForPayments: string[] = [
 ]
 
 export function validateEnv() {
+  assertProductionTestModeDisabled()
   const missing: string[] = []
 
   for (const key of required) {
@@ -28,6 +31,8 @@ export function validateEnv() {
     { key: 'REDIS_URL', label: 'Redis (background jobs, caching)' },
     { key: 'NEXT_PUBLIC_SENTRY_DSN', label: 'Sentry error monitoring' },
     { key: 'RESEND_API_KEY', label: 'Transactional email' },
+    { key: 'INTERAKT_API_KEY', label: 'WhatsApp messaging (Interakt)' },
+    { key: 'NEXT_PUBLIC_META_PIXEL_ID', label: 'Meta Pixel (Facebook/Instagram ads)' },
     { key: 'CRON_SECRET', label: 'Cron job authentication' },
   ]
 

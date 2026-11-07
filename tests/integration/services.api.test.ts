@@ -21,6 +21,8 @@ import { prisma } from '@/lib/prisma'
 import { makeNextRequest, readJSON } from '../helpers/next-handler'
 import * as ServicesCollection from '@/app/api/services/route'
 import * as ServicesById from '@/app/api/services/[id]/route'
+import { getHealerBySlug } from '@/lib/healers/queries'
+import { randomUUID } from 'node:crypto'
 
 type ServicesCollectionModule = {
   GET?: (req: Request) => Promise<Response>
@@ -69,6 +71,48 @@ describe('API /api/services integration', () => {
   })
 
   describe('GET /api/services', () => {
+    test('filters by the average of all reviews before pagination and excludes inactive and unrated services', async () => {
+      const category = `Ratings ${randomUUID()}`
+      const customer = await prisma.user.create({ data: { email: `customer-${category.slice(8)}@example.test` } })
+      const practitioner = await prisma.user.create({ data: { email: `healer-${category.slice(8)}@example.test`, role: 'HEALER' } })
+      try {
+        const healer = await prisma.healer.create({ data: { userId: practitioner.id } })
+        const fixtures = [
+          { name: 'Average', ratings: [4, 5], popularity: 5, isActive: true },
+          { name: 'Top', ratings: [5], popularity: 0, isActive: true },
+          { name: 'Below threshold', ratings: [5, 3], popularity: 99, isActive: true },
+          { name: 'Unrated', ratings: [], popularity: 99, isActive: true },
+          { name: 'Inactive', ratings: [5], popularity: 99, isActive: false },
+        ]
+        for (const { name, ratings, popularity, isActive } of fixtures) {
+          const service = await prisma.service.create({ data: { name, slug: randomUUID(), category, description: 'Isolated service fixture', duration: 60, price: 0, popularity, isActive } })
+          for (const rating of ratings) {
+            const booking = await prisma.booking.create({ data: { userId: customer.id, healerId: healer.id, serviceId: service.id, status: 'COMPLETED', scheduledAt: new Date('2026-01-01T00:00:00Z'), durationMin: 60, pricePaise: 0 } })
+            await prisma.review.create({ data: { userId: customer.id, healerId: healer.id, serviceId: service.id, bookingId: booking.id, rating } })
+          }
+        }
+        const list = async (page: number) => {
+          const query = new URLSearchParams({ category, minRating: '4.5', minPrice: '0', maxPrice: '0', page: String(page), limit: '1' })
+          const response = await CollectionHandlers.GET!(makeNextRequest(`http://localhost/api/services?${query}`))
+          expect(response.status).toBe(200)
+          return readJSON(response)
+        }
+        expect(await list(1)).toMatchObject({ data: [{ name: 'Average' }], pagination: { page: 1, limit: 1, total: 2, totalPages: 2 } })
+        expect(await list(2)).toMatchObject({ data: [{ name: 'Top' }], pagination: { page: 2, limit: 1, total: 2, totalPages: 2 } })
+        expect(await list(3)).toMatchObject({ data: [], pagination: { page: 3, total: 2, totalPages: 2 } })
+      } finally {
+        await prisma.user.deleteMany({ where: { id: { in: [customer.id, practitioner.id] } } })
+        await prisma.service.deleteMany({ where: { category } })
+      }
+    })
+
+    test('malformed or repeated numeric filters use safe defaults', async () => {
+      const req = makeNextRequest('http://localhost/api/services?page=-1&limit=1e9&minPrice=bad&maxPrice=Infinity&minRating=5&minRating=4')
+      const response = await CollectionHandlers.GET!(req)
+      expect(response.status).toBe(200)
+      expect(await readJSON(response)).toMatchObject({ pagination: { page: 1, limit: 12 } })
+    })
+
     test('returns paginated services list', async () => {
       const req = makeNextRequest('http://localhost/api/services?page=1&limit=5')
       const res = await CollectionHandlers.GET!(req)
@@ -141,6 +185,33 @@ describe('API /api/services integration', () => {
       expect(res.status).toBe(404)
       const body = await readJSON(res)
       expect(body.error).toMatch(/not found/i)
+    })
+
+    test('public service detail does not export customer appointments, financial snapshots or practitioner account data', async () => {
+      const token = randomUUID()
+      const customer = await prisma.user.create({ data: { email: `private-customer-${token}@example.test` } })
+      const practitioner = await prisma.user.create({ data: { email: `private-healer-${token}@example.test`, name: 'Public Privacy Test Practitioner', role: 'HEALER' } })
+      try {
+        const healer = await prisma.healer.create({ data: { userId: practitioner.id, bio: 'Public biography', availability: { private: 'schedule' } } })
+        const booking = await prisma.booking.create({ data: {
+          userId: customer.id, healerId: healer.id, serviceId: testService.id, status: 'COMPLETED',
+          scheduledAt: new Date(Date.now() - 86400000), durationMin: 60, pricePaise: 12345, meetingLink: 'https://example.test/private-meeting',
+        } })
+        const res = await IdHandlers.GET!(makeNextRequest(`http://localhost/api/services/${testService.id}`), { params: Promise.resolve({ id: testService.id }) })
+        const body = await readJSON(res)
+        expect(res.status).toBe(200)
+        expect(body.data.healers).toEqual(expect.arrayContaining([expect.objectContaining({ id: healer.id, user: { name: 'Public Privacy Test Practitioner', image: null } })]))
+        const serialized = JSON.stringify(body)
+        for (const secret of [customer.id, customer.email, practitioner.id, practitioner.email, booking.id, 'private-meeting']) expect(serialized).not.toContain(secret)
+        for (const key of ['userId', 'scheduledAt', 'meetingLink', 'pricePaise', 'availability', 'email', 'password', 'phone']) expect(serialized).not.toContain(`"${key}":`)
+        await prisma.healer.update({ where: { id: healer.id }, data: { isActive: false } })
+        expect(await getHealerBySlug(healer.id)).toBeNull()
+        const inactiveBody = await readJSON(await IdHandlers.GET!(makeNextRequest(`http://localhost/api/services/${testService.id}`), { params: Promise.resolve({ id: testService.id }) }))
+        expect(inactiveBody.data.healers.some((item: { id: string }) => item.id === healer.id)).toBe(false)
+      } finally {
+        await prisma.user.delete({ where: { id: customer.id } })
+        await prisma.user.delete({ where: { id: practitioner.id } })
+      }
     })
   })
 

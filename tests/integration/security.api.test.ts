@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { prisma } from '@/lib/prisma';
-import { addDays, setHours, setMinutes } from 'date-fns';
+import { clinicDate, clinicSlotInstant } from '@/lib/bookings/time';
 
 // Handlers
 import * as Bookings from '@/app/api/bookings/route';
@@ -8,6 +8,9 @@ import * as ById from '@/app/api/bookings/[id]/route';
 import * as ConfirmCredits from '@/app/api/bookings/[id]/confirm-with-credits/route';
 
 function iso(d: Date) { return new Date(d).toISOString(); }
+function futureSlot(days: number, time: string) {
+  return clinicSlotInstant(clinicDate(new Date(Date.now() + days * 86400000)), time);
+}
 async function readJSON(res: Response) { try { return await res.clone().json(); } catch { return null; } }
 function req(url: string, init?: RequestInit) { return new Request(url, init); }
 
@@ -55,7 +58,7 @@ describe('RBAC/Security', () => {
 
     // Create a booking that belongs to A
     process.env.TEST_USER_ID = userA.id;
-    const when = setMinutes(setHours(addDays(new Date(), 5), 11), 0);
+    const when = futureSlot(5, '11:00');
     const createReq = req('http://localhost/api/bookings', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -76,7 +79,7 @@ describe('RBAC/Security', () => {
 
   test('Non-owner cannot reschedule someone else booking', async () => {
     process.env.TEST_USER_ID = userB.id; // act as B
-    const target = setMinutes(setHours(addDays(new Date(), 6), 12), 0);
+    const target = futureSlot(6, '12:00');
 
     const rReq = req(`http://localhost/api/bookings/${bookingOfA.id}`, {
       method: 'PUT',
@@ -109,7 +112,7 @@ describe('RBAC/Security', () => {
   test('GET /api/bookings returns only current user bookings', async () => {
     // create one booking for userB to ensure isolation
     process.env.TEST_USER_ID = userB.id;
-    const when = setMinutes(setHours(addDays(new Date(), 7), 13), 0);
+    const when = futureSlot(7, '13:00');
     const bReq = req('http://localhost/api/bookings', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ healerId: healer.id, serviceId: service.id, scheduledAt: iso(when) }),

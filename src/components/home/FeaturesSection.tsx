@@ -7,29 +7,29 @@ export default async function SocialProofSection() {
     await Promise.all([
       prisma.healer.count({ where: { isActive: true, isVerified: true } }),
       prisma.service.count({ where: { isActive: true } }),
-      prisma.audioTrack.count(),
+      prisma.audioTrack.count({ where: { isPublished: true } }),
       prisma.communityPost.count({ where: { deletedAt: null } }),
     ])
 
   const stats = [
     {
       label: "Verified Healers",
-      value: healerCount || "10+",
+      value: healerCount,
       icon: Users,
     },
     {
       label: "Healing Services",
-      value: serviceCount || "20+",
+      value: serviceCount,
       icon: Star,
     },
     {
       label: "Audio Tracks",
-      value: audioCount || "50+",
+      value: audioCount,
       icon: Headphones,
     },
     {
       label: "Community Posts",
-      value: communityCount || "100+",
+      value: communityCount,
       icon: Calendar,
     },
   ]
@@ -37,11 +37,11 @@ export default async function SocialProofSection() {
   return (
     <section className="py-16">
       <h2 className="text-3xl font-bold text-center mb-3">
-        Trusted by a Growing Community
+        Explore Our Healing Community
       </h2>
       <p className="text-center text-muted-foreground mb-10 max-w-xl mx-auto">
-        Join thousands who have found healing, growth, and transformation
-        through our platform.
+        Find practitioners, discover healing services, and connect with
+        others on their wellness journey.
       </p>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
         {stats.map((stat) => (

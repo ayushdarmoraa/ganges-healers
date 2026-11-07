@@ -15,7 +15,7 @@ export async function GET(
     if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const course = await prisma.course.findFirst({
-      where: { OR: [{ id: slug }, { slug }], isActive: true },
+      where: { OR: [{ id: slug }, { slug }] },
     })
     if (!course) return NextResponse.json({ error: 'Course not found' }, { status: 404 })
 
@@ -37,7 +37,7 @@ export async function GET(
       select: { id: true, title: true, order: true },
     })
 
-    return NextResponse.json({ lesson, allLessons, enrollment: { progress: enrollment.progress } })
+    return NextResponse.json({ lesson, allLessons, enrollment: { progress: enrollment.progress } }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (err) {
     console.error('[courses][lesson][error]', err)
     return NextResponse.json({ error: 'Failed to fetch lesson' }, { status: 500 })

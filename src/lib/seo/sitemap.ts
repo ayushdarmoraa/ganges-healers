@@ -37,6 +37,7 @@ export async function getSitemapItems(): Promise<SitemapItem[]> {
       select: { slug: true, updatedAt: true },
     })),
     safe(() => prisma.audioTrack.findMany({
+      where: { isPublished: true },
       select: { slug: true, createdAt: true },
     })),
   ])

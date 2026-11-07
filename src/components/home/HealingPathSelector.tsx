@@ -8,7 +8,7 @@ const healingPaths = [
   {
     label: "Anxiety & Stress",
     icon: Brain,
-    href: "/services?category=HYPNOTHERAPY",
+    href: "/services?search=hypnotherapy",
     color: "text-blue-500",
   },
   {
@@ -20,13 +20,13 @@ const healingPaths = [
   {
     label: "Emotional Healing",
     icon: Heart,
-    href: "/services?category=ENERGY_HEALING",
+    href: "/services?search=healing",
     color: "text-rose-500",
   },
   {
     label: "Spiritual Growth",
     icon: Sparkles,
-    href: "/services?category=MEDITATION",
+    href: "/services?search=reiki",
     color: "text-purple-500",
   },
   {
@@ -38,7 +38,7 @@ const healingPaths = [
   {
     label: "Past Trauma",
     icon: Shield,
-    href: "/services?category=INNER_CHILD",
+    href: "/services?search=hypnotherapy",
     color: "text-emerald-500",
   },
 ]

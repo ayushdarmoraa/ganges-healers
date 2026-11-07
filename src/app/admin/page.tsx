@@ -1,53 +1,60 @@
 import { redirect } from "next/navigation"
+import Link from 'next/link'
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
 import { revalidatePath } from "next/cache"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { UserBenefitsForm } from '@/components/admin/user-benefits-form'
+import { requireCurrentAdmin } from '@/lib/admin/auth'
+import { updateUserBenefits, UserBenefitsError, userBenefitsSelect, userBenefitsVersion, type UserBenefitsInput, type UserBenefitsResult } from '@/lib/admin/user-benefits'
 
 // Server action for VIP + credits update
-async function setVip(formData: FormData) {
+async function setVip(input: UserBenefitsInput): Promise<UserBenefitsResult> {
   "use server"
-  const session = await auth()
-  if (!session?.user?.id || session.user.role !== "ADMIN") {
-    throw new Error("Forbidden")
+  try {
+    const actor = await requireCurrentAdmin()
+    const result = await updateUserBenefits(actor.id, input)
+    revalidatePath('/admin')
+    return { success: true, ...result }
+  } catch (error) {
+    if (error instanceof UserBenefitsError) return { success: false, error: error.message, code: error.code }
+    if (error instanceof Error && 'status' in error && error.status === 403) return { success: false, error: 'Administrator access is required.', code: 'FORBIDDEN' }
+    console.error('[admin][user-benefits][error]', { type: error instanceof Error ? error.name : 'unknown' })
+    return { success: false, error: 'Benefits could not be saved. Reload and review the current values before trying again.', code: 'SAVE_FAILED' }
   }
-  const userId = String(formData.get("userId"))
-  const vip = String(formData.get("vip")) === "true"
-  const credits = Number(formData.get("freeSessionCredits") || 0)
-
-  await prisma.user.update({
-    where: { id: userId },
-    data: { vip, freeSessionCredits: credits },
-  })
-  revalidatePath("/admin")
 }
 
 export default async function AdminPage() {
   const session = await auth()
-  if (!session?.user) redirect("/auth/signin")
+  if (!session?.user?.id) redirect("/auth/signin")
   if (session.user.role !== "ADMIN") redirect("/")
 
   const users = await prisma.user.findMany({
     orderBy: { createdAt: "desc" },
     take: 50,
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      vip: true,
-      freeSessionCredits: true,
-      role: true,
-      createdAt: true,
-    },
+    select: { ...userBenefitsSelect, createdAt: true },
   })
   type AdminUser = typeof users[number]
 
   return (
     <div className="container mx-auto px-4 py-8 space-y-8">
       <h1 className="text-2xl font-semibold">Admin · VIP Management</h1>
+      <p className="text-sm text-muted-foreground">Manage free-session balances and manual VIP access for accounts without subscription history. Subscription access follows its saved status and expiry. Add a reason when saving a change.</p>
+      <nav className="flex flex-wrap gap-3" aria-label="Admin workspaces">
+        <Button asChild variant="outline"><Link href="/admin/services">Manage Services</Link></Button>
+        <Button asChild variant="outline"><Link href="/admin/healers">Manage Healers</Link></Button>
+        <Button asChild variant="outline"><Link href="/admin/courses">Manage Courses</Link></Button>
+        <Button asChild variant="outline"><Link href="/admin/audio">Manage Audio</Link></Button>
+        <Button asChild variant="outline"><Link href="/admin/products">Manage Products</Link></Button>
+        <Button asChild variant="outline"><Link href="/admin/orders">Manage Orders</Link></Button>
+        <Button asChild variant="outline"><Link href="/admin/programs">Manage Programs</Link></Button>
+        <Button asChild variant="outline"><Link href="/admin/program-enrollments">Program Enrollments</Link></Button>
+        <Button asChild variant="outline"><Link href="/admin/community">Community Moderation</Link></Button>
+        <Button asChild variant="outline"><Link href="/admin/blog">Manage Articles</Link></Button>
+        <Button asChild variant="outline"><Link href="/admin/payments">Payments</Link></Button>
+        <Button asChild variant="outline"><Link href="/admin/analytics">Analytics</Link></Button>
+      </nav>
 
       <Card>
         <CardContent className="p-0">
@@ -61,35 +68,7 @@ export default async function AdminPage() {
                   </div>
                 </div>
 
-                <form action={setVip} className="flex items-end gap-4">
-                  <input type="hidden" name="userId" value={u.id} />
-                  <div className="grid gap-1">
-                    <Label htmlFor={`vip-${u.id}`}>VIP</Label>
-                    <select
-                      id={`vip-${u.id}`}
-                      name="vip"
-                      defaultValue={u.vip ? "true" : "false"}
-                      className="h-9 rounded-md border px-2 bg-background"
-                    >
-                      <option value="false">No</option>
-                      <option value="true">Yes</option>
-                    </select>
-                  </div>
-
-                  <div className="grid gap-1">
-                    <Label htmlFor={`credits-${u.id}`}>Free credits</Label>
-                    <Input
-                      id={`credits-${u.id}`}
-                      name="freeSessionCredits"
-                      type="number"
-                      min={0}
-                      defaultValue={u.freeSessionCredits ?? 0}
-                      className="w-28"
-                    />
-                  </div>
-
-                  <Button type="submit" size="sm">Save</Button>
-                </form>
+                <UserBenefitsForm actorId={session.user.id} label={u.name ? `${u.name} (${u.email})` : u.email} user={{ id: u.id, vip: u.vip, freeSessionCredits: u.freeSessionCredits, version: userBenefitsVersion(u) }} onSave={setVip} />
               </div>
             ))}
           </div>

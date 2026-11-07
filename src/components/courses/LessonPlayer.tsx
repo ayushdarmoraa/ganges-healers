@@ -71,7 +71,7 @@ export default function LessonPlayer({ courseSlug, lessonId }: Props) {
       if (!res.ok) throw new Error('Failed to update progress')
       const data = await res.json()
       setProgress(data.progress)
-      if (data.status === 'completed') {
+      if (data.status === 'completed' && allLessons.length > 0 && allLessons.every(item => data.progress > item.order)) {
         toast.success('Course completed! 🎉')
       } else {
         toast.success('Lesson completed!')

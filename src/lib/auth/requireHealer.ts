@@ -20,10 +20,17 @@ export async function requireHealer() {
 
   const healer = await prisma.healer.findUnique({
     where: { userId: session.user.id },
+    include: { user: { select: { role: true } } },
   })
 
   if (!healer) {
     const err: StatusError = new Error('Healer record not found')
+    err.status = 403
+    throw err
+  }
+
+  if (healer.user.role !== 'HEALER') {
+    const err: StatusError = new Error('Forbidden: healer only')
     err.status = 403
     throw err
   }

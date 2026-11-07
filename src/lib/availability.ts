@@ -1,5 +1,9 @@
+import { isTestMode } from '@/lib/test-mode'
 // lib/availability.ts
 import { prisma } from '@/lib/prisma'
+import type { Prisma } from '@prisma/client'
+import { BOOKING_TIME_ZONE, clinicSlotInstant } from '@/lib/bookings/time'
+import { fitsWorkingWindow, readWeeklyAvailability, workingWindowSlots, type WeekDay } from '@/lib/bookings/availability-rules'
 
 export interface TimeSlot {
   time: string // "HH:MM" format
@@ -12,89 +16,39 @@ export interface AvailabilityDay {
   slots: TimeSlot[]
 }
 
-/**
- * Generate 30-minute time slots for a day
- * Default hours: 10:00 - 20:00 IST (20 slots)
- */
-function generateDaySlots(startHour = 10, endHour = 20): string[] {
-  const slots: string[] = []
-  
-  for (let hour = startHour; hour < endHour; hour++) {
-    slots.push(`${hour.toString().padStart(2, '0')}:00`)
-    slots.push(`${hour.toString().padStart(2, '0')}:30`)
-  }
-  
-  return slots
+// Availability rules and displayed slot labels use the clinic's India timezone.
+function clinicTime(date: Date) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: BOOKING_TIME_ZONE, weekday: 'long', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date)
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find(p => p.type === type)?.value ?? ''
+  return { day: value('weekday').toLowerCase(), time: `${value('hour')}:${value('minute')}` }
 }
 
-/**
- * Check if a time falls within healer's availability window
- */
-interface DayWindow { start?: string; end?: string }
-type AvailabilityShape = Record<string, DayWindow>
-
-function isTimeInAvailability(
-  time: string,
-  dayName: string,
-  availability: AvailabilityShape | null | undefined
-): boolean {
-  if (!availability || !availability[dayName.toLowerCase()]) {
-    return false
-  }
-  
-  const dayAvailability = availability[dayName.toLowerCase()]
-  if (!dayAvailability.start || !dayAvailability.end) {
-    return false
-  }
-  
-  const timeMinutes = timeToMinutes(time)
-  const startMinutes = timeToMinutes(dayAvailability.start)
-  const endMinutes = timeToMinutes(dayAvailability.end)
-  
-  return timeMinutes >= startMinutes && timeMinutes < endMinutes
+function hasBookingConflict(proposed: Date, durationMin: number, bookings: Array<{ scheduledAt: Date; durationMin: number }>) {
+  const end = proposed.getTime() + durationMin * 60000
+  return bookings.some(b => proposed.getTime() < b.scheduledAt.getTime() + b.durationMin * 60000 && end > b.scheduledAt.getTime())
 }
 
-/**
- * Convert HH:MM to minutes since midnight
- */
-function timeToMinutes(time: string): number {
-  const [hours, minutes] = time.split(':').map(Number)
-  return hours * 60 + minutes
-}
-
-/**
- * Get day name from date
- */
-function getDayName(date: Date): string {
-  const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-  return days[date.getDay()]
-}
-
-/**
- * Check if booking conflicts with existing booking (30min buffer)
- */
-function hasBookingConflict(
-  proposedTime: string,
-  proposedDuration: number,
-  existingBookings: Array<{ scheduledAt: Date; durationMin: number }>
-): { conflicting: boolean; bookingId?: string } {
-  const proposedStart = timeToMinutes(proposedTime)
-  const proposedEnd = proposedStart + proposedDuration
-  
-  for (const booking of existingBookings) {
-    const existingTime = booking.scheduledAt.toTimeString().slice(0, 5) // HH:MM
-    const existingStart = timeToMinutes(existingTime)
-    const existingEnd = existingStart + booking.durationMin
-    
-    // Check for overlap
-    if (
-      (proposedStart < existingEnd && proposedEnd > existingStart)
-    ) {
-      return { conflicting: true }
-    }
-  }
-  
-  return { conflicting: false }
+// Check absolute intervals, including sessions starting on a previous day. This
+// query uses the healer/start index without a duration-dependent lower bound.
+async function overlappingBookings(client: Prisma.TransactionClient, healerId: string, start: Date, end: Date, excludeId: string | null = null, excludeProgramSessionId: string | null = null) {
+  return client.$queryRaw<Array<{ id: string; scheduledAt: Date; durationMin: number }>>`
+    SELECT id, "scheduledAt", "durationMin" FROM "Booking"
+    WHERE "healerId" = ${healerId}
+      AND status IN ('PENDING', 'SCHEDULED', 'CONFIRMED', 'RESCHEDULED')
+      AND "scheduledAt" < (${end.toISOString()}::timestamptz AT TIME ZONE 'UTC')
+      AND "scheduledAt" + "durationMin" * INTERVAL '1 minute' > (${start.toISOString()}::timestamptz AT TIME ZONE 'UTC')
+      AND (${excludeId}::text IS NULL OR id <> ${excludeId}::text)
+    UNION ALL
+    SELECT s.id, s."scheduledAt", s."durationMin" FROM "ProgramSession" s
+    JOIN "ProgramEnrollment" e ON e.id = s."enrollmentId"
+    WHERE s."healerId" = ${healerId}
+      AND s.status = 'SCHEDULED' AND e.status IN ('active', 'paused')
+      AND s."scheduledAt" < (${end.toISOString()}::timestamptz AT TIME ZONE 'UTC')
+      AND s."scheduledAt" + s."durationMin" * INTERVAL '1 minute' > (${start.toISOString()}::timestamptz AT TIME ZONE 'UTC')
+      AND (${excludeProgramSessionId}::text IS NULL OR s.id <> ${excludeProgramSessionId}::text)
+  `
 }
 
 /**
@@ -102,7 +56,10 @@ function hasBookingConflict(
  */
 export async function getHealerAvailability(
   healerId: string,
-  date: string // YYYY-MM-DD
+  date: string, // YYYY-MM-DD in India
+  durationMin = 60,
+  excludeBookingId?: string,
+  excludeProgramSessionId?: string
 ): Promise<AvailabilityDay> {
   // Get healer with availability rules
   const healer = await prisma.healer.findUnique({
@@ -121,41 +78,24 @@ export async function getHealerAvailability(
   }
   
   // Parse date and get day name
-  const targetDate = new Date(date + 'T00:00:00.000Z')
-  const dayName = getDayName(targetDate)
+  const targetDate = new Date(date + 'T00:00:00+05:30')
+  const dayName = clinicTime(targetDate).day
   
   // Generate all possible slots
-  const allSlots = generateDaySlots()
+  const window = readWeeklyAvailability(healer.availability)?.[dayName as WeekDay]
+  const allSlots = workingWindowSlots(window)
+  if (!allSlots.length || !Number.isSafeInteger(durationMin) || durationMin <= 0) return { date, slots: [] }
   
   // Get existing bookings for this healer on this date
-  const startOfDay = new Date(date + 'T00:00:00.000Z')
-  const endOfDay = new Date(date + 'T23:59:59.999Z')
-  
-  const existingBookings = await prisma.booking.findMany({
-    where: {
-      healerId,
-      scheduledAt: {
-        gte: startOfDay,
-        lte: endOfDay
-      },
-      status: {
-        in: ['PENDING', 'SCHEDULED', 'CONFIRMED']
-      }
-    },
-    select: {
-      id: true,
-      scheduledAt: true,
-      durationMin: true
-    }
-  })
-  
-  // Check each slot
-  const rawAvail = healer.availability as unknown
-  const availObj: AvailabilityShape | null = (typeof rawAvail === 'object' && rawAvail !== null) ? rawAvail as AvailabilityShape : null
+  const startOfDay = new Date(date + 'T00:00:00+05:30')
+  const endOfDay = new Date(startOfDay.getTime() + 86400000)
+  const existingBookings = await overlappingBookings(prisma, healerId, startOfDay, endOfDay, excludeBookingId, excludeProgramSessionId)
 
+  // Check each slot
+  const now = Date.now()
   const slots: TimeSlot[] = allSlots.map(time => {
     // Check if time is within healer's availability
-    const inAvailability = isTimeInAvailability(time, dayName, availObj)
+    const inAvailability = fitsWorkingWindow(window, time, durationMin)
     
     if (!inAvailability) {
       return {
@@ -164,13 +104,13 @@ export async function getHealerAvailability(
       }
     }
     
-    // Check for booking conflicts (assume 60min default duration)
-    const conflict = hasBookingConflict(time, 60, existingBookings)
+    // Compare the same absolute instant used when creating a booking.
+    const instant = clinicSlotInstant(date, time)
+    const conflict = instant.getTime() <= now || hasBookingConflict(instant, durationMin, existingBookings)
     
     return {
       time,
-      available: !conflict.conflicting,
-      bookingId: conflict.bookingId
+      available: !conflict
     }
   })
   
@@ -183,75 +123,75 @@ export async function getHealerAvailability(
 /**
  * Validate booking request
  */
-export async function validateBookingSlot(
+async function validateReservationSlot(
   healerId: string,
-  serviceId: string,
-  scheduledAt: Date
+  serviceId: string | null,
+  scheduledAt: Date,
+  options: { client?: Prisma.TransactionClient; excludeBookingId?: string; excludeProgramSessionId?: string; durationMin?: number; strict?: boolean } = {}
 ): Promise<{ valid: boolean; error?: string }> {
-  const isTest = (process.env.TEST_MODE === '1' || process.env.NEXT_PUBLIC_TEST_MODE === '1')
+  const isTest = !options.strict && isTestMode()
+  const client = options.client ?? prisma
   // Check if time is in future
   const now = new Date()
+  if (!Number.isFinite(scheduledAt.getTime())) return { valid: false, error: 'Invalid booking time' }
   if (!isTest && scheduledAt <= now) {
     return { valid: false, error: 'Booking time must be in the future' }
   }
   
   // Check if time is aligned to 30-min slots
-  const minutes = scheduledAt.getMinutes()
-  if (!isTest && (minutes !== 0 && minutes !== 30)) {
+  const { time: timeStr, day: dayName } = clinicTime(scheduledAt)
+  const minutes = Number(timeStr.split(':')[1])
+  if (!isTest && ((minutes !== 0 && minutes !== 30) || scheduledAt.getSeconds() !== 0 || scheduledAt.getMilliseconds() !== 0)) {
     return { valid: false, error: 'Booking time must be aligned to 30-minute slots' }
   }
   
   // Get healer and service
-  const healer = await prisma.healer.findUnique({
+  const healer = await client.healer.findUnique({
     where: { id: healerId },
     select: { availability: true, isActive: true }
   })
   
-  const service = await prisma.service.findUnique({
+  const service = serviceId ? await client.service.findUnique({
     where: { id: serviceId },
     select: { duration: true, isActive: true }
-  })
+  }) : null
   
   if (!healer || !healer.isActive) {
     return { valid: false, error: 'Healer not found or inactive' }
   }
   
-  if (!service || !service.isActive) {
+  if (serviceId && (!service || !service.isActive)) {
     return { valid: false, error: 'Service not found or inactive' }
   }
   
   // Check healer availability for this day/time
-  const timeStr = scheduledAt.toTimeString().slice(0, 5)
-  const dayName = getDayName(scheduledAt)
+  const durationMin = options.durationMin ?? service?.duration ?? 0
+  if (!Number.isSafeInteger(durationMin) || durationMin <= 0) return { valid: false, error: 'Invalid service duration' }
   
-  const healerAvailRaw = healer.availability as unknown
-  const healerAvail: AvailabilityShape | null = (typeof healerAvailRaw === 'object' && healerAvailRaw !== null) ? healerAvailRaw as AvailabilityShape : null
-  if (!isTest && !isTimeInAvailability(timeStr, dayName, healerAvail)) {
+  const window = readWeeklyAvailability(healer.availability)?.[dayName as WeekDay]
+  if (!isTest && !fitsWorkingWindow(window, timeStr, durationMin)) {
     return { valid: false, error: 'Healer not available at this time' }
   }
   
-  // Check for conflicts
-  const existingBookings = await prisma.booking.findMany({
-    where: {
-      healerId,
-      scheduledAt: {
-        gte: new Date(scheduledAt.getTime() - 2 * 60 * 60 * 1000), // 2h before
-        lte: new Date(scheduledAt.getTime() + 2 * 60 * 60 * 1000)  // 2h after
-      },
-      status: {
-        in: ['PENDING', 'SCHEDULED', 'CONFIRMED']
-      }
-    },
-    select: {
-      scheduledAt: true,
-      durationMin: true
-    }
-  })
-  
-  const conflict = hasBookingConflict(timeStr, service.duration, existingBookings)
-  if (!isTest && conflict.conflicting) {
+  const existingBookings = await overlappingBookings(client, healerId, scheduledAt,
+    new Date(scheduledAt.getTime() + durationMin * 60000), options.excludeBookingId, options.excludeProgramSessionId)
+  const conflict = hasBookingConflict(scheduledAt, durationMin, existingBookings)
+  // Never bypass the overlap check, even in TEST_MODE: it is an integrity rule.
+  if (conflict) {
     return { valid: false, error: 'Time slot not available' }
   }
   
   return { valid: true }
+}
+
+/** Keep the existing service-priced booking validation contract. */
+export function validateBookingSlot(healerId: string, serviceId: string, scheduledAt: Date,
+  options: { client?: Prisma.TransactionClient; excludeBookingId?: string; durationMin?: number } = {}) {
+  return validateReservationSlot(healerId, serviceId, scheduledAt, options)
+}
+
+/** Program sessions use their paid enrollment duration, never an arbitrary service price. */
+export function validateProgramSessionSlot(healerId: string, scheduledAt: Date, durationMin: number,
+  options: { client?: Prisma.TransactionClient; excludeProgramSessionId?: string } = {}) {
+  return validateReservationSlot(healerId, null, scheduledAt, { ...options, durationMin, strict: true })
 }

@@ -14,10 +14,14 @@ model User {
   image              String?
   phone              String?             @unique
   password           String?
+  securityVersion    Int                 @default(0)
+  closedAt           DateTime?
   role               Role                @default(USER)
   vip                Boolean             @default(false)
   freeSessionCredits Int                 @default(0)
   emailVerified      DateTime?
+  phoneVerifiedAt    DateTime?
+  phoneVerifiedHash  String?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   accounts           Account[]
@@ -41,6 +45,45 @@ model User {
   sessionCredits     SessionCredit[]
   memberships        VIPMembership[]
   reviews            Review[]
+  firstSource        String?
+  firstVariant       String?
+  twoFactorCredential TwoFactorCredential?
+  phoneVerification  PhoneVerification?
+}
+
+model PhoneVerification {
+  userId            String   @id
+  requestId         String
+  phoneHash         String
+  credentialVersion String
+  providerId        String?
+  expiresAt         DateTime
+  nextSendAt        DateTime
+  sendWindowStart   DateTime
+  sendsInWindow     Int
+  attempts          Int      @default(0)
+  checkingId        String?
+  checkingUntil     DateTime?
+  consentedAt       DateTime
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model TwoFactorCredential {
+  userId                 String   @id
+  enabled                Boolean  @default(false)
+  encryptedSecret        String?
+  pendingEncryptedSecret String?
+  pendingPasswordVersion String?
+  pendingExpiresAt       DateTime?
+  lastAcceptedStep       BigInt?
+  recoveryHashes         String[] @default([])
+  failedAttempts         Int      @default(0)
+  failureWindowStart     DateTime?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Healer {
@@ -59,7 +102,9 @@ model Healer {
   updatedAt          DateTime                 @updatedAt
   bookings           Booking[]
   user               User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  programEnrollments ProgramEnrollment[]
+  programEnrollments ProgramEnrollment[] @relation("PurchasedProgramHealer")
+  assignedPrograms   ProgramEnrollment[] @relation("AssignedProgramHealer")
+  programSessions    ProgramSession[]
   reviews            Review[]
 }
 
@@ -189,7 +234,9 @@ model ProgramEnrollment {
   id        String                  @id @default(cuid())
   userId    String
   programId String
+  pricePaise Int?
   healerId  String?
+  assignedHealerId String?
   status    ProgramEnrollmentStatus @default(pending_payment)
   schedule  Json?
   progress  Json?
@@ -197,13 +244,41 @@ model ProgramEnrollment {
   endDate   DateTime?
   createdAt DateTime                @default(now())
   updatedAt DateTime                @updatedAt
-  healer    Healer?                 @relation(fields: [healerId], references: [id])
+  healer    Healer?                 @relation("PurchasedProgramHealer", fields: [healerId], references: [id])
+  assignedHealer Healer?            @relation("AssignedProgramHealer", fields: [assignedHealerId], references: [id], onDelete: SetNull)
   program   Program                 @relation(fields: [programId], references: [id], onDelete: Cascade)
   user      User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions  ProgramSession[]
 
   @@index([userId, status])
   @@index([programId])
   @@index([healerId])
+  @@index([assignedHealerId])
+}
+
+model ProgramSession {
+  id           String               @id @default(cuid())
+  enrollmentId String
+  healerId     String
+  sessionNumber Int
+  scheduledAt  DateTime
+  durationMin  Int
+  status       ProgramSessionStatus @default(SCHEDULED)
+  completedAt  DateTime?
+  meetingLink  String?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  enrollment   ProgramEnrollment    @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  healer       Healer               @relation(fields: [healerId], references: [id], onDelete: Cascade)
+
+  @@unique([enrollmentId, sessionNumber])
+  @@index([healerId, scheduledAt, status])
+}
+
+enum ProgramSessionStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
 }
 
 model MembershipPlan {
@@ -405,6 +480,7 @@ model CourseEnrollment {
   id        String   @id @default(cuid())
   userId    String
   courseId  String
+  pricePaise Int?
   status    String   @default("pending_payment")
   progress  Int      @default(0)
   createdAt DateTime @default(now())
@@ -424,11 +500,13 @@ model AudioTrack {
   audioUrl     String
   duration     Int
   isPremium    Boolean                  @default(false)
+  isPublished  Boolean                  @default(true)
   searchVector Unsupported("tsvector")?
   createdAt    DateTime                 @default(now())
 
   @@index([category])
   @@index([isPremium])
+  @@index([isPublished, createdAt(sort: Desc)])
 }
 
 model BlogPost {
@@ -464,14 +542,21 @@ model Product {
   imageUrl         String?
   gallery          Json?
   ratingAvg        Float?
-  stockStatus      String                   @default("IN_STOCK")
-  categoryId       String?
+  stockStatus        String                   @default("IN_STOCK")
+  stockCount         Int?
+  chakra             String?
+  spiritualBenefits  Json?
+  ritualUse          Json?
+  consecrationStory  String?                  @db.Text
+  isConsecrated      Boolean                  @default(false)
+  categoryId         String?
   serviceId        String?
   isActive         Boolean                  @default(true)
   searchVector     Unsupported("tsvector")?
   createdAt        DateTime                 @default(now())
   updatedAt        DateTime                 @updatedAt
   orderItems       OrderItem[]
+  bundleItems      BundleItem[]
   category         ProductCategory?         @relation(fields: [categoryId], references: [id])
   service          Service?                 @relation(fields: [serviceId], references: [id])
 
@@ -480,18 +565,26 @@ model Product {
 }
 
 model Order {
-  id              String      @id @default(cuid())
-  userId          String
-  status          String      @default("pending_payment")
-  totalPaise      Int
-  paymentId       String?
-  shippingAddress Json?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items           OrderItem[]
+  id                String      @id @default(cuid())
+  userId            String
+  status            String      @default("pending_payment")
+  totalPaise        Int
+  paymentId         String?     @unique
+  checkoutKey       String?
+  shippingAddress   Json?
+  trackingInfo      Json?
+  source            String?
+  chakra            String?
+  intention         String?
+  experimentVariant String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items             OrderItem[]
 
   @@index([userId, createdAt(sort: Desc)])
+  @@index([status, createdAt, id])
+  @@unique([userId, checkoutKey])
 }
 
 model OrderItem {
@@ -523,6 +616,28 @@ model Account {
   user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
+}
+
+model AbandonedCart {
+  id                   String    @id @default(cuid())
+  userId               String?
+  email                String?
+  phone                String?
+  items                Json
+  source               String?
+  chakra               String?
+  intention            String?
+  whatsappSentAt       DateTime?
+  emailSentAt          DateTime?
+  finalReminderSentAt  DateTime?
+  recoveredAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([email])
+  @@index([createdAt])
+  @@index([whatsappSentAt, recoveredAt])
 }
 
 model Session {
@@ -570,6 +685,18 @@ model ActivityLog {
   @@index([createdAt(sort: Desc)])
 }
 
+model OptimizationLog {
+  id        String   @id @default(cuid())
+  action    String   // create_experiment | complete_experiment | disable_experiment | suggestion
+  stage     String?  // funnel stage label
+  reason    String
+  metrics   Json?
+  createdAt DateTime @default(now())
+
+  @@index([action])
+  @@index([createdAt(sort: Desc)])
+}
+
 model Review {
   id        String   @id @default(cuid())
   bookingId String   @unique
@@ -588,6 +715,29 @@ model Review {
   @@index([serviceId, createdAt(sort: Desc)])
   @@index([healerId])
   @@index([userId])
+}
+
+model QuizLead {
+  id             String    @id @default(cuid())
+  email          String
+  name           String?
+  phone          String?
+  intention      String    @default("")
+  practice       String    @default("")
+  chakra         String    @default("")
+  productSlug    String?
+  productTitle   String?
+  score          Int       @default(0)
+  email1SentAt   DateTime?
+  email2SentAt   DateTime?
+  whatsappSentAt          DateTime?
+  whatsappFollowupSentAt   DateTime?
+  createdAt                DateTime  @default(now())
+
+  @@unique([email, intention, practice, chakra])
+  @@index([email])
+  @@index([createdAt(sort: Desc)])
+  @@index([email1SentAt, email2SentAt])
 }
 
 enum Role {
@@ -646,4 +796,95 @@ enum MembershipStatus {
   paused
   cancelled
   halted
+}
+
+// ── A/B Testing ──────────────────────────────────────────
+model Experiment {
+  id          String              @id @default(cuid())
+  key         String              @unique
+  scope       String?             // e.g. "product_page", "checkout" — only 1 active per scope
+  isActive    Boolean             @default(true)
+  status      String              @default("active") // draft | active | completed | disabled
+  winner      String?             // winning variant name (e.g. "A")
+  completedAt DateTime?
+  variants    ExperimentVariant[]
+  createdAt   DateTime            @default(now())
+
+  @@index([status])
+  @@index([scope, isActive])
+}
+
+model ExperimentVariant {
+  id           String     @id @default(cuid())
+  experimentId String
+  name         String
+  weight       Int        @default(50)
+  experiment   Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  @@unique([experimentId, name])
+  @@index([experimentId])
+}
+
+// ── Product Bundles ──────────────────────────────────────
+model ProductBundle {
+  id          String       @id @default(cuid())
+  slug        String       @unique
+  title       String
+  description String?
+  pricePaise  Int
+  chakra      String?
+  isActive    Boolean      @default(true)
+  items       BundleItem[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model BundleItem {
+  id        String        @id @default(cuid())
+  bundleId  String
+  productId String
+  bundle    ProductBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  product   Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([bundleId])
+  @@index([productId])
+}
+
+// ── Funnel Event Log ─────────────────────────────────────
+model FunnelEvent {
+  id                String   @id @default(cuid())
+  type              String
+  userId            String?
+  sessionId         String?
+  experimentVariant String?
+  source            String?
+  chakra            String?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+
+  @@index([type])
+  @@index([sessionId])
+  @@index([createdAt])
+  @@index([source])
+  @@index([experimentVariant])
+  @@index([sessionId, createdAt])  // Composite: session-scoped time queries
+  @@index([type, createdAt])       // Composite: type-scoped time queries
+}
+
+// ── Daily Funnel Stats (Pre-aggregation) ─────────────────
+model DailyFunnelStats {
+  id             String   @id @default(cuid())
+  date           DateTime @db.Date
+  quizStart      Int      @default(0)
+  quizComplete   Int      @default(0)
+  productView    Int      @default(0)
+  addToCart      Int      @default(0)
+  checkoutStart  Int      @default(0)
+  purchase       Int      @default(0)
+  totalSessions  Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([date])
+  @@index([date])
 }

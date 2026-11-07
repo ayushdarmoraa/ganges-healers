@@ -9,6 +9,8 @@ import { Calendar, User, CheckCircle, AlertCircle } from 'lucide-react'
 import { openRazorpayCheckout } from '@/lib/payments/openRazorpayCheckout'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
+import { clinicDate, clinicSlotInstant } from '@/lib/bookings/time'
+import { authPathWithCallback } from '@/lib/auth/callback-url'
 
 interface Healer {
   id: string
@@ -44,7 +46,7 @@ export default function BookingModal({
   programSlug,
   productSlug,
 }: BookingModalProps) {
-  const { data: session } = useSession()
+  const { data: session, status: sessionStatus } = useSession()
   const router = useRouter()
   
   const [step, setStep] = useState<'date' | 'time' | 'confirm' | 'processing' | 'success'>('date')
@@ -84,7 +86,7 @@ export default function BookingModal({
     
     try {
       const response = await fetch(
-        `/api/availability?healerId=${healer.id}&date=${selectedDate}`
+        `/api/availability?healerId=${encodeURIComponent(healer.id)}&date=${selectedDate}&serviceId=${encodeURIComponent(serviceId)}`
       )
       
       if (!response.ok) {
@@ -103,7 +105,7 @@ export default function BookingModal({
     } finally {
       setLoading(false)
     }
-  }, [healer.id, selectedDate])
+  }, [healer.id, selectedDate, serviceId])
 
   // Fetch availability when date is selected
   useEffect(() => {
@@ -125,8 +127,13 @@ export default function BookingModal({
 
   const handleBooking = async () => {
     const isTest = (process.env.NEXT_PUBLIC_TEST_MODE === '1' || process.env.TEST_MODE === '1')
-    if (!session && !isTest) {
-      router.push('/auth/signin')
+    if (!session?.user?.id && !isTest) {
+      const params = new URLSearchParams(window.location.search)
+      params.set('openBooking', '1')
+      params.set('healerId', healer.id)
+      if (programSlug) params.set('programSlug', programSlug)
+      if (productSlug) params.set('productSlug', productSlug)
+      router.push(authPathWithCallback('/auth/signin', `${window.location.pathname}?${params}`))
       return
     }
 
@@ -134,7 +141,7 @@ export default function BookingModal({
     setError('')
 
     try {
-      const scheduledAt = new Date(`${selectedDate}T${selectedTime}:00.000Z`)
+      const scheduledAt = clinicSlotInstant(selectedDate, selectedTime)
 
       // In TEST_MODE, if not logged in, create a test session cookie first
       const isTest = (process.env.NEXT_PUBLIC_TEST_MODE === '1' || process.env.TEST_MODE === '1')
@@ -279,11 +286,12 @@ export default function BookingModal({
   }
 
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString('en-US', {
+    return new Date(`${dateStr}T00:00:00Z`).toLocaleDateString('en-US', {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
-      day: 'numeric'
+      day: 'numeric',
+      timeZone: 'UTC'
     })
   }
 
@@ -327,7 +335,7 @@ export default function BookingModal({
             <div>
               <h3 className="font-semibold">{healer.user.name}</h3>
               <p className="text-sm text-gray-600">
-                {healer.experienceYears} years experience • ⭐ {healer.rating}
+                {healer.experienceYears} years experience{healer.rating > 0 ? ` • ⭐ ${healer.rating.toFixed(1)}` : ' • No reviews yet'}
               </p>
             </div>
           </div>
@@ -350,8 +358,8 @@ export default function BookingModal({
                   type="date"
                   value={selectedDate}
                   onChange={(e) => handleDateSelect(e.target.value)}
-                  min={new Date().toISOString().split('T')[0]}
-                  max={new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
+                  min={clinicDate(new Date())}
+                  max={clinicDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))}
                   className="flex-1 outline-none"
                   ref={dateInputRef}
                   id={dateId}
@@ -365,7 +373,7 @@ export default function BookingModal({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <label className="text-sm font-medium">
-                  Available times for {formatDate(selectedDate)}
+                  Available times for {formatDate(selectedDate)} (India time)
                 </label>
                 <Button 
                   variant="ghost" 
@@ -416,7 +424,7 @@ export default function BookingModal({
                   <span className="font-medium">{formatDate(selectedDate)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Time:</span>
+                  <span className="text-gray-600">Time (India):</span>
                   <span className="font-medium">{formatTime(selectedTime)}</span>
                 </div>
               </div>
@@ -430,7 +438,7 @@ export default function BookingModal({
                 >
                   Back
                 </Button>
-                <Button onClick={handleBooking} disabled={loading} className="flex-1">
+                <Button onClick={handleBooking} disabled={loading || sessionStatus === 'loading'} className="flex-1">
                   {loading ? 'Processing...' : 'Confirm & Pay'}
                 </Button>
               </div>

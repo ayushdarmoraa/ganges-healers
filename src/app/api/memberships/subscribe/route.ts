@@ -1,18 +1,15 @@
 import { NextResponse } from 'next/server'
-import Razorpay from 'razorpay'
 import { prisma } from '@/lib/prisma'
 import { canonicalizePlanSlug } from '@/lib/memberships/slug'
+import { auth } from '@/lib/auth'
+import { createMembershipCheckout, MembershipCheckoutError } from '@/lib/memberships/checkout'
+import { getRazorpayClient } from '@/lib/razorpay'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 // Use shared canonicalization helper
-
-const rz = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID!,
-  key_secret: process.env.RAZORPAY_KEY_SECRET!,
-})
 
 function classifyKey(id?: string | null) {
   if (!id) return 'unknown'
@@ -36,11 +33,10 @@ export async function POST(req: Request) {
     // Always resolve plan from DB using canonical slug
     const plan = await prisma.membershipPlan.findUnique({
       where: { slug: canonical },
-      select: { razorpayPlanId: true },
     })
 
     const planId = plan?.razorpayPlanId?.trim()
-    if (!planId) {
+    if (!planId || !plan?.isActive) {
       return NextResponse.json(
         { error: 'Unknown or unconfigured plan', planSlug: rawSlug, canonical, planId: planId ?? null },
         { status: 400 }
@@ -58,6 +54,12 @@ export async function POST(req: Request) {
         dry: true,
       })
     }
+
+    const session = !diag ? await auth() : null
+    if (!diag && !session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    const rz = await getRazorpayClient()
+    if (!rz) throw new Error('Razorpay client not configured')
 
     // Optional diagnostic: verify plan is accessible to current key before creating subscription
     if (diag) {
@@ -80,31 +82,20 @@ export async function POST(req: Request) {
       }
     }
 
-    let sub
     try {
-      sub = await rz.subscriptions.create({
-        plan_id: planId,
-        total_count: 1, // can adjust after verification
-        customer_notify: 1,
+      const checkout = await createMembershipCheckout(session!.user.id, plan, async args => {
+        const gatewayPlan = await rz.plans.fetch(planId)
+        if (gatewayPlan?.item?.amount !== plan.pricePaise || gatewayPlan?.item?.currency !== 'INR' || gatewayPlan?.period !== plan.interval.toLowerCase() || gatewayPlan?.interval !== 1) {
+          throw new MembershipCheckoutError('Payment plan configuration changed. Please contact support.', 409)
+        }
+        return rz.subscriptions.create(args)
       })
-    } catch (creationErr: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      console.error('[membership][subscribe][creation_failed]', {
-        planId,
-        keyMode: classifyKey(process.env.RAZORPAY_KEY_ID),
-        message: creationErr?.description || creationErr?.message,
-        status: creationErr?.status,
-        error: creationErr,
-      })
-      return NextResponse.json({
-        error: 'Subscription initiation failed',
-        errorDetail: creationErr?.description || creationErr?.message || 'unknown',
-        planId,
-        keyMode: classifyKey(process.env.RAZORPAY_KEY_ID),
-      }, { status: 500 })
+      return NextResponse.json(checkout)
+    } catch (error) {
+      if (error instanceof MembershipCheckoutError) return NextResponse.json({ error: error.message }, { status: error.status })
+      console.error('[membership][subscribe][creation_failed]', { planId, keyMode: classifyKey(process.env.RAZORPAY_KEY_ID) })
+      return NextResponse.json({ error: 'Subscription initiation failed', errorDetail: 'Please try again or contact support.', planId, keyMode: classifyKey(process.env.RAZORPAY_KEY_ID) }, { status: 500 })
     }
-
-    const shortUrl = (sub as any).short_url ?? (sub as any).shortUrl // eslint-disable-line @typescript-eslint/no-explicit-any
-    return NextResponse.json({ id: sub.id, shortUrl })
   } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
     console.error('[membership][subscribe][unhandled]', {
       message: err?.description || err?.message,

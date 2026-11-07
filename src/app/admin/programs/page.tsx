@@ -6,6 +6,12 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import Link from 'next/link'
+import { writeProgramCatalog, archiveProgramCatalog } from '@/lib/programs/queries'
+import { CatalogEditor } from '@/components/admin/catalog-editor'
+
+const invalidProgram = 'Check the title, description and numbers. Use a positive program price, 1–366 sessions, 1–7 sessions per week and 1–1440 minutes per session.'
+const duplicateSlug = 'That program slug is already in use.'
 
 async function guardAdmin() {
   const session = await auth()
@@ -14,59 +20,46 @@ async function guardAdmin() {
   return session
 }
 
-async function createProgram(formData: FormData) {
-  'use server'
-  await guardAdmin()
-  const title = String(formData.get('title'))
-  const slug = String(formData.get('slug'))
-  const description = String(formData.get('description'))
-  const pricePaise = parseInt(String(formData.get('pricePaise') || '0'), 10)
-  const totalSessions = parseInt(String(formData.get('totalSessions') || '1'), 10)
-  const sessionsPerWeek = parseInt(String(formData.get('sessionsPerWeek') || '1'), 10)
-  const durationMinutes = parseInt(String(formData.get('durationMinutes') || '60'), 10)
-
-  await prisma.program.create({
-    data: { title, slug, description, pricePaise, totalSessions, sessionsPerWeek, durationMinutes },
-  })
-  revalidatePath('/admin/programs')
+function programForm(formData: FormData) {
+  return Object.fromEntries(['title', 'slug', 'description', 'pricePaise', 'totalSessions', 'sessionsPerWeek', 'durationMinutes'].map(key => [key, formData.get(key)]))
 }
-
-async function updateProgram(formData: FormData) {
-  'use server'
-  await guardAdmin()
-  const id = String(formData.get('id'))
-  const title = String(formData.get('title'))
-  const description = String(formData.get('description'))
-  const pricePaise = parseInt(String(formData.get('pricePaise') || '0'), 10)
-  const totalSessions = parseInt(String(formData.get('totalSessions') || '1'), 10)
-  const sessionsPerWeek = parseInt(String(formData.get('sessionsPerWeek') || '1'), 10)
-  const durationMinutes = parseInt(String(formData.get('durationMinutes') || '60'), 10)
-
-  await prisma.program.update({
-    where: { id },
-    data: { title, description, pricePaise, totalSessions, sessionsPerWeek, durationMinutes },
-  })
-  revalidatePath('/admin/programs')
+async function saveCatalog(formData: FormData, update: boolean) {
+  const session = await guardAdmin()
+  if (!session.user?.id) throw new Error('Unauthorized')
+  const id = formData.get('id')
+  if (update && (typeof id !== 'string' || !id)) return { error: 'Select a program to edit.' }
+  try {
+    await writeProgramCatalog(session.user.id, programForm(formData), update && typeof id === 'string' ? id : undefined)
+  } catch (error) {
+    if (error && typeof error === 'object' && 'status' in error && error.status === 400) return { error: invalidProgram }
+    if (error && typeof error === 'object' && 'code' in error) {
+      if (error.code === 'P2002') return { error: duplicateSlug }
+      if (error.code === 'P2025') return { error: 'This program is no longer available. Reload the page.' }
+    }
+    throw error
+  }
+  revalidatePath('/admin/programs'); revalidatePath('/programs')
+  return {}
 }
-
+async function createProgram(formData: FormData) { 'use server'; return saveCatalog(formData, false) }
+async function updateProgram(formData: FormData) { 'use server'; return saveCatalog(formData, true) }
 async function toggleProgram(formData: FormData) {
   'use server'
-  await guardAdmin()
-  const id = String(formData.get('id'))
-  const current = String(formData.get('isActive')) === 'true'
-  await prisma.program.update({ where: { id }, data: { isActive: !current } })
-  revalidatePath('/admin/programs')
+  const session = await guardAdmin()
+  if (!session.user?.id) throw new Error('Unauthorized')
+  await archiveProgramCatalog(session.user.id, String(formData.get('id')), String(formData.get('isActive')) === 'true')
+  revalidatePath('/admin/programs'); revalidatePath('/programs')
 }
-
 async function deleteProgram(formData: FormData) {
   'use server'
-  await guardAdmin()
-  const id = String(formData.get('id'))
-  await prisma.program.delete({ where: { id } })
-  revalidatePath('/admin/programs')
+  const session = await guardAdmin()
+  if (!session.user?.id) throw new Error('Unauthorized')
+  await archiveProgramCatalog(session.user.id, String(formData.get('id')))
+  revalidatePath('/admin/programs'); revalidatePath('/programs')
 }
 
-export default async function AdminProgramsPage() {
+export default async function AdminProgramsPage({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> } = {}) {
+  const query = searchParams ? await searchParams : {}
   await guardAdmin()
 
   const programs = await prisma.program.findMany({
@@ -77,11 +70,14 @@ export default async function AdminProgramsPage() {
   return (
     <div className="container mx-auto px-4 py-8 space-y-8">
       <h1 className="text-2xl font-semibold">Admin · Programs</h1>
+      <Button asChild variant="outline"><Link href="/admin/program-enrollments">Manage enrollments and sessions</Link></Button>
+      {query.error && <p role="alert" className="text-destructive">{query.error === 'duplicate-slug' ? duplicateSlug : invalidProgram}</p>}
+      <p className="text-sm text-muted-foreground">Deleting a program with enrollments archives its catalog listing and preserves customer access.</p>
 
       <Card>
         <CardContent className="p-4">
           <h2 className="font-medium mb-3">Create Program</h2>
-          <form action={createProgram} className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <CatalogEditor action={createProgram} item="Program" create>
             <div className="grid gap-1">
               <Label htmlFor="new-title">Title</Label>
               <Input id="new-title" name="title" required />
@@ -92,7 +88,7 @@ export default async function AdminProgramsPage() {
             </div>
             <div className="grid gap-1">
               <Label htmlFor="new-price">Price (paise)</Label>
-              <Input id="new-price" name="pricePaise" type="number" min="0" required />
+              <Input id="new-price" name="pricePaise" type="number" min="1" required />
             </div>
             <div className="grid gap-1">
               <Label htmlFor="new-total">Total Sessions</Label>
@@ -110,17 +106,14 @@ export default async function AdminProgramsPage() {
               <Label htmlFor="new-desc">Description</Label>
               <textarea id="new-desc" name="description" required className="min-h-[60px] rounded-md border px-3 py-2 bg-background text-sm" />
             </div>
-            <div>
-              <Button type="submit" size="sm">Create</Button>
-            </div>
-          </form>
+          </CatalogEditor>
         </CardContent>
       </Card>
 
       <Card>
         <CardContent className="p-0 divide-y">
           {programs.map((p) => (
-            <div key={p.id} className="p-4 space-y-3">
+            <article key={p.id} aria-label={`Program ${p.title}`} className="p-4 space-y-3">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="font-medium">
@@ -141,44 +134,41 @@ export default async function AdminProgramsPage() {
                   </form>
                   <form action={deleteProgram}>
                     <input type="hidden" name="id" value={p.id} />
-                    <Button type="submit" variant="destructive" size="sm">Delete</Button>
+                    <Button type="submit" variant="destructive" size="sm">{p._count.enrollments > 0 ? 'Archive' : 'Delete'}</Button>
                   </form>
                 </div>
               </div>
               <details className="text-sm">
                 <summary className="cursor-pointer text-muted-foreground hover:text-primary">Edit</summary>
-                <form action={updateProgram} className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2">
+                <CatalogEditor action={updateProgram} item="Program">
                   <input type="hidden" name="id" value={p.id} />
                   <div className="grid gap-1">
-                    <Label>Title</Label>
-                    <Input name="title" defaultValue={p.title} required />
+                    <Label htmlFor={`${p.id}-title`}>Title</Label>
+                    <Input id={`${p.id}-title`} name="title" defaultValue={p.title} required />
                   </div>
                   <div className="grid gap-1">
-                    <Label>Price (paise)</Label>
-                    <Input name="pricePaise" type="number" defaultValue={p.pricePaise} required />
+                    <Label htmlFor={`${p.id}-price`}>Price (paise)</Label>
+                    <Input id={`${p.id}-price`} name="pricePaise" type="number" min="1" defaultValue={p.pricePaise} required />
                   </div>
                   <div className="grid gap-1">
-                    <Label>Total Sessions</Label>
-                    <Input name="totalSessions" type="number" defaultValue={p.totalSessions} required />
+                    <Label htmlFor={`${p.id}-total`}>Total Sessions</Label>
+                    <Input id={`${p.id}-total`} name="totalSessions" type="number" min="1" defaultValue={p.totalSessions} required />
                   </div>
                   <div className="grid gap-1">
-                    <Label>Sessions/Week</Label>
-                    <Input name="sessionsPerWeek" type="number" defaultValue={p.sessionsPerWeek} required />
+                    <Label htmlFor={`${p.id}-perweek`}>Sessions/Week</Label>
+                    <Input id={`${p.id}-perweek`} name="sessionsPerWeek" type="number" min="1" defaultValue={p.sessionsPerWeek} required />
                   </div>
                   <div className="grid gap-1">
-                    <Label>Duration (min)</Label>
-                    <Input name="durationMinutes" type="number" defaultValue={p.durationMinutes} required />
+                    <Label htmlFor={`${p.id}-duration`}>Duration (min)</Label>
+                    <Input id={`${p.id}-duration`} name="durationMinutes" type="number" min="1" defaultValue={p.durationMinutes} required />
                   </div>
                   <div className="md:col-span-3 grid gap-1">
-                    <Label>Description</Label>
-                    <textarea name="description" defaultValue={p.description} required className="min-h-[60px] rounded-md border px-3 py-2 bg-background text-sm" />
+                    <Label htmlFor={`${p.id}-description`}>Description</Label>
+                    <textarea id={`${p.id}-description`} name="description" defaultValue={p.description} required className="min-h-[60px] rounded-md border px-3 py-2 bg-background text-sm" />
                   </div>
-                  <div>
-                    <Button type="submit" size="sm">Save</Button>
-                  </div>
-                </form>
+                </CatalogEditor>
               </details>
-            </div>
+            </article>
           ))}
           {programs.length === 0 && (
             <div className="p-4 text-center text-muted-foreground">No programs yet.</div>
