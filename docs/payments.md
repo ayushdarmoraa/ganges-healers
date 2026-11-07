@@ -45,6 +45,46 @@ This does not add gateway capture reconciliation or automatic refunds. A signed
 callback and local rollback cannot reverse money already captured by the provider;
 failed fulfillment still requires a retry or operational reconciliation.
 
+## Store checkout recovery
+
+`POST /api/store/checkout` accepts an optional UUID `checkoutKey` alongside its
+existing cart, shipping address and attribution fields. The checkout screen retains
+one random key per account and cart/address fingerprint in tab-scoped session
+storage. Only a SHA-256 fingerprint and key are stored; addresses and signed payment
+proofs are not persisted there. A changed cart or address starts a new attempt.
+Retries, including a lost HTTP response or reopening the page in the same tab,
+reuse the saved order and its original total. The account lock and a unique
+`(userId, checkoutKey)` index prevent concurrent requests from creating duplicate
+purchases. Closed accounts cannot create or resume checkout with a stale session.
+The key is an idempotency identity, not an authorization credential.
+
+The success response keeps `{ orderId, amountPaise, razorpayOrderId, key }` and adds
+`resumed`. Errors occurring after the owned order is saved also include `orderId`,
+so the customer can inspect that purchase. Reusing a key with changed items or an
+address returns 409. A settled or cancelled order returns 409 with its saved
+reference. Legacy clients may omit the key and retain their previous behavior.
+New carts reject whitespace-only addresses, quantities above 99 per product,
+insufficient counted stock and totals outside the database integer range.
+Retries do not reprice an existing order; actual stock availability is still
+checked atomically during fulfillment.
+
+The store endpoint uses the shared purchase quote service, which reuses a matching
+pending payment. Gateway calls stay outside database transactions; concurrent
+initial calls or an unknown gateway outcome can leave an unused provider order,
+but only the winning locally saved payment is returned for checkout. This does
+not promise exactly-once provider order creation or reconcile provider captures.
+After a signed payment callback, a failed confirmation can be retried using
+**Confirm payment** on the current page without reopening the payment dialog.
+The cart is cleared only after a response explicitly confirms `verified: true`.
+
+Apply `20261107010000_store_checkout_recovery` before deploying this application
+version. It adds only a nullable `Order.checkoutKey` and the unique index; existing
+orders keep null keys and require no backfill. A rollback can leave this additive
+schema in place. The integration suite exercises the exact SQL against legacy
+rows and covers concurrent requests, gateway failures, lost responses, immutable
+quotes and owner isolation. Production application of this migration remains a
+release step.
+
 ## Enrollment price migration
 
 Apply `prisma/migrations/20261029000000_enrollment_price_snapshots/migration.sql`

@@ -570,6 +570,7 @@ model Order {
   status            String      @default("pending_payment")
   totalPaise        Int
   paymentId         String?     @unique
+  checkoutKey       String?
   shippingAddress   Json?
   trackingInfo      Json?
   source            String?
@@ -583,6 +584,7 @@ model Order {
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([status, createdAt, id])
+  @@unique([userId, checkoutKey])
 }
 
 model OrderItem {

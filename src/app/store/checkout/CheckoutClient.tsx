@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useMemo } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useCart, type CartItem } from "@/components/store/CartProvider"
-import { openRazorpayCheckout } from "@/lib/payments/openRazorpayCheckout"
+import { openRazorpayCheckout, type RazorpayResult } from "@/lib/payments/openRazorpayCheckout"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -15,7 +15,6 @@ import Link from "next/link"
 import Image from "next/image"
 import { trackInitiateCheckout, trackPurchase } from "@/lib/analytics/meta-pixel"
 import { readVariantClient } from "@/lib/experiments/client"
-import { trackClientEvent } from "@/lib/analytics/track-client-event"
 
 interface DynamicBundleData {
   bundle: {
@@ -41,7 +40,7 @@ function getQuizContext(): { chakra?: string; intention?: string } {
 }
 
 export default function StoreCheckoutPage() {
-  const { data: session } = useSession()
+  const { data: session, status: sessionStatus } = useSession()
   const router = useRouter()
   const { items, removeItem, updateQuantity, totalPaise, clearCart } = useCart()
   const searchParams = useSearchParams()
@@ -50,7 +49,13 @@ export default function StoreCheckoutPage() {
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState("")
-  const verifyingRef = useRef(false)
+  const checkoutBusy = useRef(false)
+  const currentUser = useRef(session?.user?.id)
+  currentUser.current = session?.user?.id
+  const attemptRef = useRef<{ fingerprint: string; key: string } | null>(null)
+  const verificationRef = useRef<{ fingerprint: string; result: RazorpayResult; amountPaise: number } | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [savedOrder, setSavedOrder] = useState<{ id: string; amountPaise?: number } | null>(null)
   const [upsellBundle, setUpsellBundle] = useState<DynamicBundleData | null>(null)
 
   const [address, setAddress] = useState({
@@ -62,6 +67,14 @@ export default function StoreCheckoutPage() {
     postalCode: "",
     phone: "",
   })
+
+  useEffect(() => {
+    attemptRef.current = null
+    verificationRef.current = null
+    setConfirming(false)
+    setSavedOrder(null)
+    setAddress({ name: session?.user?.name || "", line1: "", line2: "", city: "", state: "", postalCode: "", phone: "" })
+  }, [session?.user?.id, session?.user?.name])
 
   // Track cart activity for abandoned cart recovery
   const trackedRef = useRef(false)
@@ -98,8 +111,9 @@ export default function StoreCheckoutPage() {
     address.postalCode.trim()
 
   const handleCheckout = async () => {
+    if (checkoutBusy.current || sessionStatus === "loading") return
     if (!session?.user?.id) {
-      router.push("/auth/signin")
+      router.push(`/auth/signin?${new URLSearchParams({ callbackUrl: "/store/checkout" + (source ? `?${new URLSearchParams({ source })}` : "") })}`)
       return
     }
 
@@ -108,6 +122,11 @@ export default function StoreCheckoutPage() {
       return
     }
 
+    checkoutBusy.current = true
+    const userId = session.user.id
+    const assertCurrentOwner = () => {
+      if (currentUser.current !== userId) throw new Error("Your account changed. Sign in again before continuing checkout.")
+    }
     setLoading(true)
     setError("")
 
@@ -119,47 +138,59 @@ export default function StoreCheckoutPage() {
     })
 
     try {
-      // Step 1: Create order + Razorpay order
-      const checkoutRes = await fetch("/api/store/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
-          source,
-          chakra: quizContext.chakra,
-          intention: quizContext.intention,
-          experimentVariant: readVariantClient('product_headline') ?? undefined,
-          shippingAddress: {
-            name: address.name.trim(),
-            line1: address.line1.trim(),
-            line2: address.line2.trim() || undefined,
-            city: address.city.trim(),
-            state: address.state.trim(),
-            postalCode: address.postalCode.trim(),
-            phone: address.phone.trim() || undefined,
-          },
-        }),
-      })
-
-      if (!checkoutRes.ok) {
-        const errData = await checkoutRes.json().catch(() => ({}))
-        throw new Error(errData.error || "Checkout failed")
+      const shippingAddress = {
+        name: address.name.trim(), line1: address.line1.trim(), line2: address.line2.trim() || undefined,
+        city: address.city.trim(), state: address.state.trim(), postalCode: address.postalCode.trim(), phone: address.phone.trim() || undefined,
+      }
+      const cart = items.map(({ productId, quantity }) => ({ productId, quantity })).sort((a, b) => a.productId.localeCompare(b.productId))
+      // Store only a digest and random retry key, never the address or payment proof.
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({ userId, cart, shippingAddress })))
+      const fingerprint = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
+      assertCurrentOwner()
+      const storageKey = `ganges-store-checkout:${userId}`
+      if (attemptRef.current?.fingerprint !== fingerprint) {
+        let saved: { fingerprint: string; key: string } | null = null
+        try {
+          const value = JSON.parse(sessionStorage.getItem(storageKey) || 'null')
+          if (value?.fingerprint === fingerprint && typeof value.key === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.key)) saved = value
+        } catch { /* Browser storage may be unavailable; this page still retains its key. */ }
+        attemptRef.current = saved ?? { fingerprint, key: crypto.randomUUID() }
+        try { sessionStorage.setItem(storageKey, JSON.stringify(attemptRef.current)) } catch { /* Retain the in-memory key. */ }
       }
 
-      const { razorpayOrderId, amountPaise, key } = await checkoutRes.json()
-
-      // Step 2: Open Razorpay checkout
-      const result = await openRazorpayCheckout({
-        orderId: razorpayOrderId,
-        amountPaise,
-        key,
-        prefill: { email: session.user.email || "", name: session.user.name || "" },
-        description: `Store order — ${items.length} item(s)`,
-      })
-
-      // Step 3: Verify payment
-      if (verifyingRef.current) return
-      verifyingRef.current = true
+      let proof = verificationRef.current?.fingerprint === fingerprint ? verificationRef.current : null
+      if (!proof) {
+        setConfirming(false)
+        const checkoutRes = await fetch("/api/store/checkout", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            checkoutKey: attemptRef.current.key, items: cart, shippingAddress,
+            source, chakra: quizContext.chakra, intention: quizContext.intention,
+            experimentVariant: readVariantClient('product_headline') ?? undefined,
+          }),
+        })
+        const checkout = await checkoutRes.json().catch(() => ({}))
+        assertCurrentOwner()
+        if (typeof checkout.orderId === 'string' && checkout.orderId) setSavedOrder({ id: checkout.orderId })
+        if (!checkoutRes.ok) throw new Error(checkout.error || "Checkout failed")
+        const { orderId, razorpayOrderId, amountPaise, key } = checkout
+        if (typeof orderId !== 'string' || !orderId || typeof razorpayOrderId !== 'string' || !razorpayOrderId ||
+          !Number.isSafeInteger(amountPaise) || amountPaise <= 0 || typeof key !== 'string' || !key) {
+          throw new Error("Checkout could not be prepared. Please try again.")
+        }
+        setSavedOrder({ id: orderId, amountPaise })
+        const result = await openRazorpayCheckout({
+          orderId: razorpayOrderId, amountPaise, key,
+          prefill: { email: session.user.email || "", name: session.user.name || "" },
+          description: `Store order — ${items.length} item(s)`,
+        })
+        assertCurrentOwner()
+        if (result.razorpay_order_id !== razorpayOrderId) throw new Error("Payment does not match the saved order.")
+        proof = { fingerprint, result, amountPaise }
+        verificationRef.current = proof
+        setConfirming(true)
+      }
+      const { result, amountPaise: paidAmount } = proof
 
       const verifyRes = await fetch("/api/payments/verify", {
         method: "POST",
@@ -171,16 +202,20 @@ export default function StoreCheckoutPage() {
         }),
       })
 
-      if (!verifyRes.ok) {
-        const vErr = await verifyRes.json().catch(() => ({}))
-        throw new Error(vErr.error || "Payment verification failed")
+      const verification = await verifyRes.json().catch(() => ({}))
+      assertCurrentOwner()
+      if (!verifyRes.ok || verification.verified !== true) {
+        throw new Error(verification.error || "Payment confirmation is pending. Use Confirm payment to check again.")
       }
+      verificationRef.current = null
+      try { sessionStorage.removeItem(storageKey) } catch { /* Checkout is already confirmed. */ }
+      attemptRef.current = null
 
       trackPurchase({
         content_ids: items.map((i) => i.productId),
         content_type: 'product',
         num_items: items.reduce((sum, i) => sum + i.quantity, 0),
-        value: totalPaise / 100,
+        value: paidAmount / 100,
         currency: 'INR',
       })
 
@@ -192,7 +227,9 @@ export default function StoreCheckoutPage() {
       toast.success("Order placed successfully! Redirecting…")
       setTimeout(() => router.push("/dashboard/orders"), 1500)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Something went wrong"
+      const msg = verificationRef.current && err instanceof TypeError
+        ? "We could not confirm your payment. Select Confirm payment to check again."
+        : err instanceof Error ? err.message : "Something went wrong"
       if (msg === "Payment dismissed") {
         setError("Payment was cancelled. You can try again.")
       } else {
@@ -201,7 +238,7 @@ export default function StoreCheckoutPage() {
       toast.error(msg === "Payment dismissed" ? "Payment cancelled" : msg)
     } finally {
       setLoading(false)
-      verifyingRef.current = false
+      checkoutBusy.current = false
     }
   }
 
@@ -237,6 +274,7 @@ export default function StoreCheckoutPage() {
     <div className="container mx-auto p-6 max-w-3xl">
       <h1 className="text-2xl font-semibold">Checkout</h1>
 
+      <fieldset disabled={loading || confirming} className="min-w-0">
       {/* Cart items */}
       <Card className="mt-6 p-4">
         <h2 className="font-medium mb-3">Order Summary ({items.length} item{items.length > 1 ? "s" : ""})</h2>
@@ -325,7 +363,14 @@ export default function StoreCheckoutPage() {
         </div>
       </Card>
 
-      {error && <div className="mt-4 text-sm text-red-600">{error}</div>}
+      </fieldset>
+      {savedOrder && (
+        <p className="mt-4 text-sm">
+          <Link className="underline" href={`/dashboard/orders/${encodeURIComponent(savedOrder.id)}`}>View saved order</Link>
+          {savedOrder.amountPaise !== undefined && <> · Saved total ₹{(savedOrder.amountPaise / 100).toFixed(2)}</>}
+        </p>
+      )}
+      {error && <div role="alert" className="mt-4 text-sm text-red-600">{error}</div>}
 
       {/* Last-chance bundle upsell */}
       {upsellBundle?.bundle && (
@@ -358,11 +403,11 @@ export default function StoreCheckoutPage() {
 
       <Button
         onClick={handleCheckout}
-        disabled={loading || !isAddressValid}
+        disabled={loading || sessionStatus === "loading" || !isAddressValid}
         className="w-full mt-6"
         size="lg"
       >
-        {loading ? "Processing…" : `Pay ₹${(totalPaise / 100).toFixed(2)}`}
+        {loading ? "Processing…" : confirming ? "Confirm payment" : `Pay ₹${(totalPaise / 100).toFixed(2)}`}
       </Button>
     </div>
   )

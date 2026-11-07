@@ -87,3 +87,21 @@ and received isPublished=true. The schema comparison shows only the new boolean
 and its publication/date index. Production is unchanged. The follow-up PR records
 CI, preservation checks and application to the release Preview; this rehearsal
 record alone does not claim that deployment is complete.
+
+## Store checkout recovery rehearsal (November 7, 2026)
+
+Migration `20261107010000_store_checkout_recovery` adds nullable `Order.checkoutKey`
+and a unique `(userId, checkoutKey)` index. Its SHA-256 checksum is
+`b55f3ac554242e71a02b6956cd419f1477411d51879d84a3c824242d1b0de2d5`.
+A populated disposable PostgreSQL rehearsal retained all original fields of three
+orders, three order items and three payments byte-for-byte as JSON snapshots;
+the existing orders received null keys and the unique index was verified.
+
+The same tracked SQL was applied transactionally to release Preview branch
+`br-winter-sun-ado4pted` in project `holy-block-51695227`, database
+`ganges_live_rehearsal_20261104`, after verifying the 28-migration baseline and
+the preceding fulfillment migration checksum. Table locks, timeouts and original
+order/item/payment fingerprints guarded the change. Independent verification
+confirmed 29 applied migrations, the exact checksum, nullable column and unique
+index. This is additive Preview preparation; production application remains part
+of the fresh cutover procedure above.
