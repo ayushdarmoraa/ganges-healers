@@ -10,7 +10,7 @@ interface OrderInput {
   bookingId?: string
   metadata?: unknown
   amountPaise?: number
-  receiptPrefix?: 'pay' | 'prog'
+  receiptPrefix?: 'pay' | 'prog' | 'store'
 }
 
 async function purchaseQuote(client: Prisma.TransactionClient, input: OrderInput) {

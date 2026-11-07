@@ -75,3 +75,85 @@ test('customers filter and page orders, inspect totals, and cannot view another 
     }
   }
 })
+
+test('checkout recovers lost responses and confirms the saved payment without duplicate orders or stock changes', async ({ page }, testInfo) => {
+  test.setTimeout(120_000)
+  const settings = loadTestDatabaseEnvironment()
+  await verifyTestDatabaseConnection(settings)
+  const db = new PrismaClient({ datasources: { db: { url: settings.environment.DATABASE_URL } } })
+  const token = crypto.randomUUID()
+  const checkoutKey = crypto.randomUUID()
+  const gatewayOrderId = `order_${token}`
+  const gatewayPaymentId = `pay_${token}`
+  const signature = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!).update(`${gatewayOrderId}|${gatewayPaymentId}`).digest('hex')
+  const shippingAddress = { name: 'Retry Customer', line1: 'Retry test lane', city: 'Delhi', state: 'Delhi', postalCode: '110001' }
+  let userId = '', productId = ''
+  try {
+    const login = await page.goto(`/api/test/login?role=USER&email=checkout-retry-${token}@example.test`)
+    expect(login?.ok()).toBeTruthy()
+    userId = (await login!.json()).userId
+    const product = await db.product.create({ data: { slug: `retry-mat-${token}`, title: 'Retry practice mat', pricePaise: 10000, stockCount: 4 } })
+    productId = product.id
+    const saved = await db.order.create({ data: { userId, checkoutKey, totalPaise: 10000, shippingAddress, items: { create: { productId, quantity: 1, pricePaise: 10000 } } } })
+    await db.payment.create({ data: { userId, type: 'STORE', gateway: 'razorpay', gatewayOrderId, amountPaise: 10000, status: 'pending', statusEnum: 'PENDING', metadata: { orderId: saved.id } } })
+    await page.addInitScript(({ product, payment }) => {
+      localStorage.setItem('ganges-cart', JSON.stringify([{ productId: product.id, slug: product.slug, title: product.title, pricePaise: product.pricePaise, quantity: 1, imageUrl: null }]))
+      // The external payment dialog is stubbed; checkout, signed verification and inventory stay real.
+      window.Razorpay = class {
+        constructor(private options: { handler: (result: typeof payment) => void }) {}
+        open() { this.options.handler(payment) }
+      }
+    }, { product: { id: product.id, slug: product.slug, title: product.title, pricePaise: product.pricePaise }, payment: { razorpay_order_id: gatewayOrderId, razorpay_payment_id: gatewayPaymentId, razorpay_signature: signature } })
+    const keys: string[] = []
+    let loseCheckout = true
+    let loseConfirmation = true
+    await page.route('**/api/store/checkout', async route => {
+      keys.push(route.request().postDataJSON().checkoutKey)
+      if (loseCheckout) {
+        loseCheckout = false
+        expect((await route.fetch()).status()).toBe(200)
+        await route.abort('failed')
+      } else await route.continue()
+    })
+    await page.route('**/api/payments/verify', async route => {
+      if (loseConfirmation) {
+        loseConfirmation = false
+        const committed = await route.fetch()
+        expect(committed.status()).toBe(200)
+        expect((await committed.json()).verified).toBe(true)
+        await route.abort('failed')
+      } else await route.continue()
+    })
+    await page.goto('/store/checkout')
+    await expect(page.getByRole('heading', { name: 'Checkout', exact: true })).toBeVisible()
+    await page.evaluate(async ({ userId, productId, shippingAddress, checkoutKey }) => {
+      const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({ userId, cart: [{ productId, quantity: 1 }], shippingAddress })))
+      const fingerprint = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
+      sessionStorage.setItem(`ganges-store-checkout:${userId}`, JSON.stringify({ fingerprint, key: checkoutKey }))
+    }, { userId, productId, shippingAddress, checkoutKey })
+    const fillAddress = async () => {
+      await expect(page.getByRole('button', { name: 'Open user menu', exact: true })).toBeEnabled()
+      for (const [label, value] of [['Full Name *', shippingAddress.name], ['Address Line 1 *', shippingAddress.line1], ['City *', shippingAddress.city], ['State *', shippingAddress.state], ['Postal Code *', shippingAddress.postalCode]]) await page.getByLabel(label, { exact: true }).fill(value)
+    }
+    await fillAddress()
+    await page.getByRole('button', { name: 'Pay ₹100.00', exact: true }).click()
+    await expect(page.getByRole('alert').filter({ hasText: /fetch|network|connection/i }).first()).toBeVisible()
+    await page.reload()
+    await fillAddress()
+    await page.getByRole('button', { name: 'Pay ₹100.00', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Confirm payment', exact: true })).toBeEnabled()
+    await expect(page.getByRole('link', { name: 'View saved order' })).toHaveAttribute('href', `/dashboard/orders/${saved.id}`)
+    await page.screenshot({ path: testInfo.outputPath('checkout-confirmation-recovery.png'), fullPage: true })
+    await page.getByRole('button', { name: 'Confirm payment', exact: true }).click()
+    await expect(page.getByText('Order placed!', { exact: true })).toBeVisible()
+    expect(keys).toEqual([checkoutKey, checkoutKey])
+    expect(await db.order.count({ where: { userId } })).toBe(1)
+    expect(await db.payment.count({ where: { userId } })).toBe(1)
+    expect((await db.order.findUniqueOrThrow({ where: { id: saved.id } })).status).toBe('paid')
+    expect((await db.product.findUniqueOrThrow({ where: { id: productId } })).stockCount).toBe(3)
+  } finally {
+    if (userId) await db.user.deleteMany({ where: { id: userId } })
+    if (productId) await db.product.deleteMany({ where: { id: productId } })
+    await db.$disconnect()
+  }
+})
