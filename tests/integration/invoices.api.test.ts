@@ -31,11 +31,13 @@ describe('Invoices Generation Flow', () => {
   let paymentId: string
   let orderId: string
   let storeOrderId: string
+  let productId: string
 
   beforeAll(async () => {
     user = await prisma.user.create({ data: { email: `inv_${Date.now()}@ex.com`, password: 'x', role: 'USER', name: 'Invoice User' } })
     process.env.TEST_INV_USER_ID = user.id
-    const order = await prisma.order.create({ data: { userId: user.id, totalPaise: 12345 } })
+    productId = (await prisma.product.create({ data: { slug: `invoice-${crypto.randomUUID()}`, title: 'Invoice product fixture', pricePaise: 12345, stockCount: 3 } })).id
+    const order = await prisma.order.create({ data: { userId: user.id, totalPaise: 12345, items: { create: { productId, quantity: 1, pricePaise: 12345 } } } })
     storeOrderId = order.id
   })
 
@@ -43,6 +45,7 @@ describe('Invoices Generation Flow', () => {
     if (paymentId) await prisma.invoice.deleteMany({ where: { paymentId } }).catch(()=>{})
     if (paymentId) await prisma.payment.deleteMany({ where: { id: paymentId } }).catch(()=>{})
     await prisma.user.deleteMany({ where: { id: user.id } }).catch(()=>{})
+    if (productId) await prisma.product.delete({ where: { id: productId } })
     await prisma.$disconnect()
   })
 
