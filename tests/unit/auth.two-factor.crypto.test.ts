@@ -22,7 +22,15 @@ test('encrypts randomized account-bound envelopes and rejects swapping, tamperin
   expect(sealAuthenticatorSecret(secret, 'owner')).not.toBe(sealed)
   expect(openAuthenticatorSecret(sealed, 'owner')).toBe(secret)
   expect(() => openAuthenticatorSecret(sealed, 'other-account')).toThrow()
-  expect(() => openAuthenticatorSecret(`${sealed.slice(0, 20)}X${sealed.slice(21)}`, 'owner')).toThrow()
+  for (const part of [1, 2, 3]) {
+    const envelope = sealed.split('.')
+    const bytes = Buffer.from(envelope[part], 'base64url')
+    bytes[0] ^= 1
+    envelope[part] = bytes.toString('base64url')
+    const changed = envelope.join('.')
+    expect(changed).not.toBe(sealed)
+    expect(() => openAuthenticatorSecret(changed, 'owner')).toThrow()
+  }
   process.env.AUTH_SECRET = 'another-configured-auth-key'
   expect(() => openAuthenticatorSecret(sealed, 'owner')).toThrow()
 })

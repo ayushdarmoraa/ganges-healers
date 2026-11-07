@@ -177,3 +177,72 @@ test('the exact migration preserves legacy orders and allows repeated null check
     ])
   })
 })
+
+test.each([
+  { isActive: false },
+  { stockStatus: 'OUT' },
+  { stockCount: 0 },
+  { stockCount: 1 },
+])('both checkout paths block an unavailable saved purchase and recover the original quote (%j)', async unavailable => {
+  const first = await (await checkout(request(purchase()))).json()
+  const before = await prisma.order.findUniqueOrThrow({ where: { id: first.orderId }, include: { items: true } })
+  const payments = await prisma.payment.findMany({ where: { userId: buyerId } })
+  await prisma.product.update({ where: { id: productId }, data: unavailable })
+  const retry = await checkout(request(purchase()))
+  expect(retry.status).toBe(409)
+  expect(await retry.json()).toMatchObject({ orderId: first.orderId, error: expect.stringContaining('currently unavailable') })
+  const generic = await createPayment(request({ type: 'STORE', metadata: { orderId: first.orderId } }))
+  expect(generic.status).toBe(409)
+  expect(await prisma.order.findUniqueOrThrow({ where: { id: first.orderId }, include: { items: true } })).toEqual(before)
+  expect(await prisma.payment.findMany({ where: { userId: buyerId } })).toEqual(payments)
+  expect(gateway).toHaveBeenCalledTimes(1)
+  await prisma.product.update({ where: { id: productId }, data: { isActive: true, stockStatus: 'IN_STOCK', stockCount: 10, pricePaise: 40000 } })
+  const restored = await createPayment(request({ type: 'STORE', metadata: { orderId: first.orderId } }))
+  expect(restored.status).toBe(200)
+  expect(await restored.json()).toMatchObject({ orderId: first.razorpayOrderId, amountPaise: 24000 })
+  expect(gateway).toHaveBeenCalledTimes(1)
+  expect((await prisma.product.findUniqueOrThrow({ where: { id: productId } })).stockCount).toBe(10)
+})
+
+test('empty historical orders need review before a new payment can be offered', async () => {
+  const order = await prisma.order.create({ data: { userId: buyerId, totalPaise: 1000 } })
+  const response = await createPayment(request({ type: 'STORE', metadata: { orderId: order.id } }))
+  expect(response.status).toBe(409)
+  expect(await response.json()).toEqual({ error: 'Order items need review before payment' })
+  expect(await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).toEqual(order)
+  expect(gateway).not.toHaveBeenCalled()
+  expect(await prisma.payment.count({ where: { userId: buyerId } })).toBe(0)
+})
+
+test('duplicate legacy lines share their total stock requirement without rewriting saved prices', async () => {
+  const order = await prisma.order.create({ data: { userId: buyerId, totalPaise: 48000, items: { create: [
+    { productId, quantity: 2, pricePaise: 24000 }, { productId, quantity: 2, pricePaise: 24000 },
+  ] } } })
+  await prisma.product.update({ where: { id: productId }, data: { stockCount: 3 } })
+  expect((await createPayment(request({ type: 'STORE', metadata: { orderId: order.id } }))).status).toBe(409)
+  expect(gateway).not.toHaveBeenCalled()
+  await prisma.product.update({ where: { id: productId }, data: { stockCount: 4, pricePaise: 40000 } })
+  const response = await createPayment(request({ type: 'STORE', metadata: { orderId: order.id } }))
+  expect(response.status).toBe(200)
+  expect(await response.json()).toMatchObject({ amountPaise: 48000 })
+  expect((await prisma.product.findUniqueOrThrow({ where: { id: productId } })).stockCount).toBe(4)
+  expect(await prisma.orderItem.count({ where: { orderId: order.id, quantity: 2, pricePaise: 24000 } })).toBe(2)
+})
+
+test('rechecks availability after gateway I/O without holding product locks during the external call', async () => {
+  gateway.mockImplementationOnce(async () => {
+    await prisma.product.update({ where: { id: productId }, data: { isActive: false } })
+    return { id: `order_${randomUUID()}` }
+  })
+  const response = await checkout(request(purchase()))
+  expect(response.status).toBe(409)
+  const saved = await response.json()
+  expect(saved.orderId).toBeTruthy()
+  expect(await prisma.payment.count({ where: { userId: buyerId } })).toBe(0)
+  expect(await prisma.order.count({ where: { userId: buyerId } })).toBe(1)
+  await prisma.product.update({ where: { id: productId }, data: { isActive: true, pricePaise: 40000 } })
+  const retry = await checkout(request(purchase()))
+  expect(retry.status).toBe(200)
+  expect(await retry.json()).toMatchObject({ orderId: saved.orderId, amountPaise: 24000, resumed: true })
+  expect(await prisma.payment.count({ where: { userId: buyerId } })).toBe(1)
+})

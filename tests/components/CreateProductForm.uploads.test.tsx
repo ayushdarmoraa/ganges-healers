@@ -25,6 +25,21 @@ test('image controls are keyboard buttons with labelled inputs and explicit limi
   expect(screen.getByRole('button', { name: 'Add gallery images' })).toHaveAttribute('type', 'button')
   expect(mainInput()).toHaveAttribute('accept', 'image/jpeg,image/png,image/webp'); expect(screen.getByText(/up to 4 MB each/)).toBeVisible()
 })
+
+test('structured validation failures retain stock and text drafts, while a successful retry clears them', async () => {
+  action.mockResolvedValueOnce({ error: 'That URL slug is already in use. Choose another.' }).mockResolvedValueOnce({})
+  render(<CreateProductForm formAction={action} />)
+  fireEvent.change(screen.getByLabelText('Title', { exact: true }), { target: { value: 'Counted draft' } })
+  fireEvent.change(screen.getByLabelText('Stock quantity', { exact: true }), { target: { value: '7' } })
+  fireEvent.submit(form())
+  expect(await screen.findByRole('alert')).toHaveTextContent('That URL slug is already in use')
+  expect(screen.getByLabelText('Title', { exact: true })).toHaveValue('Counted draft')
+  expect(screen.getByLabelText('Stock quantity', { exact: true })).toHaveValue(7)
+  expect((action.mock.calls[0][0] as FormData).get('ownerId')).toBe('admin')
+  fireEvent.submit(form())
+  expect(await screen.findByText('Product created.')).toBeVisible()
+  expect(screen.getByLabelText('Stock quantity', { exact: true })).toHaveValue(null)
+})
 test('invalid local files do not send provider requests or clear product details', () => {
   render(<CreateProductForm formAction={action} />)
   fireEvent.change(screen.getByLabelText('Title', { exact: true }), { target: { value: 'Saved draft title' } })

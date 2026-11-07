@@ -13,7 +13,7 @@ import { isAllowedArticleImage, productImageError, PRODUCT_GALLERY_LIMIT } from 
 const CHAKRAS = ['Root', 'Sacral', 'Solar Plexus', 'Heart', 'Throat', 'Third Eye', 'Crown']
 
 interface Props {
-  formAction: (formData: FormData) => Promise<void>
+  formAction: (formData: FormData) => Promise<void | { error?: string }>
 }
 
 async function uploadImage(file: File, signal: AbortSignal): Promise<string> {
@@ -33,10 +33,11 @@ export function CreateProductForm(props: Props) {
   const { data: session, status } = useSession()
   if (status === 'loading') return <p role="status">Loading product editor…</p>
   if (status !== 'authenticated' || session?.user?.role !== 'ADMIN' || !session.user.id) return <p role="alert">Sign in as an administrator to create products.</p>
-  return <ProductFormFields key={session.user.id} {...props} />
+  return <ProductFormFields key={session.user.id} ownerId={session.user.id} {...props} />
 }
 
-function ProductFormFields({ formAction }: Props) {
+function ProductFormFields({ formAction, ownerId }: Props & { ownerId: string }) {
+  const nativeAction: (data: FormData) => void = formAction
   const formRef = useRef<HTMLFormElement>(null)
   const alive = useRef(true)
   const uploadBusy = useRef(false)
@@ -143,7 +144,8 @@ function ProductFormFields({ formAction }: Props) {
     if (failedImage || failedGallery.length) { setError('Retry the failed images or remove them from this draft before creating the product.'); return }
     saveBusy.current = true; setSaving(true); setError(''); setNotice('')
     try {
-      await formAction(formData)
+      const result = await formAction(formData)
+      if (result?.error) { if (alive.current) setError(result.error); return }
       if (alive.current) { clearDraft(); setNotice('Product created.') }
     } catch {
       if (alive.current) setError('Product could not be created. Your draft is kept; please try again.')
@@ -207,7 +209,8 @@ function ProductFormFields({ formAction }: Props) {
     <Card>
       <CardContent className="p-4">
         <h2 className="font-medium mb-3">Create Product</h2>
-        <form aria-label="Create product" ref={formRef} action={formAction} onSubmit={event => { event.preventDefault(); void submitProduct(new FormData(event.currentTarget)) }} className="space-y-4">
+        <form aria-label="Create product" ref={formRef} action={nativeAction} onSubmit={event => { event.preventDefault(); void submitProduct(new FormData(event.currentTarget)) }} className="space-y-4">
+          <input type="hidden" name="ownerId" value={ownerId} />
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           {notice && <p role="status" className="text-sm">{notice}</p>}
           <fieldset disabled={saving} className="space-y-4">
@@ -249,6 +252,11 @@ function ProductFormFields({ formAction }: Props) {
                 <Button type="button" variant="outline" disabled={imagesBusy} onClick={() => void handleImageUpload(failedImage)}>Retry product image upload</Button>
                 <Button type="button" variant="ghost" disabled={imagesBusy} onClick={() => { setFailedImage(null); setError('') }}>Remove failed image from draft</Button>
               </div>}
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="new-stock-count">Stock quantity</Label>
+              <Input id="new-stock-count" name="stockCount" type="number" min="0" max="2147483647" step="1" />
+              <p className="text-xs text-muted-foreground">Blank means uncounted stock. Counted status follows quantity unless marked Out of Stock.</p>
             </div>
             <div className="grid gap-1">
               <Label htmlFor="new-stock">Stock Status</Label>

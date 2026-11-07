@@ -141,6 +141,27 @@ export async function resolvePaymentResource(input: ResourceInput): Promise<Paym
     if (!settled && order.status !== 'pending_payment') {
       throw new PaymentResourceError('Order is not awaiting payment', 409)
     }
+    // A quote is not a stock reservation. Refuse known-unavailable saved carts
+    // before returning any payment dialog; finalization still decrements atomically.
+    if (freezeQuote && !settled) {
+      const items = await client.orderItem.findMany({
+        where: { orderId },
+        select: { productId: true, quantity: true, product: { select: { isActive: true, stockStatus: true, stockCount: true } } },
+      })
+      if (!items.length) throw new PaymentResourceError('Order items need review before payment', 409)
+      const quantities = new Map<string, number>()
+      for (const item of items) {
+        const quantity = (quantities.get(item.productId) ?? 0) + item.quantity
+        if (!Number.isSafeInteger(item.quantity) || item.quantity <= 0 || !Number.isSafeInteger(quantity)) {
+          throw new PaymentResourceError('Invalid order quantity', 409)
+        }
+        quantities.set(item.productId, quantity)
+        const product = item.product
+        if (!product || !product.isActive || product.stockStatus === 'OUT' || product.stockCount != null && product.stockCount < quantity) {
+          throw new PaymentResourceError('Order items are currently unavailable. Please try again later.', 409)
+        }
+      }
+    }
     return pricedResource(type, order.totalPaise, { orderId }, order.status === 'pending_payment')
   }
 

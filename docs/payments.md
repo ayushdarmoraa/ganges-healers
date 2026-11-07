@@ -85,6 +85,32 @@ and refreshes the order status after verified success. An unrelated shopping car
 is left available. Settled and cancelled orders do not render a payment action;
 the server independently rejects new payment creation for those states.
 
+Before offering a new or reused store payment, the shared quote path checks the
+saved item quantities against each product's current active/stock state. Both
+checkout entry points return 409 when an item is inactive, marked OUT or has
+insufficient counted stock. Duplicate historical lines share one combined stock
+requirement. Empty or invalid saved items also need review before a new payment
+is offered. Existing order/item/payment records remain intact. Restoring stock
+allows retry with the same saved price and matching pending payment; catalog
+price changes do not reprice it. These checks run before and after gateway setup.
+
+A quote does not reserve inventory. Stock can still change after the dialog opens;
+the existing atomic verification/fulfillment stock checks remain authoritative.
+This preflight does not add capture reconciliation or automatic refunds. Already
+captured callbacks and successful verification replays retain their existing
+fulfillment/reconciliation rules and are not rejected by this quote-only check.
+
+Administrators can set **Stock quantity** when creating or editing a product.
+Blank uses uncounted stock with the selected manual status. Counted stock derives
+its status from quantity: 0 is OUT, 1–5 is LOW, and higher quantities are IN_STOCK.
+An explicit OUT status remains unavailable even with positive quantity; unrelated
+catalog edits preserve that override. Choose an available status when replenishing.
+Product saves and activation changes require the reviewed product version and
+current administrator. A sale or another edit invalidates a stale draft; the
+editor retains the entered values and offers explicit **Discard drafts and
+reload** before a new review. Writes and safe audits commit together. Prices and
+items already saved on customer orders are never rewritten by catalog changes.
+
 Apply `20261107010000_store_checkout_recovery` before deploying this application
 version. It adds only a nullable `Order.checkoutKey` and the unique index; existing
 orders keep null keys and require no backfill. A rollback can leave this additive

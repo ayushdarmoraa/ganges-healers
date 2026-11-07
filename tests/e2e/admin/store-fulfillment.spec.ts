@@ -59,7 +59,7 @@ test('staff records a paid shipment and delivery and only the customer sees the 
     const details = `/dashboard/orders/${order.id}`
     await ownerPage.goto(details)
     await expect(ownerPage.getByRole('heading', { name: 'Shipment tracking' })).toBeVisible()
-    await expect(ownerPage.getByText('ORDER-0123')).toBeVisible()
+    await expect(ownerPage.getByRole('main').getByText('ORDER-0123', { exact: true })).toBeVisible()
     const api = `/api/store/orders/${order.id}`
     expect(await (await customer.request.get(api)).json()).toMatchObject({
       order: { status: 'shipped', tracking: { shipment: { carrier: 'Example Courier', trackingNumber: 'ORDER-0123' } } },
@@ -73,9 +73,10 @@ test('staff records a paid shipment and delivery and only the customer sees the 
 
     await page.getByLabel('I confirmed this order was delivered.').check()
     await page.getByRole('button', { name: 'Mark delivered' }).click()
+    await expect(page.getByRole('main').getByText(/^Delivery recorded /)).toBeVisible({ timeout: 30_000 })
     await expect(page.getByRole('button', { name: 'Mark delivered' })).toHaveCount(0)
     await ownerPage.reload()
-    await expect(ownerPage.getByText(/Delivery recorded/)).toBeVisible()
+    await expect(ownerPage.getByRole('main').getByText(/Delivery recorded/)).toBeVisible()
     expect(await db.order.findUniqueOrThrow({ where: { id: order.id } })).toMatchObject({ status: 'delivered', paymentId: payment.id })
     expect(await db.activityLog.count({ where: { entityId: order.id, userId: adminId } })).toBe(2)
   } finally {

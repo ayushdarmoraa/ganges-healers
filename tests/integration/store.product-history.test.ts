@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
-import { deleteUnreferencedProduct, productDeleteVersion } from '@/lib/store/admin'
+import { deleteUnreferencedProduct, productDeleteVersion, createCatalogProduct, updateCatalogProduct, toggleCatalogProduct } from '@/lib/store/admin'
 
 const users: string[] = [], products: string[] = [], bundles: string[] = [], payments: string[] = []
 let productId = ''
@@ -106,4 +106,124 @@ test('administrator access revoked while waiting for the row lock is rechecked',
   finally { release(); await blocker; await deletion; await prisma.user.update({ where: { id: users[0] }, data: { role: 'ADMIN' } }) }
   expect((await deletion).error).toMatchObject({ code: 'FORBIDDEN' })
   expect(await prisma.product.count({ where: { id: productId } })).toBe(1)
+})
+
+async function productForm(extra: Record<string, string> = {}) {
+  const product = await prisma.product.findUniqueOrThrow({ where: { id: productId } })
+  const form = new FormData()
+  for (const [key, value] of Object.entries({ id: product.id, version: productDeleteVersion(product), title: product.title, slug: `stock-${randomUUID()}`,
+    shortDescription: product.shortDescription, longDescription: product.longDescription, imageUrl: product.imageUrl ?? '',
+    pricePaise: String(product.pricePaise), stockCount: product.stockCount == null ? '' : String(product.stockCount), stockStatus: product.stockStatus, ...extra })) form.set(key, value)
+  return form
+}
+
+test('product creation supports counted stock and derives status while preserving uncounted mode', async () => {
+  for (const [count, manual, status] of [['0', 'IN_STOCK', 'OUT'], ['3', 'IN_STOCK', 'LOW'], ['10', 'IN_STOCK', 'IN_STOCK'], ['', 'OUT', 'OUT'], ['7', 'OUT', 'OUT']]) {
+    const product = await createCatalogProduct(users[0], await productForm({ stockCount: count, stockStatus: manual }))
+    products.push(product.id)
+    expect(product).toMatchObject({ stockCount: count === '' ? null : Number(count), stockStatus: status })
+    expect(await prisma.activityLog.count({ where: { entityId: product.id, action: 'product_created' } })).toBe(1)
+  }
+})
+
+test('unrelated edits preserve a manual OUT override for positive counted stock', async () => {
+  await prisma.product.update({ where: { id: productId }, data: { stockCount: 7, stockStatus: 'OUT' } })
+  expect(await updateCatalogProduct(users[0], await productForm({ pricePaise: '1900' }))).toMatchObject({ stockCount: 7, stockStatus: 'OUT' })
+  expect(await updateCatalogProduct(users[0], await productForm({ stockStatus: 'IN_STOCK' }))).toMatchObject({ stockCount: 7, stockStatus: 'IN_STOCK' })
+})
+
+const invalidProductFields: Array<Record<string, string>> = [{ stockCount: '-1' }, { stockCount: '1.5' }, { stockCount: '3units' }, { stockCount: '2147483648' }, { pricePaise: '12.5' }, { title: '  ' }]
+test.each(invalidProductFields)('invalid catalog values are refused before writes (%j)', async invalid => {
+  const before = await prisma.product.findUniqueOrThrow({ where: { id: productId } })
+  await expect(updateCatalogProduct(users[0], await productForm(invalid))).rejects.toMatchObject({ code: 'INVALID_PRODUCT_FIELDS' })
+  await expect(createCatalogProduct(users[0], await productForm(invalid))).rejects.toMatchObject({ code: 'INVALID_PRODUCT_FIELDS' })
+  expect(await prisma.product.findUniqueOrThrow({ where: { id: productId } })).toEqual(before)
+  expect(await prisma.activityLog.count({ where: { entityId: productId } })).toBe(0)
+})
+
+test('editing and replenishing stock retain historical purchases, legacy photos and unrelated catalog fields', async () => {
+  const original = await prisma.product.update({ where: { id: productId }, data: { imageUrl: 'https://legacy.example.test/photo.png', gallery: ['legacy-gallery'], chakra: 'Root', spiritualBenefits: ['Saved benefit'] } })
+  const { orderId, paymentId } = await purchase()
+  const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true } }), payment = await prisma.payment.findUniqueOrThrow({ where: { id: paymentId } })
+  const saved = await updateCatalogProduct(users[0], await productForm({ stockCount: '7', pricePaise: '1900', title: 'Updated catalog title' }))
+  expect(saved).toMatchObject({ stockCount: 7, stockStatus: 'IN_STOCK', pricePaise: 1900, title: 'Updated catalog title',
+    slug: original.slug, imageUrl: original.imageUrl, gallery: original.gallery, chakra: original.chakra, spiritualBenefits: original.spiritualBenefits })
+  expect(await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true } })).toEqual(order)
+  expect(await prisma.payment.findUniqueOrThrow({ where: { id: paymentId } })).toEqual(payment)
+  expect(await prisma.activityLog.findFirstOrThrow({ where: { entityId: productId, action: 'product_updated' } })).toMatchObject({ metadata: { stockBefore: null, stockAfter: 7 } })
+})
+
+test('stock consumed after an editor opens invalidates its draft even with the same update timestamp', async () => {
+  const before = await prisma.product.update({ where: { id: productId }, data: { stockCount: 5 } })
+  const form = await productForm({ stockCount: '7' })
+  await prisma.product.update({ where: { id: productId }, data: { stockCount: 4, updatedAt: before.updatedAt } })
+  await expect(updateCatalogProduct(users[0], form)).rejects.toMatchObject({ code: 'PRODUCT_CHANGED' })
+  expect((await prisma.product.findUniqueOrThrow({ where: { id: productId } })).stockCount).toBe(4)
+  expect(await prisma.activityLog.count({ where: { entityId: productId } })).toBe(0)
+})
+
+test('concurrent product drafts save only once and cannot overwrite one another', async () => {
+  const first = await productForm({ stockCount: '7' }), second = await productForm({ stockCount: '9' })
+  const outcomes = await Promise.allSettled([updateCatalogProduct(users[0], first), updateCatalogProduct(users[0], second)])
+  expect(outcomes.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+  expect(outcomes.find(result => result.status === 'rejected')).toMatchObject({ reason: { code: 'PRODUCT_CHANGED' } })
+  expect(await prisma.activityLog.count({ where: { entityId: productId, action: 'product_updated' } })).toBe(1)
+})
+
+test('product edits recheck a role revoked while waiting on the product row', async () => {
+  const form = await productForm({ stockCount: '7' })
+  let acquired!: () => void, release!: () => void
+  const locked = new Promise<void>(resolve => { acquired = resolve }), unlock = new Promise<void>(resolve => { release = resolve })
+  const blocker = prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT "id" FROM "Product" WHERE "id" = ${productId} FOR UPDATE`
+    acquired(); await unlock
+    await tx.user.update({ where: { id: users[0] }, data: { role: 'USER' } })
+  }, { timeout: 15000 })
+  await locked
+  const editing = updateCatalogProduct(users[0], form).then(() => null).catch((error: unknown) => error)
+  try { expect(await waitingOnProduct()).toBe(true) }
+  finally { release(); await blocker; await editing; await prisma.user.update({ where: { id: users[0] }, data: { role: 'ADMIN' } }) }
+  expect(await editing).toMatchObject({ code: 'FORBIDDEN' })
+  expect(await prisma.activityLog.count({ where: { entityId: productId } })).toBe(0)
+})
+
+test('ordinary and closed accounts cannot create, edit or toggle products', async () => {
+  for (const actor of [users[1], randomUUID()]) {
+    const form = await productForm({ stockCount: '7' })
+    await expect(createCatalogProduct(actor, form)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(updateCatalogProduct(actor, form)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(toggleCatalogProduct(actor, form)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  }
+  await prisma.user.update({ where: { id: users[0] }, data: { closedAt: new Date() } })
+  try { await expect(updateCatalogProduct(users[0], await productForm())).rejects.toMatchObject({ code: 'FORBIDDEN' }) }
+  finally { await prisma.user.update({ where: { id: users[0] }, data: { closedAt: null } }) }
+})
+
+test('audit failure rolls back product editing and activation changes', async () => {
+  const before = await prisma.product.findUniqueOrThrow({ where: { id: productId } })
+  const constraint = `qa_stock_${randomUUID().replaceAll('-', '')}`
+  await prisma.$executeRawUnsafe(`ALTER TABLE "ActivityLog" ADD CONSTRAINT "${constraint}" CHECK ("entityId" <> '${productId}') NOT VALID`)
+  try {
+    await expect(updateCatalogProduct(users[0], await productForm({ stockCount: '7' }))).rejects.toThrow()
+    expect(await prisma.product.findUniqueOrThrow({ where: { id: productId } })).toEqual(before)
+    await expect(toggleCatalogProduct(users[0], await productForm())).rejects.toThrow()
+    expect(await prisma.product.findUniqueOrThrow({ where: { id: productId } })).toEqual(before)
+  } finally { await prisma.$executeRawUnsafe(`ALTER TABLE "ActivityLog" DROP CONSTRAINT "${constraint}"`) }
+})
+
+test('activation uses the reviewed state and refuses repeat or stale toggles', async () => {
+  const form = await productForm()
+  form.set('isActive', 'false')
+  expect(await toggleCatalogProduct(users[0], form)).toMatchObject({ isActive: false })
+  await expect(toggleCatalogProduct(users[0], form)).rejects.toMatchObject({ code: 'PRODUCT_CHANGED' })
+  expect(await toggleCatalogProduct(users[0], await productForm())).toMatchObject({ isActive: true })
+  expect(await prisma.activityLog.count({ where: { entityId: productId } })).toBe(2)
+})
+
+test('duplicate product slugs return a safe conflict without another creation or audit', async () => {
+  const form = await productForm()
+  const product = await createCatalogProduct(users[0], form); products.push(product.id)
+  await expect(createCatalogProduct(users[0], form)).rejects.toMatchObject({ code: 'PRODUCT_SLUG_IN_USE' })
+  expect(await prisma.product.count({ where: { slug: product.slug } })).toBe(1)
+  expect(await prisma.activityLog.count({ where: { entityId: product.id } })).toBe(1)
 })
