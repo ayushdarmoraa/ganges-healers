@@ -157,3 +157,61 @@ test('checkout recovers lost responses and confirms the saved payment without du
     await db.$disconnect()
   }
 })
+
+test('a customer resumes a legacy saved order from its details and keeps an unrelated cart', async ({ page }, testInfo) => {
+  test.setTimeout(120_000)
+  const settings = loadTestDatabaseEnvironment()
+  await verifyTestDatabaseConnection(settings)
+  const db = new PrismaClient({ datasources: { db: { url: settings.environment.DATABASE_URL } } })
+  const token = crypto.randomUUID()
+  const gatewayOrderId = `order_${token}`, gatewayPaymentId = `pay_${token}`
+  const signature = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!).update(`${gatewayOrderId}|${gatewayPaymentId}`).digest('hex')
+  let userId = '', productId = ''
+  try {
+    const login = await page.goto(`/api/test/login?role=USER&email=saved-order-${token}@example.test`)
+    expect(login?.ok()).toBeTruthy()
+    userId = (await login!.json()).userId
+    const product = await db.product.create({ data: { slug: `saved-order-${token}`, title: 'Saved practice mat', pricePaise: 22000, stockCount: 4 } })
+    productId = product.id
+    const order = await db.order.create({ data: { userId, totalPaise: 25000, items: { create: { productId, quantity: 2, pricePaise: 25000 } } } })
+    await db.payment.create({ data: { userId, type: 'STORE', gateway: 'razorpay', gatewayOrderId, amountPaise: 25000, status: 'pending', statusEnum: 'PENDING', metadata: { orderId: order.id } } })
+    const cart = [{ productId, slug: product.slug, title: product.title, pricePaise: product.pricePaise, quantity: 1, imageUrl: null }]
+    await page.addInitScript(({ cart, payment }) => {
+      localStorage.setItem('ganges-cart', JSON.stringify(cart))
+      window.Razorpay = class {
+        constructor(private options: { handler: (result: typeof payment) => void; amount: number }) {}
+        open() {
+          document.body.dataset.checkoutAmount = String(this.options.amount)
+          this.options.handler(payment)
+        }
+      }
+    }, { cart, payment: { razorpay_order_id: gatewayOrderId, razorpay_payment_id: gatewayPaymentId, razorpay_signature: signature } })
+    let loseConfirmation = true
+    await page.route('**/api/payments/verify', async route => {
+      if (loseConfirmation) {
+        loseConfirmation = false
+        expect((await route.fetch()).status()).toBe(200)
+        await route.abort('failed')
+      } else await route.continue()
+    })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(`/dashboard/orders/${order.id}`)
+    await expect(page.getByRole('button', { name: 'Continue payment', exact: true })).toBeEnabled({ timeout: 30_000 })
+    await page.getByRole('button', { name: 'Continue payment', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Confirm payment', exact: true })).toBeEnabled()
+    await expect(page.getByRole('alert').filter({ hasText: /could not confirm/i })).toBeVisible()
+    expect(await page.locator('body').getAttribute('data-checkout-amount')).toBe('25000')
+    await page.screenshot({ path: testInfo.outputPath('saved-order-mobile-recovery.png'), fullPage: true })
+    await page.getByRole('button', { name: 'Confirm payment', exact: true }).click()
+    await expect(page.getByRole('list', { name: 'Order progress' }).locator('[aria-current="step"]')).toContainText('Paid')
+    await expect(page.getByRole('button', { name: 'Continue payment', exact: true })).toHaveCount(0)
+    expect(JSON.parse(await page.evaluate(() => localStorage.getItem('ganges-cart') || 'null'))).toEqual(cart)
+    expect(await db.order.count({ where: { userId } })).toBe(1)
+    expect(await db.payment.count({ where: { userId } })).toBe(1)
+    expect((await db.product.findUniqueOrThrow({ where: { id: productId } })).stockCount).toBe(2)
+  } finally {
+    if (userId) await db.user.deleteMany({ where: { id: userId } })
+    if (productId) await db.product.deleteMany({ where: { id: productId } })
+    await db.$disconnect()
+  }
+})

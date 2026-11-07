@@ -77,6 +77,14 @@ After a signed payment callback, a failed confirmation can be retried using
 **Confirm payment** on the current page without reopening the payment dialog.
 The cart is cleared only after a response explicitly confirms `verified: true`.
 
+Pending orders in **My Orders → View details** also offer **Continue payment**.
+That action uses the shared owned-order quote API with the saved order ID; it does
+not rebuild a cart or apply current catalog prices. It supports legacy orders with
+no checkout key, retries a lost confirmation using the in-memory signed callback,
+and refreshes the order status after verified success. An unrelated shopping cart
+is left available. Settled and cancelled orders do not render a payment action;
+the server independently rejects new payment creation for those states.
+
 Apply `20261107010000_store_checkout_recovery` before deploying this application
 version. It adds only a nullable `Order.checkoutKey` and the unique index; existing
 orders keep null keys and require no backfill. A rollback can leave this additive

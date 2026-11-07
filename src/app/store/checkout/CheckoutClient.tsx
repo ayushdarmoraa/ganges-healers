@@ -52,6 +52,7 @@ export default function StoreCheckoutPage() {
   const checkoutBusy = useRef(false)
   const currentUser = useRef(session?.user?.id)
   currentUser.current = session?.user?.id
+  const addressOwner = useRef(session?.user?.id)
   const attemptRef = useRef<{ fingerprint: string; key: string } | null>(null)
   const verificationRef = useRef<{ fingerprint: string; result: RazorpayResult; amountPaise: number } | null>(null)
   const [confirming, setConfirming] = useState(false)
@@ -69,6 +70,8 @@ export default function StoreCheckoutPage() {
   })
 
   useEffect(() => {
+    if (addressOwner.current === session?.user?.id) return
+    addressOwner.current = session?.user?.id
     attemptRef.current = null
     verificationRef.current = null
     setConfirming(false)
