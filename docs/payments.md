@@ -100,6 +100,15 @@ This preflight does not add capture reconciliation or automatic refunds. Already
 captured callbacks and successful verification replays retain their existing
 fulfillment/reconciliation rules and are not rejected by this quote-only check.
 
+Administrators can set **Stock quantity** when creating or editing a product.
+Blank uses uncounted stock with the selected manual status. Counted stock derives
+its status from quantity: 0 is OUT, 1–5 is LOW, and higher quantities are IN_STOCK.
+Product saves and activation changes require the reviewed product version and
+current administrator. A sale or another edit invalidates a stale draft; the
+editor retains the entered values and offers explicit **Discard drafts and
+reload** before a new review. Writes and safe audits commit together. Prices and
+items already saved on customer orders are never rewritten by catalog changes.
+
 Apply `20261107010000_store_checkout_recovery` before deploying this application
 version. It adds only a nullable `Order.checkoutKey` and the unique index; existing
 orders keep null keys and require no backfill. A rollback can leave this additive
