@@ -29,17 +29,20 @@ describe('Generic Payments Flow', () => {
   let orderId: string
   let paymentRowId: string
   let storeOrderId: string
+  let productId: string
 
   beforeAll(async () => {
     user = await prisma.user.create({ data: { email: `gen_${Date.now()}@ex.com`, password: 'hashed', role: 'USER' } })
     process.env.TEST_USER_ID = user.id
     process.env.TEST_USER_ROLE = 'USER'
-    const order = await prisma.order.create({ data: { userId: user.id, totalPaise: 1000 } })
+    productId = (await prisma.product.create({ data: { slug: `generic-${crypto.randomUUID()}`, title: 'Generic payment fixture', pricePaise: 1000, stockCount: 3 } })).id
+    const order = await prisma.order.create({ data: { userId: user.id, totalPaise: 1000, items: { create: { productId, quantity: 1, pricePaise: 1000 } } } })
     storeOrderId = order.id
   })
 
   afterAll(async () => {
     if (user?.id) await prisma.user.delete({ where: { id: user.id } }).catch(()=>{})
+    if (productId) await prisma.product.delete({ where: { id: productId } })
     await prisma.$disconnect()
   })
 
