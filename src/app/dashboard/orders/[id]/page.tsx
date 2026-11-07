@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { readOrderTracking, shippingAddressSchema } from "@/lib/store/order-shipping"
+import { OrderPaymentButton } from "@/components/store/OrderPaymentButton"
 
 export const dynamic = "force-dynamic"
 
@@ -80,6 +81,7 @@ export default async function OrderDetailsPage({ params }: { params: Promise<{ i
 
       <Card className="space-y-4 p-5">
         <h2 className="text-lg font-semibold">Order progress</h2>
+        {order.status === "pending_payment" && <OrderPaymentButton key={order.id} orderId={order.id} ownerId={session.user.id} />}
         {order.status === "cancelled" ? (
           <p role="status" className="text-sm text-muted-foreground">
             This order has been cancelled. No further delivery progress is expected.
