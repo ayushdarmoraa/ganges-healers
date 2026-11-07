@@ -9,6 +9,7 @@ jest.mock('@/lib/prisma', () => ({ prisma: {
   programEnrollment: { findUnique: jest.fn(), update: jest.fn() },
   courseEnrollment: { findUnique: jest.fn(), update: jest.fn() },
   order: { findUnique: jest.fn() },
+  orderItem: { findMany: jest.fn() },
   payment: { create: jest.fn(), upsert: jest.fn(), findFirst: jest.fn(), findUniqueOrThrow: jest.fn(), update: jest.fn() },
 } }))
 jest.mock('@/lib/razorpay', () => ({ getRazorpayClient: jest.fn() }))
@@ -74,6 +75,7 @@ beforeEach(() => {
   db.booking.findUnique.mockResolvedValue({ id: bookingId, healerId: 'healer', userId: 'buyer', pricePaise: 25000, status: 'PENDING', payment: null })
   db.booking.updateMany.mockResolvedValue({ count: 1 })
   db.order.findUnique.mockResolvedValue({ id: 'owned-order', userId: 'buyer', totalPaise: 25000, status: 'pending_payment' })
+  db.orderItem.findMany.mockResolvedValue([{ productId: 'product', quantity: 1, product: { isActive: true, stockStatus: 'IN_STOCK', stockCount: 3 } }])
   db.programEnrollment.findUnique.mockResolvedValue({
     id: 'enrollment', userId: 'buyer', programId: 'program', healerId: 'healer', status: 'pending_payment',
     program: { pricePaise: 25000, isActive: true, totalSessions: 6, sessionsPerWeek: 2, durationMinutes: 60 },
@@ -122,6 +124,39 @@ describe('server-priced order creation', () => {
     expect((await response.json()).orderId).toBe(payment.gatewayOrderId)
     expect(gatewayCreate).not.toHaveBeenCalled()
     expect(db.payment.create).not.toHaveBeenCalled()
+  })
+
+  test.each([
+    { isActive: false, stockStatus: 'IN_STOCK', stockCount: 3 },
+    { isActive: true, stockStatus: 'OUT', stockCount: 3 },
+    { isActive: true, stockStatus: 'IN_STOCK', stockCount: 0 },
+    null,
+  ])('does not offer an existing payment for unavailable stock (%#)', async product => {
+    db.payment.findFirst.mockResolvedValue(payment)
+    db.orderItem.findMany.mockResolvedValue([{ productId: 'product', quantity: 1, product }])
+    expect((await createOrder(request({ type: 'STORE', metadata: { orderId: 'owned-order' } }))).status).toBe(409)
+    expect(gatewayCreate).not.toHaveBeenCalled()
+    expect(db.payment.create).not.toHaveBeenCalled()
+  })
+
+  test.each([{ items: [] }, { items: [{ productId: 'product', quantity: 0 }] }, { items: [{ productId: 'product', quantity: -1 }] }])('refuses empty or invalid saved items (%#)', async ({ items }) => {
+    db.orderItem.findMany.mockResolvedValue(items)
+    expect((await createOrder(request({ type: 'STORE', metadata: { orderId: 'owned-order' } }))).status).toBe(409)
+    expect(gatewayCreate).not.toHaveBeenCalled()
+  })
+
+  test('combines duplicate saved lines when checking counted stock', async () => {
+    const product = { isActive: true, stockStatus: 'LOW', stockCount: 3 }
+    db.orderItem.findMany.mockResolvedValue([{ productId: 'product', quantity: 2, product }, { productId: 'product', quantity: 2, product }])
+    expect((await createOrder(request({ type: 'STORE', metadata: { orderId: 'owned-order' } }))).status).toBe(409)
+    expect(gatewayCreate).not.toHaveBeenCalled()
+  })
+
+  test('allows uncounted stock without changing the saved price', async () => {
+    db.orderItem.findMany.mockResolvedValue([{ productId: 'product', quantity: 20, product: { isActive: true, stockStatus: 'IN_STOCK', stockCount: null } }])
+    const response = await createOrder(request({ type: 'STORE', metadata: { orderId: 'owned-order' } }))
+    expect(response.status).toBe(200)
+    expect((await response.json()).amountPaise).toBe(25000)
   })
 
   test.each([
@@ -180,6 +215,16 @@ describe('server-priced order creation', () => {
 })
 
 describe('payment verification trust boundary', () => {
+  test('settled verification replays do not run the new quote inventory check', async () => {
+    db.payment.findFirst.mockResolvedValue({ ...payment, status: 'success', statusEnum: 'SUCCESS', gatewayPaymentId: 'pay_trusted' })
+    db.order.findUnique.mockResolvedValue({ userId: 'buyer', totalPaise: 25000, status: 'paid' })
+    db.orderItem.findMany.mockRejectedValue(new Error('Quote inventory must not be consulted for a settled replay'))
+    expect((await verifyPayment(signedRequest())).status).toBe(200)
+    expect(db.orderItem.findMany).not.toHaveBeenCalled()
+    expect(activateStore).not.toHaveBeenCalled()
+    expect(db.payment.update).not.toHaveBeenCalled()
+  })
+
   test('an invoice failure does not undo financial success, and a replay retries the invoice', async () => {
     const invoice = jest.requireMock<{ generateInvoiceForPayment: jest.Mock }>('@/lib/invoices/generate').generateInvoiceForPayment
     invoice.mockRejectedValueOnce(new Error('Invoice unavailable'))
