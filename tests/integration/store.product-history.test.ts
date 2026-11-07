@@ -118,12 +118,18 @@ async function productForm(extra: Record<string, string> = {}) {
 }
 
 test('product creation supports counted stock and derives status while preserving uncounted mode', async () => {
-  for (const [count, status] of [['0', 'OUT'], ['3', 'LOW'], ['10', 'IN_STOCK'], ['', 'OUT']]) {
-    const product = await createCatalogProduct(users[0], await productForm({ stockCount: count, stockStatus: 'OUT' }))
+  for (const [count, manual, status] of [['0', 'IN_STOCK', 'OUT'], ['3', 'IN_STOCK', 'LOW'], ['10', 'IN_STOCK', 'IN_STOCK'], ['', 'OUT', 'OUT'], ['7', 'OUT', 'OUT']]) {
+    const product = await createCatalogProduct(users[0], await productForm({ stockCount: count, stockStatus: manual }))
     products.push(product.id)
     expect(product).toMatchObject({ stockCount: count === '' ? null : Number(count), stockStatus: status })
     expect(await prisma.activityLog.count({ where: { entityId: product.id, action: 'product_created' } })).toBe(1)
   }
+})
+
+test('unrelated edits preserve a manual OUT override for positive counted stock', async () => {
+  await prisma.product.update({ where: { id: productId }, data: { stockCount: 7, stockStatus: 'OUT' } })
+  expect(await updateCatalogProduct(users[0], await productForm({ pricePaise: '1900' }))).toMatchObject({ stockCount: 7, stockStatus: 'OUT' })
+  expect(await updateCatalogProduct(users[0], await productForm({ stockStatus: 'IN_STOCK' }))).toMatchObject({ stockCount: 7, stockStatus: 'IN_STOCK' })
 })
 
 const invalidProductFields: Array<Record<string, string>> = [{ stockCount: '-1' }, { stockCount: '1.5' }, { stockCount: '3units' }, { stockCount: '2147483648' }, { pricePaise: '12.5' }, { title: '  ' }]

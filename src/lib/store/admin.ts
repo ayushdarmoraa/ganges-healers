@@ -30,7 +30,7 @@ function fieldsFromForm(form: FormData) {
   const parsed = productFields.safeParse(Object.fromEntries(form))
   if (!parsed.success) throw new ProductAdminError('Enter a title, whole-number price and valid stock quantity/status. Check the field limits.', 400, 'INVALID_PRODUCT_FIELDS')
   const fields = parsed.data
-  const stockStatus = fields.stockCount === null ? fields.stockStatus : fields.stockCount === 0 ? 'OUT' : fields.stockCount <= 5 ? 'LOW' : 'IN_STOCK'
+  const stockStatus = fields.stockCount === null ? fields.stockStatus : fields.stockCount === 0 || fields.stockStatus === 'OUT' ? 'OUT' : fields.stockCount <= 5 ? 'LOW' : 'IN_STOCK'
   return { ...fields, stockStatus }
 }
 

@@ -103,6 +103,8 @@ fulfillment/reconciliation rules and are not rejected by this quote-only check.
 Administrators can set **Stock quantity** when creating or editing a product.
 Blank uses uncounted stock with the selected manual status. Counted stock derives
 its status from quantity: 0 is OUT, 1–5 is LOW, and higher quantities are IN_STOCK.
+An explicit OUT status remains unavailable even with positive quantity; unrelated
+catalog edits preserve that override. Choose an available status when replenishing.
 Product saves and activation changes require the reviewed product version and
 current administrator. A sale or another edit invalidates a stale draft; the
 editor retains the entered values and offers explicit **Discard drafts and

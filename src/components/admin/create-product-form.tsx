@@ -256,7 +256,7 @@ function ProductFormFields({ formAction, ownerId }: Props & { ownerId: string })
             <div className="grid gap-1">
               <Label htmlFor="new-stock-count">Stock quantity</Label>
               <Input id="new-stock-count" name="stockCount" type="number" min="0" max="2147483647" step="1" />
-              <p className="text-xs text-muted-foreground">Blank means uncounted stock. A quantity automatically sets the stock status.</p>
+              <p className="text-xs text-muted-foreground">Blank means uncounted stock. Counted status follows quantity unless marked Out of Stock.</p>
             </div>
             <div className="grid gap-1">
               <Label htmlFor="new-stock">Stock Status</Label>

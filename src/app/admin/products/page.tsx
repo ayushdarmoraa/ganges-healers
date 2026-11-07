@@ -140,7 +140,7 @@ export default async function AdminProductsPage() {
                   <div className="grid gap-1">
                     <Label htmlFor={`product-${p.id}-stockCount`}>Stock quantity</Label>
                     <Input id={`product-${p.id}-stockCount`} name="stockCount" type="number" min="0" max="2147483647" step="1" defaultValue={p.stockCount ?? ''} />
-                    <p className="text-xs text-muted-foreground">Blank means uncounted stock. A quantity automatically sets the stock status.</p>
+                    <p className="text-xs text-muted-foreground">Blank means uncounted stock. Counted status follows quantity unless marked Out of Stock; choose In Stock when replenishing.</p>
                   </div>
                   <div className="grid gap-1">
                     <Label htmlFor={`product-${p.id}-stockStatus`}>Stock Status</Label>

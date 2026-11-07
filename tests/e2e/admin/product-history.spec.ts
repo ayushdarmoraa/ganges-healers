@@ -96,6 +96,7 @@ test('staff replenish counted stock, recover a stale draft and preserve customer
     await expect(row.getByLabel('Stock quantity', { exact: true })).toHaveValue('0')
     await row.getByLabel('Stock quantity', { exact: true }).fill('7')
     await row.getByLabel('Price (paise)', { exact: true }).fill('3000')
+    await row.getByLabel('Stock Status', { exact: true }).selectOption('IN_STOCK')
     await row.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(row.getByText(/7 units/)).toBeVisible()
     expect(await db.product.findUniqueOrThrow({ where: { id: product.id } })).toMatchObject({ stockCount: 7, stockStatus: 'IN_STOCK', pricePaise: 3000 })
