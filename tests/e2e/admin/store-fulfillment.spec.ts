@@ -73,6 +73,7 @@ test('staff records a paid shipment and delivery and only the customer sees the 
 
     await page.getByLabel('I confirmed this order was delivered.').check()
     await page.getByRole('button', { name: 'Mark delivered' }).click()
+    await expect(page.getByRole('main').getByText(/^Delivery recorded /)).toBeVisible({ timeout: 30_000 })
     await expect(page.getByRole('button', { name: 'Mark delivered' })).toHaveCount(0)
     await ownerPage.reload()
     await expect(ownerPage.getByRole('main').getByText(/Delivery recorded/)).toBeVisible()
